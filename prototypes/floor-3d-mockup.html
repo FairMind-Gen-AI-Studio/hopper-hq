@@ -758,7 +758,7 @@ function buildBadgeTextures() {
 // ---------- Characters ----------
 // One shared rig (hip, shoulder and neck pivots); each style dresses it with different primitives.
 const CHAR_STYLES = { figures: 'Figures', bots: 'Bots', blocks: 'Blocks' };
-let charStyle = 'figures';
+let charStyle = 'bots';
 try { const v = localStorage.getItem('scranton-hq.characters'); if (CHAR_STYLES[v]) charStyle = v; } catch (err) { /* storage unavailable */ }
 const SPEC = {
   figures: { hip: 0.40, torso: 0.42, sx: 0.19, lx: 0.075, arm: 0.36 },

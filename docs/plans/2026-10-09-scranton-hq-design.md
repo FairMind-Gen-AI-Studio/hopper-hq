@@ -48,7 +48,7 @@ sources ──► adapters ──► normalized events ──► SQLite ──�
 
 - One TypeScript (Node) process: collector, store, API, static UI. Distributed via `npx scranton-hq`.
 - Storage: SQLite (events, derived session state, user-side state such as "seen" and manual feature tags, archive with FTS5).
-- Transport: WebSocket push to the UI; plain HTTP API for the CLI.
+- Transport: plain HTTP API for the CLI and the hooks; Server-Sent Events push to the UI (one-way is all the UI needs, and it needs no dependency). `EventSource` cannot send headers, so the served page authenticates the stream with a same-origin `HttpOnly` cookie set by the daemon.
 - Client store and scene model: framework-agnostic TypeScript modules, shared by the UI, the renderer and the CLI.
 - UI chrome (attention bar, panels, archive search, settings): Svelte 5 single-page app built with Vite, served as static files by the daemon. No SvelteKit: there is no server-side routing or rendering to do.
 - Renderer: a framework-agnostic TypeScript module on plain three.js (see §10). It receives the scene model and emits selections; the UI mounts it on a canvas and never reaches into it.
@@ -121,7 +121,7 @@ Rules:
 
 Hybrid:
 
-- **Deterministic line, always**: first and latest user prompt, in-progress todo, last action. Free and instant.
+- **Deterministic line, always**: Claude Code's own session title (the `ai-title` entries in the transcript) is the primary task line, backed by the first and latest user prompt and the last action. Free and instant.
 - **LLM one-liner, opt-in**: regenerated when the session's topic changes. Default provider runs `claude -p` with a small model on the user's existing account; providers are pluggable (API key, local model).
 - Cloud sessions already carry a readable title, used as-is.
 - The summarizer runs in a dedicated working directory that the fs adapter ignores, so its own sessions never appear in the building.
@@ -159,6 +159,8 @@ Characters encode information, not decoration:
 | Location and pose | State: at the desk typing (`working`), standing and waving (`needs_you`), holding the result (`done`), at the meeting table (`in_meeting`), still at the desk (`no_signal`), in the lounge (`idle`), gone home (`dormant`) |
 | Badge above the head | State again, readable when characters are small |
 
+Character style: robots with a monitor head and a glowing visor. Subagents are small and hover on a jetpack; workflow agents wear a hard hat; the tie carries the feature colour.
+
 Movement is the main signal: a state change is seen as a character walking somewhere, not read from a label. Subagents and workflow agents arrive and leave through the elevator.
 
 Reference prototypes (single HTML files, sample data, no build): `prototypes/building-mockup.html` (façade and floor directory, SVG) and `prototypes/floor-3d-mockup.html` (one floor as a 3D diorama with a scripted simulation).
@@ -176,7 +178,7 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 - Format drift: the adapter skips the record, counts the error and shows a banner ("Claude Code x.y.z not verified, some details may be missing").
 - Collector down: hooks fail silently; on restart the fs adapter backfills from persisted offsets.
 - Missing hooks, unreachable cloud, failed summarizer: each degrades its own part; the rest keeps working.
-- Local API protection: any website can send requests to `localhost`, so the API checks `Origin` and requires a per-install token. This matters most for endpoints with local side effects (tmux focus).
+- Local API protection: any website can send requests to `localhost`, so the API checks `Host` (against DNS rebinding) and `Origin`, and requires a per-install token. This matters most for endpoints with local side effects (tmux focus).
 - Transcripts may contain secrets: nothing is exported; fixtures committed to the repo are redacted.
 
 ## 13. Testing
