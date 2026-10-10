@@ -16,7 +16,7 @@ A developer running many coding-agent sessions in parallel (one per repo, severa
 Goals (v1):
 
 - Show every session grouped by feature, with a one-line description of its task.
-- Surface every session that needs the user, with the reason, at a glance and outside the dashboard (tmux status bar).
+- Surface every session that needs the user, with the reason, at a glance and outside the dashboard (tmux status bar, and a band above the prompt of every Claude Code session).
 - Make archiving safe: keep a searchable, resumable record of every finished session.
 - Support Claude Code, local and cloud. Keep the core agent-agnostic so other coding agents can be added as adapters.
 - Ship as an open-source project.
@@ -31,9 +31,9 @@ Non-goals (v1):
 
 ## 3. Principles
 
-- **Read-only** towards agent sessions. The only write outside the app's own data directory is `install-hooks`, which asks for confirmation and backs up `settings.json` first.
+- **Read-only** towards agent sessions. scranton-hq never writes into an agent's own directories. The Claude Code integration is a plugin (a mod) the user installs and removes with Claude Code's own `/plugin` commands.
 - **Local-only.** The server binds to `127.0.0.1`. No telemetry. Nothing leaves the machine except opt-in summaries sent through a provider the user configures.
-- **Documented surfaces first.** Hooks are the primary source of state. Undocumented files are used for discovery, backfill and detail, and their parsing is confined to adapters.
+- **Documented surfaces first.** An agent's own extension API (for Claude Code, its function-hooks plugin API) is the primary live source of state. Undocumented files are used for discovery, backfill, detail and as the fallback when no plugin is installed, and their parsing is confined to adapters.
 - **Tolerant parsing.** Unknown fields are ignored, missing fields degrade the view; a format change never crashes the collector.
 - **Agent-agnostic core.** Domain names are generic (`Session`, `Agent`, `Workspace`), never vendor-specific.
 - **Scene model separate from renderer.** The renderer reads a layout model and knows nothing about agents.
@@ -43,12 +43,12 @@ Non-goals (v1):
 ```
 sources ──► adapters ──► normalized events ──► SQLite ──► scene model ──► web UI (WebSocket)
                                                    │
-                                                   └──► HTTP API ──► CLI / tmux status
+                                                   └──► HTTP API ──► CLI / tmux status / Claude Code band
 ```
 
 - One TypeScript (Node) process: collector, store, API, static UI. Distributed via `npx scranton-hq`.
 - Storage: SQLite (events, derived session state, user-side state such as "seen" and manual feature tags, archive with FTS5).
-- Transport: plain HTTP API for the CLI and the hooks; Server-Sent Events push to the UI (one-way is all the UI needs, and it needs no dependency). `EventSource` cannot send headers, so the served page authenticates the stream with a same-origin `HttpOnly` cookie set by the daemon.
+- Transport: plain HTTP API for the CLI and the Claude Code mod; Server-Sent Events push to the UI (one-way is all the UI needs, and it needs no dependency). `EventSource` cannot send headers, so the served page authenticates the stream with a same-origin `HttpOnly` cookie set by the daemon.
 - Client store and scene model: framework-agnostic TypeScript modules, shared by the UI, the renderer and the CLI.
 - UI chrome (attention bar, panels, archive search, settings): Svelte 5 single-page app built with Vite, served as static files by the daemon. No SvelteKit: there is no server-side routing or rendering to do.
 - Renderer: a framework-agnostic TypeScript module on plain three.js (see §10). It receives the scene model and emits selections; the UI mounts it on a canvas and never reaches into it.
@@ -61,11 +61,13 @@ v1 adapters:
 
 | Adapter | Source | Documented | Used for |
 |---|---|---|---|
-| `claude-code/hooks` | Hook events posted to the local API | Yes | Real-time state, wait reasons, last action |
+| `claude-code/mod` | The scranton-hq mod, a Claude Code plugin, posts each session's events to the local API | Yes (function-hooks API, early access) | Real-time state, wait reasons, last action; the band above the prompt |
 | `claude-code/fs` | `~/.claude/sessions/*.json`, project transcripts (`*.jsonl`), `subagents/*.meta.json`, `workflows/wf_*.json` | No | Discovery, backfill, subagents, workflow runs, fallback state |
 | `claude-code/cloud` | A supported channel for cloud sessions (to be confirmed, see §14) | TBD | Cloud sessions and their state |
 
-Hook transport: a tiny command posts the hook payload to `127.0.0.1` with a 1 s timeout and exits successfully on any failure, so a stopped collector never slows down or breaks an agent session.
+Mod transport: the mod hooks Claude Code's native events (`prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`, `turn.complete`, `session.end`) and turns each into a small JSON payload that uses the field names of Claude Code's settings hooks, so one mapper reads them. Hooks only append to an in-memory queue and always continue the session's chain; a timer posts the queue to `127.0.0.1` every half second, and `session.end` posts what is left. A stopped collector costs the session nothing: the queue is bounded and retried. The mod reads the daemon's port and token from `~/.scranton-hq/daemon.json`.
+
+The mod's API is early access. It is verified per Claude Code release (first on 2.1.296), and its tests run with `claude plugin test`. Under `claude -p`, the `classic.*` events (the settings hooks' own events) did not reach a `--plugin-dir` mod, so the mod relies on the native events only.
 
 Transcript reading: incremental tailing with persisted offsets; files are never read whole after the first backfill.
 
@@ -116,6 +118,7 @@ Rules:
 - Two sections: **Needs you** (longest wait first), **Done, to review** (oldest first). `no_signal` appears only as a soft marker on its floor.
 - Visible at every navigation level. Clicking an entry navigates to the floor and desk.
 - `scranton-hq status --format tmux` prints a compact counter (e.g. `◉2 ✓3`); the format is configurable for other status bars.
+- With the mod installed, every Claude Code session shows a band above its prompt while another session waits or has finished: `◉ 1 waiting · orders-api-c3: Bash  [Go]  ✓ 2 done`. `Go` jumps to that session's tmux pane and appears only inside tmux. A session never lists itself. The mod raises no desktop notifications: with ten sessions open there would be ten of each.
 
 ## 9. Task summaries
 
@@ -176,8 +179,8 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 ## 12. Error handling and security
 
 - Format drift: the adapter skips the record, counts the error and shows a banner ("Claude Code x.y.z not verified, some details may be missing").
-- Collector down: hooks fail silently; on restart the fs adapter backfills from persisted offsets.
-- Missing hooks, unreachable cloud, failed summarizer: each degrades its own part; the rest keeps working.
+- Collector down: the mod keeps a bounded queue and retries, and never blocks or refuses anything in the session; on restart the fs adapter backfills.
+- No mod installed, unreachable cloud, failed summarizer: each degrades its own part; the rest keeps working.
 - Local API protection: any website can send requests to `localhost`, so the API checks `Host` (against DNS rebinding) and `Origin`, and requires a per-install token. This matters most for endpoints with local side effects (tmux focus).
 - Transcripts may contain secrets: nothing is exported; fixtures committed to the repo are redacted.
 
@@ -192,7 +195,7 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 ## 14. Milestones
 
 - **M0 — Spikes**: find a supported channel to observe cloud sessions; static isometric mockup with synthetic data to validate the visual style.
-- **M1 — Collector**: fs + hooks adapters (cloud if M0 succeeds), SQLite, state machine, feature rule, HTTP API, tmux status. Useful on its own.
+- **M1 — Collector**: fs adapter, the Claude Code mod (event forwarding and the band above the prompt), SQLite, state machine, feature rule, HTTP API, tmux status. Useful on its own.
 - **M2 — Building**: façade, floors, attention bar, tmux pane focus.
 - **M3 — Detail**: LLM summaries, meeting rooms for workflows and subagents.
 - **M4 — Basement**: archive, search, archive candidates.
@@ -201,7 +204,7 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 
 - Cloud sessions: is there a supported, documented channel for a third-party local app to list them with their state? If not, the cloud adapter ships as experimental or is limited to sessions bridged from local ones.
 - Default thresholds (`done` → `idle`, `idle` → `dormant`, `no_signal`) need tuning on real usage.
-- Hook event coverage differs across Claude Code versions; the minimum supported version must be pinned.
+- The mod API is early access and changes between Claude Code releases; the minimum supported version must be pinned and the mod's tests rerun on each release.
 
 ## 16. Naming and licensing
 

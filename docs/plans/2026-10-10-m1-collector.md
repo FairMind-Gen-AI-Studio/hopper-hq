@@ -4,42 +4,41 @@
 >
 > **Model routing:** implementers run on **Sonnet** (`model: "sonnet"`). Spec and code reviewers, and the final verification, run on **Opus** (`model: "opus"`). Always pass `model` explicitly when dispatching.
 
-**Goal:** A local daemon that watches every Claude Code session on this machine, works out what each one is doing and whether it needs the user, and exposes that through an HTTP API, a `scranton-hq ls` listing and a tmux status counter.
+**Goal:** A local daemon that watches every Claude Code session on this machine, works out what each one is doing and whether it needs the user, and exposes that through an HTTP API, a `scranton-hq ls` listing, a tmux status counter, and a band above the prompt of every Claude Code session.
 
-**Architecture:** Adapters turn Claude Code's hook payloads and on-disk files into normalized events. A pure reducer folds the events into per-session state, and pure view functions derive time-based states, feature floors and the attention queue at read time. A single Node process (the daemon) hosts the adapters, the collector, a SQLite store and a localhost-only HTTP API. A thin CLI and a dependency-free hook script talk to it over HTTP.
+**Architecture:** Two sources feed one collector. The filesystem adapter reads what Claude Code already writes under `~/.claude` and works with nothing installed. The scranton-hq mod, a Claude Code plugin, reports each session's events as they happen and draws the band above the prompt. A pure reducer folds normalized events into per-session state, and pure view functions derive time-based states, feature floors and the attention queue at read time. A single Node process (the daemon) hosts the collector, a SQLite store and a localhost-only HTTP API. A thin CLI and the mod talk to it over HTTP.
 
-**Tech stack:** Node ≥ 22.13 (ESM, built-in `node:sqlite`, `node:http`, `node:util` `parseArgs`), TypeScript 5.8 (`module: NodeNext`), Vitest 3.2. **No runtime dependencies.**
+**Tech stack:** Node ≥ 22.13 (ESM, built-in `node:sqlite`, `node:http`, `node:util` `parseArgs`), TypeScript 5.8 (`module: NodeNext`), Vitest 3.2. **No runtime dependencies.** The mod uses Claude Code's function-hooks plugin API (early access; this plan's mod code was verified against Claude Code 2.1.296) and is checked with `claude plugin validate` and `claude plugin test`.
 
-**Design reference:** `docs/plans/2026-10-09-scranton-hq-design.md` (§4 architecture, §5 domain, §6 feature grouping, §7 states, §8 attention, §12 security). M1 ships no UI; the Svelte app and the 3D renderer are M2.
+**Design reference:** `docs/plans/2026-10-09-scranton-hq-design.md` (§3 principles, §4 architecture and mod transport, §5 domain, §6 feature grouping, §7 states, §8 attention and the band, §12 security). M1 ships no browser UI; the Svelte app and the 3D renderer are M2.
 
 ---
 
 ## Ground rules (read before every task)
 
-1. **Never touch the real `~/.claude` or `~/.scranton-hq`.** Every path is injectable (`claudeDir`, `dataDir`, `--settings`). Tests use `mkdtemp` directories and synthetic fixtures only. No test reads the real home directory.
-2. **`install-hooks` is never run against real settings during implementation.** Its merge logic is a pure function tested on fixture JSON. Installing into the user's real `~/.claude/settings.json` is a manual step the user does at the end (Task 22, last section), with a dry run, a backup and a confirmation.
-3. **Merge, never replace.** The user already has other global hooks. Our handlers carry the marker string `scranton-hq-hook` in their command; install is idempotent and uninstall removes only handlers with that marker.
-4. **The hook script must never affect Claude Code.** It prints nothing to stdout, always exits 0, never waits more than ~1.5 s, and is registered with `"async": true`.
-5. **Tolerate undocumented formats.** `~/.claude/sessions/*.json`, transcripts and `subagents/*.meta.json` are internal Claude Code formats. Parse defensively: unknown fields are ignored, missing fields degrade, a bad line is skipped. Never throw out of a parser.
-6. **Imports:** all relative imports use the `.js` extension (NodeNext), e.g. `import { x } from './types.js'` even though the file is `types.ts`. Vitest resolves these to the `.ts` sources.
-7. **TDD:** write the test, run it and watch it fail, implement, run it and watch it pass, commit. Commit after every task with the message given. End every commit message with the line `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
-8. **Types are the contract.** Task 3 defines every shared type. Later tasks import them by name and never redefine them. If a task seems to need a type change, stop and report it to the coordinator instead of improvising.
-9. Commands run from the repository root: `/Users/alexiocassani/Projects/watchtower`.
+1. **Never touch the real `~/.claude` or `~/.scranton-hq`.** Every path is injectable (`claudeDir`, `dataDir`). Tests use `mkdtemp` directories and synthetic fixtures only. No test reads the real home directory.
+2. **Never install anything into the user's Claude Code during implementation.** No `/plugin install`, no `claude plugin marketplace add`, no `claude --plugin-dir` sessions, no writes under `~/.claude` (settings, plugins, `dev-mods`). The mod lives in `mod/` in this repository and is checked only with `claude plugin validate`, `claude plugin test` and `tsc`. Installing it is a manual step the user takes at the end (Task 21, last section).
+3. **The mod must never get in the way of a session.** Every hook ends by returning `next(e)`'s result. Every hook at a gating site (`prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`) carries `.catch(($, e, next) => next(e))`. Hooks only append to a queue; network calls happen in timers and at session end.
+4. **Tolerate undocumented formats.** `~/.claude/sessions/*.json`, transcripts and `subagents/*.meta.json` are internal Claude Code formats. Parse defensively: unknown fields are ignored, missing fields degrade, a bad line is skipped. Never throw out of a parser.
+5. **Imports:** in `src/` and `test/`, all relative imports use the `.js` extension (NodeNext), e.g. `import { x } from './types.js'` even though the file is `types.ts`. Vitest resolves these to the `.ts` sources. The mod in `mod/` follows its own rules (Task 19).
+6. **TDD:** write the test, run it and watch it fail, implement, run it and watch it pass, commit. Commit after every task with the message given. End every commit message with the line `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+7. **Types are the contract.** Task 3 defines every shared type. Later tasks import them by name and never redefine them. If a task seems to need a type change, stop and report it to the coordinator instead of improvising.
+8. Commands run from the repository root: `/Users/alexiocassani/Projects/watchtower`.
 
 ## File map
 
 ```
 package.json, tsconfig.json, tsconfig.build.json, vitest.config.ts, .github/workflows/ci.yml
+.claude-plugin/marketplace.json  makes this repository installable with /plugin install
 src/
   bin.ts                         CLI entry (shebang) -> cli.ts main()
   cli.ts                         argument parsing, command dispatch (lazy imports)
   cli-format.ts                  pure formatting for status / ls
   client.ts                      tiny HTTP client for the CLI (reads daemon.json)
   config.ts                      paths, thresholds, port
+  daemon-file.ts                 daemon.json read/write (port, token)
   daemon.ts                      wires store + collector + adapters + server
   collector.ts                   event queue -> reducer -> store, snapshots
-  hook.ts                        dependency-free Claude Code hook entry (shebang)
-  hooks-install.ts               pure settings.json merge/remove + install command
   core/types.ts                  shared types (Task 3)
   core/tool-label.ts             tool call -> short label; tool -> wait reason
   core/feature.ts                branch -> feature key
@@ -51,17 +50,23 @@ src/
   adapters/claude-code/transcript.ts   transcript line -> events
   adapters/claude-code/sessions-dir.ts sessions/*.json + process liveness
   adapters/claude-code/fs-adapter.ts   polling adapter over ~/.claude
-  adapters/claude-code/hooks.ts        hook payload -> events
+  adapters/claude-code/hooks.ts        hook-shaped payload (as the mod sends it) -> events
   server/http.ts                 localhost API
   store/store.ts                 node:sqlite persistence
+mod/                             the scranton-hq mod (a Claude Code plugin); its own runtime: no Node, no DOM
+  .claude-plugin/plugin.json
+  hooks/hooks.json
+  hooks/register.tsx             forwards session events to the daemon; draws the band above the prompt
+  types/index.d.ts               the mod's $.state contract
+  tests/*.test.ts(x)             run by `claude plugin test mod`, not by vitest
 test/                            mirrors src/, plus test/fixtures/
 ```
 
 ## Task index
 
-- **Part A, core (pure):** 1 Scaffold · 2 Hook payload capture (spike) · 3 Shared types and config · 4 Tool labels · 5 Feature rule · 6 Reducer · 7 Views
-- **Part B, adapters:** 8 JSONL reader · 9 Transcript parser · 10 Sessions dir and liveness · 11 Git workspace · 12 Filesystem adapter · 13 Hook mapper · 14 Hook script
-- **Part C, daemon and CLI:** 15 Store · 16 Collector · 17 HTTP API · 18 Daemon · 19 CLI status, ls, ack · 20 install-hooks · 21 Demo adapter · 22 README, end-to-end test, handover
+- **Part A, core (pure):** 1 Scaffold · 2 Payload fixtures · 3 Shared types and config · 4 Tool labels · 5 Feature rule · 6 Reducer · 7 Views
+- **Part B, adapters:** 8 JSONL reader · 9 Transcript parser · 10 Sessions dir and liveness · 11 Git workspace · 12 Filesystem adapter · 13 Payload mapper
+- **Part C, daemon, CLI and mod:** 14 Store · 15 Collector · 16 HTTP API · 17 Daemon · 18 CLI status, ls, ack · 19 Claude Code mod · 20 Demo adapter · 21 README, end-to-end test, handover
 
 ---
 
@@ -190,136 +195,83 @@ git commit -m "Scaffold the TypeScript package, tests and CI"
 
 ---
 
-### Task 2: Capture real hook payloads (spike, produces fixtures)
+### Task 2: Payload fixtures
 
-The mapper in Task 13 is tested against real payloads. This task records them **without touching the user's global settings**: a throwaway project directory, `--setting-sources project` so user and local settings (and their hooks) are not loaded, and `--settings` pointing at a capture-only hook file.
+The mod (Task 19) sends each session's events to the daemon as small JSON objects that use the field names of Claude Code's settings hooks (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_use_id`, `agent_id`, ...), plus `_scranton_ts`, the time the mod saw the event. These fixtures pin that format; the mapper (Task 13) and the API (Task 16) are tested against them.
+
+The field sets come from a live check of the mod on Claude Code 2.1.296: one `claude -p` session that ran `ls` sent `UserPromptSubmit{_scranton_ts,cwd,hook_event_name,prompt,session_id}`, `PreToolUse{…,tool_input,tool_name,tool_use_id}`, `PostToolUse{…,tool_name,tool_use_id}`, `Stop{…,background_tasks}` and `SessionEnd{…,reason}`. **No `claude` command runs in this task.**
 
 **Files:**
-- Create: `test/fixtures/hooks/*.json`, `test/fixtures/hooks/README.md`
+- Create: `test/fixtures/hooks/*.json` (11 files), `test/fixtures/hooks/README.md`
 
-**Step 1: Check the CLI supports isolation**
+**Step 1: Create the fixtures**
 
-Run: `claude --help | grep -E -- '--setting-sources|--settings '`
-Expected: both flags listed. **If either is missing, stop and report to the coordinator. Do not run `claude`.**
+Every file below uses `"session_id": "11111111-1111-4111-8111-111111111111"` and `"cwd": "/home/dev/shop/orders-api"`. Write them exactly.
 
-**Step 2: Create the throwaway directory and capture script**
-
-```bash
-SPIKE=$(mktemp -d)
-cat > "$SPIKE/capture.mjs" <<'EOF'
-import { appendFileSync, readFileSync } from 'node:fs';
-const raw = readFileSync(0, 'utf8');
-try { appendFileSync(process.argv[2], JSON.stringify(JSON.parse(raw)) + '\n'); } catch { /* ignore */ }
-EOF
-node -e '
-const [dir] = process.argv.slice(1);
-const events = ["SessionStart","UserPromptSubmit","PreToolUse","PostToolUse","PostToolUseFailure","PermissionRequest","Notification","Stop","SubagentStart","SubagentStop","SessionEnd"];
-const cmd = `node ${JSON.stringify(dir + "/capture.mjs")} ${JSON.stringify(dir + "/payloads.jsonl")}`;
-const hooks = Object.fromEntries(events.map((e) => [e, [{ hooks: [{ type: "command", command: cmd }] }]]));
-require("fs").writeFileSync(dir + "/settings.json", JSON.stringify({ hooks }, null, 2));
-' "$SPIKE"
-echo "$SPIKE"
-```
-
-**Step 3: Run two short sessions in the throwaway directory**
-
-```bash
-cd "$SPIKE"
-claude -p --setting-sources project --settings "$SPIKE/settings.json" \
-  --allowedTools "Bash(ls:*)" \
-  "Run ls with the Bash tool, then reply with the single word done."
-claude -p --setting-sources project --settings "$SPIKE/settings.json" \
-  --allowedTools "Agent,Bash(ls:*)" \
-  "Use the Agent tool to start one general-purpose subagent that runs ls with Bash and reports the file count. Then reply with the single word done."
-cd /Users/alexiocassani/Projects/watchtower
-```
-
-Expected: `$SPIKE/payloads.jsonl` exists. List what was captured, keys only:
-
-```bash
-node -e '
-for (const l of require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n")) {
-  const p = JSON.parse(l);
-  console.log(p.hook_event_name, Object.keys(p).sort().join(","));
-}' "$SPIKE/payloads.jsonl"
-```
-
-Check that only these 11 event names appear. If any other hook output shows up (another tool's hook ran), stop and report.
-
-**Step 4: Turn payloads into redacted fixtures**
-
-For each distinct `hook_event_name` (and for `PreToolUse`/`PostToolUse`, one main-thread and one subagent example, if captured), save one payload as `test/fixtures/hooks/<EventName>[.subagent].json`, pretty-printed, with these replacements:
-
-- `session_id` → `"11111111-1111-4111-8111-111111111111"`
-- `cwd` → `"/home/dev/shop/orders-api"`; `transcript_path` → `"/home/dev/.claude/projects/-home-dev-shop-orders-api/11111111-1111-4111-8111-111111111111.jsonl"`; any other absolute path under the spike dir → the same `/home/dev/shop/orders-api` prefix
-- `tool_response`: delete the key
-- any string longer than 200 characters: cut to 200
-- `agent_transcript_path`: same prefix replacement
-
-**Step 5: Hand-write the payloads a `-p` run cannot produce**
-
-Create these files. Each carries `"_fixture": "hand-written from the hooks reference"`:
-
-`test/fixtures/hooks/PermissionRequest.json`
+`UserPromptSubmit.json`
 ```json
-{
-  "_fixture": "hand-written from the hooks reference",
-  "hook_event_name": "PermissionRequest",
-  "session_id": "11111111-1111-4111-8111-111111111111",
-  "cwd": "/home/dev/shop/orders-api",
-  "transcript_path": "/home/dev/.claude/projects/-home-dev-shop-orders-api/11111111-1111-4111-8111-111111111111.jsonl",
-  "permission_mode": "default",
-  "tool_name": "Bash",
-  "tool_input": { "command": "rm -rf dist && npm run build", "description": "Rebuild" }
-}
+{ "_scranton_ts": 1791660000000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "UserPromptSubmit", "prompt": "Run ls with the Bash tool, then reply with the single word ok." }
 ```
 
-`test/fixtures/hooks/Notification.permission_prompt.json`
+`PreToolUse.json`
 ```json
-{
-  "_fixture": "hand-written from the hooks reference",
-  "hook_event_name": "Notification",
-  "session_id": "11111111-1111-4111-8111-111111111111",
-  "cwd": "/home/dev/shop/orders-api",
-  "transcript_path": "/home/dev/.claude/projects/-home-dev-shop-orders-api/11111111-1111-4111-8111-111111111111.jsonl",
-  "notification_type": "permission_prompt",
-  "message": "Claude needs your permission to use Bash"
-}
+{ "_scranton_ts": 1791660001000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls", "description": "List files in current directory" }, "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV" }
 ```
 
-`test/fixtures/hooks/Notification.idle_prompt.json`: the same with `"notification_type": "idle_prompt"` and `"message": "Claude is waiting for your input"`.
-
-`test/fixtures/hooks/PreToolUse.AskUserQuestion.json`
+`PostToolUse.json`
 ```json
-{
-  "_fixture": "hand-written from the hooks reference",
-  "hook_event_name": "PreToolUse",
-  "session_id": "11111111-1111-4111-8111-111111111111",
-  "cwd": "/home/dev/shop/orders-api",
-  "transcript_path": "/home/dev/.claude/projects/-home-dev-shop-orders-api/11111111-1111-4111-8111-111111111111.jsonl",
-  "tool_name": "AskUserQuestion",
-  "tool_use_id": "toolu_ask_1",
-  "tool_input": { "questions": [ { "question": "Should the retry queue use Redis or Postgres?", "header": "Queue", "options": [], "multiSelect": false } ] }
-}
+{ "_scranton_ts": 1791660002000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV" }
 ```
 
-Task 13's tests need these files to exist: `SessionStart.json`, `UserPromptSubmit.json`, `PreToolUse.json`, `PostToolUse.json`, `Stop.json`, `SubagentStart.json`, `SubagentStop.json`, `SessionEnd.json`. `PreToolUse.json` and `PostToolUse.json` must be main-thread payloads (no `agent_id`) for the **Bash** tool. If Step 3 did not produce one of them, hand-write it using only the fields listed in the hooks reference (common fields `session_id`, `transcript_path`, `cwd`, `hook_event_name`, plus: `source: "startup"` for SessionStart; `prompt` for UserPromptSubmit; `tool_name`, `tool_input`, `tool_use_id` for the tool events; `stop_hook_active: false`, `background_tasks: []` for Stop; `agent_id`, `agent_type` for SubagentStart/SubagentStop; `reason: "other"` for SessionEnd) and mark it the same way.
+`PostToolUseFailure.json`
+```json
+{ "_scranton_ts": 1791660002500, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PostToolUseFailure", "tool_name": "Bash", "tool_use_id": "toolu_02ABCDEFGHIJKLMNOPQRSTUV" }
+```
 
-**Step 6: Write `test/fixtures/hooks/README.md`**
+`PreToolUse.subagent.json`
+```json
+{ "_scranton_ts": 1791660002700, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Grep", "tool_input": { "pattern": "useCart" }, "tool_use_id": "toolu_03ABCDEFGHIJKLMNOPQRSTUV", "agent_id": "a58cb74ebedcc3070" }
+```
 
-Record:
-- the output of `claude --version`;
-- which files were captured and which were hand-written;
-- three findings, answered from the captured data: does `UserPromptSubmit` carry `prompt`? Do main-thread `PreToolUse`/`PostToolUse` payloads carry `agent_id` (they must not, for Task 13's logic)? What is the JSON type of `background_tasks` on `Stop`?
+`PreToolUse.AskUserQuestion.json`
+```json
+{ "_scranton_ts": 1791660002800, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion", "tool_input": { "questions": [ { "question": "Should the retry queue use Redis or Postgres?", "header": "Queue", "options": [], "multiSelect": false } ] }, "tool_use_id": "toolu_04ABCDEFGHIJKLMNOPQRSTUV" }
+```
 
-**If main-thread payloads do carry `agent_id`, stop and report to the coordinator before continuing** (Task 13 relies on its absence).
+`PermissionRequest.json`
+```json
+{ "_scranton_ts": 1791660003000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": "rm -rf dist && npm run build", "description": "Rebuild" } }
+```
 
-**Step 7: Clean up and commit**
+`SubagentStart.json`
+```json
+{ "_scranton_ts": 1791660004000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "SubagentStart", "agent_id": "a58cb74ebedcc3070", "agent_type": "Explore" }
+```
+
+`Stop.json`
+```json
+{ "_scranton_ts": 1791660005000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "Stop", "background_tasks": 0 }
+```
+
+`SessionEnd.json`
+```json
+{ "_scranton_ts": 1791660006000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "SessionEnd", "reason": "other" }
+```
+
+`batch.json`: one flush as the mod posts it, a JSON array holding, in this order, the exact objects of `UserPromptSubmit.json`, `PreToolUse.json`, `PostToolUse.json` and `Stop.json`.
+
+**Step 2: Write `test/fixtures/hooks/README.md`**
+
+Say, in a few lines: these files are the payloads the scranton-hq mod (`mod/hooks/register.tsx`) posts to `POST /api/hooks`; they use the settings hooks' field names so one mapper reads them; the field sets were checked against Claude Code 2.1.296; and a change to what the mod sends must change these fixtures, the mapper tests and the mod's own tests together.
+
+**Step 3: Check the JSON and commit**
+
+Run: `for f in test/fixtures/hooks/*.json; do node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$f" || echo "BAD $f"; done`
+Expected: no `BAD` lines.
 
 ```bash
-rm -rf "$SPIKE"
 git add test/fixtures/hooks
-git commit -m "Add captured and hand-written Claude Code hook payload fixtures"
+git commit -m "Add the payload fixtures the mod and the daemon share"
 ```
 
 ---
@@ -2682,9 +2634,9 @@ git commit -m "Watch Claude Code's session files, transcripts and subagents"
 
 ---
 
-### Task 13: Hook payload mapper
+### Task 13: Payload mapper
 
-Pure: one hook payload in, events out. Tolerant of the four facts the docs did not confirm (see `test/fixtures/hooks/README.md` from Task 2).
+Pure: one hook-shaped payload in (as the mod sends it, see Task 2), events out. The mapper also understands a few payload names the mod does not send today (`SessionStart`, `Notification`, `SubagentStop`), so another sender can use them. It is tolerant of what it does not control: a missing timestamp, an unknown event, an odd `background_tasks`.
 
 **Files:**
 - Create: `src/adapters/claude-code/hooks.ts`, `test/adapters/hooks.test.ts`
@@ -2693,105 +2645,88 @@ Pure: one hook payload in, events out. Tolerant of the four facts the docs did n
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { countBackgroundTasks, HOOK_EVENTS, mapHookPayload } from '../../src/adapters/claude-code/hooks.js';
 
-const fixturePath = (name: string) => new URL(`../fixtures/hooks/${name}.json`, import.meta.url);
-const fx = (name: string): Record<string, unknown> => JSON.parse(readFileSync(fixturePath(name), 'utf8'));
+const fx = (name: string): unknown => JSON.parse(readFileSync(new URL(`../fixtures/hooks/${name}.json`, import.meta.url), 'utf8'));
 const NOW = 1_800_000_000_000;
+const SID = '11111111-1111-4111-8111-111111111111';
+const CWD = '/home/dev/shop/orders-api';
+const base = (ts: number) => ({ sessionId: SID, ts, source: 'hook', cwd: CWD });
 
 describe('HOOK_EVENTS', () => {
-  it('lists the events we register', () => {
+  it('lists the payload names the mapper understands', () => {
     expect(HOOK_EVENTS).toEqual(['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Notification', 'Stop', 'SubagentStart', 'SubagentStop', 'SessionEnd']);
   });
 });
 
-describe('mapHookPayload with fixtures', () => {
-  it('SessionStart starts a session', () => {
-    const p = fx('SessionStart');
-    expect(mapHookPayload(p, NOW)).toEqual([{ sessionId: p.session_id, ts: NOW, source: 'hook', cwd: p.cwd, type: 'session.started' }]);
-  });
-
-  it('UserPromptSubmit becomes a prompt (text may be absent)', () => {
-    const p = fx('UserPromptSubmit');
-    const [e] = mapHookPayload(p, NOW);
-    expect(e).toMatchObject({ type: 'prompt', sessionId: p.session_id });
-    if (typeof p.prompt === 'string') expect((e as { text: unknown }).text).toBe(p.prompt.trim().slice(0, 200));
+describe('mapHookPayload with the mod fixtures', () => {
+  it('UserPromptSubmit becomes a prompt, timed by the mod', () => {
+    expect(mapHookPayload(fx('UserPromptSubmit'), NOW)).toEqual([{ ...base(1791660000000), type: 'prompt', text: 'Run ls with the Bash tool, then reply with the single word ok.' }]);
   });
 
   it('PreToolUse and PostToolUse track a main-thread tool', () => {
-    const pre = fx('PreToolUse');
-    expect(mapHookPayload(pre, NOW)).toEqual([expect.objectContaining({ type: 'tool.started', tool: 'Bash', toolId: pre.tool_use_id ?? null, agentId: null })]);
-    expect((mapHookPayload(pre, NOW)[0] as { label: string }).label.startsWith('Bash: ')).toBe(true);
-    const post = fx('PostToolUse');
-    expect(mapHookPayload(post, NOW)).toEqual([expect.objectContaining({ type: 'tool.finished', ok: true, agentId: null })]);
+    expect(mapHookPayload(fx('PreToolUse'), NOW)).toEqual([{ ...base(1791660001000), type: 'tool.started', toolId: 'toolu_01ABCDEFGHIJKLMNOPQRSTUV', tool: 'Bash', label: 'Bash: ls', agentId: null }]);
+    expect(mapHookPayload(fx('PostToolUse'), NOW)).toEqual([{ ...base(1791660002000), type: 'tool.finished', toolId: 'toolu_01ABCDEFGHIJKLMNOPQRSTUV', ok: true, agentId: null }]);
+    expect(mapHookPayload(fx('PostToolUseFailure'), NOW)).toEqual([{ ...base(1791660002500), type: 'tool.finished', toolId: 'toolu_02ABCDEFGHIJKLMNOPQRSTUV', ok: false, agentId: null }]);
   });
 
-  it.skipIf(!existsSync(fixturePath('PreToolUse.subagent')))('tool events inside a subagent carry its id', () => {
-    const p = fx('PreToolUse.subagent');
-    expect(mapHookPayload(p, NOW)).toEqual([expect.objectContaining({ type: 'tool.started', agentId: p.agent_id })]);
-  });
-
-  it('Stop finishes the turn', () => {
-    expect(mapHookPayload(fx('Stop'), NOW)).toEqual([expect.objectContaining({ type: 'turn.finished', backgroundTasks: expect.any(Number) })]);
-  });
-
-  it('SubagentStart and SubagentStop track children', () => {
-    const start = fx('SubagentStart');
-    expect(mapHookPayload(start, NOW)).toEqual([expect.objectContaining({ type: 'agent.started', agentId: start.agent_id, agentType: start.agent_type ?? 'agent' })]);
-    const stop = fx('SubagentStop');
-    expect(mapHookPayload(stop, NOW)).toEqual([expect.objectContaining({ type: 'agent.finished', agentId: stop.agent_id })]);
-  });
-
-  it('SessionEnd ends the session', () => {
-    expect(mapHookPayload(fx('SessionEnd'), NOW)).toEqual([expect.objectContaining({ type: 'session.ended' })]);
-  });
-
-  it('PermissionRequest waits with the command as detail', () => {
-    expect(mapHookPayload(fx('PermissionRequest'), NOW)).toEqual([expect.objectContaining({
-      type: 'waiting',
-      reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist && npm run build' },
-    })]);
-  });
-
-  it('a permission notification waits; an idle notification does nothing', () => {
-    expect(mapHookPayload(fx('Notification.permission_prompt'), NOW)).toEqual([expect.objectContaining({
-      type: 'waiting', reason: { kind: 'permission', text: 'Claude needs your permission to use Bash' },
-    })]);
-    expect(mapHookPayload(fx('Notification.idle_prompt'), NOW)).toEqual([]);
+  it('tool events inside a subagent carry its id', () => {
+    expect(mapHookPayload(fx('PreToolUse.subagent'), NOW)).toEqual([{ ...base(1791660002700), type: 'tool.started', toolId: 'toolu_03ABCDEFGHIJKLMNOPQRSTUV', tool: 'Grep', label: 'Grep useCart', agentId: 'a58cb74ebedcc3070' }]);
   });
 
   it('AskUserQuestion waits for an answer', () => {
-    expect(mapHookPayload(fx('PreToolUse.AskUserQuestion'), NOW)).toEqual([expect.objectContaining({
-      type: 'waiting', reason: { kind: 'question', text: 'Should the retry queue use Redis or Postgres?' },
-    })]);
+    expect(mapHookPayload(fx('PreToolUse.AskUserQuestion'), NOW)).toEqual([{ ...base(1791660002800), type: 'waiting', reason: { kind: 'question', text: 'Should the retry queue use Redis or Postgres?' } }]);
+  });
+
+  it('PermissionRequest waits with the command as detail', () => {
+    expect(mapHookPayload(fx('PermissionRequest'), NOW)).toEqual([{ ...base(1791660003000), type: 'waiting', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist && npm run build' } }]);
+  });
+
+  it('SubagentStart, Stop and SessionEnd', () => {
+    expect(mapHookPayload(fx('SubagentStart'), NOW)).toEqual([{ ...base(1791660004000), type: 'agent.started', agentId: 'a58cb74ebedcc3070', agentType: 'Explore', description: null }]);
+    expect(mapHookPayload(fx('Stop'), NOW)).toEqual([{ ...base(1791660005000), type: 'turn.finished', backgroundTasks: 0 }]);
+    expect(mapHookPayload(fx('SessionEnd'), NOW)).toEqual([{ ...base(1791660006000), type: 'session.ended', reason: 'other' }]);
+  });
+
+  it('maps a whole batch, item by item, in order', () => {
+    const batch = fx('batch') as unknown[];
+    expect(batch.flatMap((p) => mapHookPayload(p, NOW)).map((e) => e.type)).toEqual(['prompt', 'tool.started', 'tool.finished', 'turn.finished']);
   });
 });
 
 describe('mapHookPayload edge cases', () => {
-  const base = { session_id: 'S1', cwd: '/w/shop' };
-  it('prefers the hook script timestamp over arrival time', () => {
-    expect(mapHookPayload({ ...base, hook_event_name: 'Stop', _scranton_ts: 123 }, NOW)[0]).toMatchObject({ ts: 123 });
-    expect(mapHookPayload({ ...base, hook_event_name: 'Stop' }, NOW)[0]).toMatchObject({ ts: NOW });
+  const p = { session_id: 'S1', cwd: '/w/shop' };
+
+  it('falls back to arrival time without a timestamp from the sender', () => {
+    expect(mapHookPayload({ ...p, hook_event_name: 'Stop' }, NOW)[0]).toMatchObject({ ts: NOW });
   });
-  it('ignores compactions, subagent-only lifecycle events and unknown events', () => {
-    expect(mapHookPayload({ ...base, hook_event_name: 'SessionStart', source: 'compact' }, NOW)).toEqual([]);
-    expect(mapHookPayload({ ...base, hook_event_name: 'Stop', agent_id: 'a1' }, NOW)).toEqual([]);
-    expect(mapHookPayload({ ...base, hook_event_name: 'SessionEnd', agent_id: 'a1' }, NOW)).toEqual([]);
-    expect(mapHookPayload({ ...base, hook_event_name: 'SubagentStart' }, NOW)).toEqual([]);
-    expect(mapHookPayload({ ...base, hook_event_name: 'PreCompact' }, NOW)).toEqual([]);
+
+  it('understands the names the mod does not send today', () => {
+    expect(mapHookPayload({ ...p, hook_event_name: 'SessionStart', source: 'startup' }, NOW)).toEqual([expect.objectContaining({ type: 'session.started' })]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'SessionStart', source: 'compact' }, NOW)).toEqual([]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'Notification', notification_type: 'permission_prompt', message: 'Claude needs your permission to use Bash' }, NOW))
+      .toEqual([expect.objectContaining({ type: 'waiting', reason: { kind: 'permission', text: 'Claude needs your permission to use Bash' } })]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'Notification', notification_type: 'idle_prompt', message: 'Claude is waiting for your input' }, NOW)).toEqual([]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'SubagentStop', agent_id: 'a1' }, NOW)).toEqual([expect.objectContaining({ type: 'agent.finished', agentId: 'a1' })]);
   });
+
+  it('ignores subagent-only lifecycle events and unknown events', () => {
+    expect(mapHookPayload({ ...p, hook_event_name: 'Stop', agent_id: 'a1' }, NOW)).toEqual([]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'SessionEnd', agent_id: 'a1' }, NOW)).toEqual([]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'SubagentStart' }, NOW)).toEqual([]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'PreCompact' }, NOW)).toEqual([]);
+  });
+
   it('a permission request inside a subagent still needs the user', () => {
-    expect(mapHookPayload({ ...base, hook_event_name: 'PermissionRequest', agent_id: 'a1', tool_name: 'Write', tool_input: { file_path: '/w/shop/a.ts' } }, NOW))
+    expect(mapHookPayload({ ...p, hook_event_name: 'PermissionRequest', agent_id: 'a1', tool_name: 'Write', tool_input: { file_path: '/w/shop/a.ts' } }, NOW))
       .toEqual([expect.objectContaining({ type: 'waiting', reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' } })]);
   });
-  it('a failed tool finishes with ok false', () => {
-    expect(mapHookPayload({ ...base, hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_use_id: 't1' }, NOW))
-      .toEqual([expect.objectContaining({ type: 'tool.finished', toolId: 't1', ok: false })]);
-  });
+
   it('rejects payloads without a session or event name', () => {
     expect(mapHookPayload(null, NOW)).toEqual([]);
     expect(mapHookPayload('x', NOW)).toEqual([]);
+    expect(mapHookPayload([], NOW)).toEqual([]);
     expect(mapHookPayload({ hook_event_name: 'Stop' }, NOW)).toEqual([]);
     expect(mapHookPayload({ session_id: 'S1' }, NOW)).toEqual([]);
   });
@@ -2821,7 +2756,7 @@ import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
 import { promptText } from './transcript.js';
 
-/** The hook events scranton-hq registers. Order matters only for display. */
+/** The payload names the mapper understands. The mod sends a subset (see test/mod-contract.test.ts). */
 export const HOOK_EVENTS = [
   'SessionStart',
   'UserPromptSubmit',
@@ -2906,222 +2841,20 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
 **Step 4: Run the tests**
 
 Run: `npx vitest run test/adapters/hooks.test.ts && npm run typecheck`
-Expected: PASS. If a fixture-based test fails because the captured payload differs from the hooks reference, read the fixture, then report to the coordinator with the difference rather than loosening the test.
+Expected: PASS. If a fixture test fails, fix the implementation, not the fixture: the fixtures are what the mod sends.
 
 **Step 5: Commit**
 
 ```bash
 git add src/adapters/claude-code/hooks.ts test/adapters/hooks.test.ts
-git commit -m "Map Claude Code hook payloads to events"
+git commit -m "Map the payloads the mod sends to events"
 ```
 
 ---
 
-### Task 14: Hook script
+# Part C: daemon, CLI and mod
 
-Claude Code runs this on every hook event of every session. It must be dependency-free and fast, print nothing to stdout, and always exit 0. It stamps the time **before doing anything else**, because async hooks may arrive at the daemon out of order and the reducer orders by this stamp.
-
-**Files:**
-- Create: `src/hook.ts`, `test/hook.test.ts`
-
-**Step 1: Write the failing test**
-
-The test runs the TypeScript file directly with Node's type stripping, against a throwaway HTTP server. `hook.ts` must use only erasable TypeScript syntax (type annotations, `as const`); no enums or namespaces.
-
-```ts
-import { describe, expect, it } from 'vitest';
-import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
-import { createServer, type IncomingHttpHeaders } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const HOOK = fileURLToPath(new URL('../src/hook.ts', import.meta.url));
-
-function runHook(home: string, stdin: string): Promise<{ code: number | null; stdout: string; ms: number }> {
-  return new Promise((resolve) => {
-    const t0 = Date.now();
-    const child = spawn(process.execPath, ['--experimental-strip-types', '--no-warnings', HOOK], {
-      env: { ...process.env, SCRANTON_HQ_HOME: home },
-      stdio: ['pipe', 'pipe', 'ignore'],
-    });
-    let stdout = '';
-    child.stdout.on('data', (c) => (stdout += c));
-    child.on('close', (code) => resolve({ code, stdout, ms: Date.now() - t0 }));
-    child.stdin.end(stdin);
-  });
-}
-
-async function home(port?: number) {
-  const dir = await mkdtemp(join(tmpdir(), 'shq-hook-'));
-  if (port !== undefined) await writeFile(join(dir, 'daemon.json'), JSON.stringify({ port, token: 'tok', pid: 1, startedAt: 0 }));
-  return dir;
-}
-
-describe('hook script', () => {
-  it('forwards a slimmed, timestamped payload with the token', async () => {
-    const received: { url?: string; headers: IncomingHttpHeaders; body: Record<string, any> }[] = [];
-    const server = createServer((req, res) => {
-      let b = '';
-      req.on('data', (c) => (b += c));
-      req.on('end', () => {
-        received.push({ url: req.url, headers: req.headers, body: JSON.parse(b) });
-        res.writeHead(204).end();
-      });
-    });
-    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-    const port = (server.address() as AddressInfo).port;
-    const before = Date.now();
-    const r = await runHook(await home(port), JSON.stringify({
-      hook_event_name: 'PreToolUse', session_id: 'S1', cwd: '/w', tool_name: 'Write', tool_use_id: 't1',
-      tool_input: { file_path: '/w/a.txt', content: 'x'.repeat(5000) },
-      tool_response: { big: 'y'.repeat(5000) },
-      unrelated: 1,
-    }));
-    server.close();
-    expect(r).toMatchObject({ code: 0, stdout: '' });
-    expect(received).toHaveLength(1);
-    const [{ url, headers, body }] = received as [typeof received[number]];
-    expect(url).toBe('/api/hooks');
-    expect(headers.authorization).toBe('Bearer tok');
-    expect(body._scranton_ts).toBeGreaterThanOrEqual(before);
-    expect(body).toMatchObject({ hook_event_name: 'PreToolUse', session_id: 'S1', cwd: '/w', tool_name: 'Write', tool_use_id: 't1' });
-    expect(body.tool_input.content).toHaveLength(400);
-    expect(body.tool_response).toBeUndefined();
-    expect(body.unrelated).toBeUndefined();
-  });
-
-  it('exits 0 silently when the daemon has never run', async () => {
-    const r = await runHook(await home(), JSON.stringify({ hook_event_name: 'Stop', session_id: 'S1' }));
-    expect(r).toMatchObject({ code: 0, stdout: '' });
-    expect(r.ms).toBeLessThan(1500);
-  });
-
-  it('exits 0 silently when nothing listens on the port', async () => {
-    const server = createServer();
-    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-    const port = (server.address() as AddressInfo).port;
-    await new Promise<void>((r) => server.close(() => r()));
-    const r = await runHook(await home(port), JSON.stringify({ hook_event_name: 'Stop', session_id: 'S1' }));
-    expect(r).toMatchObject({ code: 0, stdout: '' });
-  });
-
-  it('exits 0 silently on invalid input', async () => {
-    const r = await runHook(await home(1), 'not json');
-    expect(r).toMatchObject({ code: 0, stdout: '' });
-  });
-});
-```
-
-**Step 2: Run it to see it fail**
-
-Run: `npx vitest run test/hook.test.ts`
-Expected: FAIL (the script does not exist, so the child exits non-zero).
-
-**Step 3: Implement `src/hook.ts`**
-
-```ts
-#!/usr/bin/env node
-// Claude Code hook entry point for scranton-hq. Registered with "async": true.
-// Forwards a slimmed copy of the hook payload to the local daemon, prints nothing, and always exits 0.
-// Keep it dependency-free: it runs on every tool call of every session.
-import { readFileSync } from 'node:fs';
-import { request } from 'node:http';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-const stampedAt = Date.now();
-
-const KEEP = [
-  'hook_event_name', 'session_id', 'cwd', 'transcript_path', 'agent_id', 'agent_type',
-  'tool_name', 'tool_use_id', 'tool_input', 'notification_type', 'message',
-  'background_tasks', 'stop_hook_active', 'source', 'reason', 'prompt',
-] as const;
-const MAX_STRING = 400;
-
-function done(): never {
-  process.exit(0);
-}
-
-function slim(value: unknown, depth = 0): unknown {
-  if (typeof value === 'string') return value.length > MAX_STRING ? value.slice(0, MAX_STRING) : value;
-  if (value === null || typeof value !== 'object' || depth > 3) return value;
-  if (Array.isArray(value)) return value.slice(0, 20).map((v) => slim(v, depth + 1));
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value).slice(0, 30)) out[k] = slim(v, depth + 1);
-  return out;
-}
-
-function send(raw: string): void {
-  let cfg: { port: number; token: string };
-  try {
-    const dataDir = process.env.SCRANTON_HQ_HOME ?? join(homedir(), '.scranton-hq');
-    cfg = JSON.parse(readFileSync(join(dataDir, 'daemon.json'), 'utf8'));
-  } catch {
-    return done();
-  }
-  let payload: Record<string, unknown>;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return done();
-  }
-  if (!payload || typeof payload !== 'object') return done();
-  const body: Record<string, unknown> = { _scranton_ts: stampedAt };
-  for (const k of KEEP) if (k in payload) body[k] = slim(payload[k]);
-  const data = JSON.stringify(body);
-  const req = request(
-    {
-      host: '127.0.0.1',
-      port: cfg.port,
-      path: '/api/hooks',
-      method: 'POST',
-      timeout: 800,
-      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data), authorization: `Bearer ${cfg.token}` },
-    },
-    (res) => {
-      res.resume();
-      res.on('end', done);
-    },
-  );
-  req.on('error', done);
-  req.on('timeout', () => {
-    req.destroy();
-    done();
-  });
-  req.end(data);
-}
-
-setTimeout(done, 1500).unref();
-let raw = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk: string) => {
-  raw += chunk;
-  if (raw.length > 8_000_000) done();
-});
-process.stdin.on('end', () => send(raw));
-process.stdin.on('error', done);
-```
-
-**Step 4: Run the tests**
-
-Run: `npx vitest run test/hook.test.ts && npm run typecheck`
-Expected: PASS.
-
-**Step 5: Commit**
-
-```bash
-git add src/hook.ts test/hook.test.ts
-git commit -m "Add the dependency-free hook script that forwards payloads to the daemon"
-```
-
----
-
-# Part C: daemon and CLI
-
-### Task 15: Store
+### Task 14: Store
 
 Persists sessions (so a restart keeps "seen" marks and states) and an event log (pruned after 7 days; the M4 archive builds on it). `node:sqlite` is loaded inside `Store.open`, so modules that only import the type stay free of it.
 
@@ -3284,7 +3017,7 @@ git commit -m "Persist sessions and an event log in SQLite"
 
 ---
 
-### Task 16: Collector
+### Task 15: Collector
 
 Owns the session map. Events go through a single promise queue, so they are applied in arrival order even when resolving a new session's git workspace takes time. Saves changed sessions to the store with a short debounce.
 
@@ -3597,7 +3330,7 @@ git commit -m "Collect events into sessions, floors and the attention queue"
 
 ---
 
-### Task 17: HTTP API
+### Task 16: HTTP API
 
 Localhost only. Every request must pass three checks, in this order: `Host` is `127.0.0.1:<port>` or `localhost:<port>` (DNS rebinding), `Origin` is absent or the same host (cross-site requests from a browser), and `Authorization: Bearer <token>` matches (constant-time compare).
 
@@ -3606,7 +3339,7 @@ Localhost only. Every request must pass three checks, in this order: `Host` is `
 | GET | `/api/health` | `{ ok: true, version }` |
 | GET | `/api/building` | `Snapshot` |
 | GET | `/api/attention` | `AttentionSummary` |
-| POST | `/api/hooks` | 204; body is a hook payload (max 1 MB) |
+| POST | `/api/hooks` | 204; body is one payload or an array of them, as the mod sends them (max 1 MB) |
 | POST | `/api/sessions/:id/seen` | 204, or 404 when there is no finished session with that id |
 | POST | `/api/seen` | `{ marked: number }` |
 
@@ -3700,6 +3433,15 @@ describe('API routes', () => {
     expect((await call({ method: 'POST', path: `/api/sessions/${encodeURIComponent(SID)}/seen` })).status).toBe(204);
     expect((await call({ path: '/api/attention' })).json.done).toBe(0);
     expect((await call({ method: 'POST', path: '/api/seen' })).json).toEqual({ marked: 0 });
+  });
+
+  it('accepts a batch of payloads, as the mod sends them', async () => {
+    const batch = (JSON.parse(readFileSync(new URL('./fixtures/hooks/batch.json', import.meta.url), 'utf8')) as Record<string, unknown>[])
+      .map((p) => ({ ...p, session_id: 'BATCH' }));
+    expect((await call({ method: 'POST', path: '/api/hooks', body: JSON.stringify(batch) })).status).toBe(204);
+    await collector.idle();
+    const r = await call({ path: '/api/attention' });
+    expect(r.json.items.map((i: { id: string }) => i.id)).toContain('BATCH');
   });
 
   it('answers 404 for unknown routes', async () => {
@@ -3805,7 +3547,9 @@ async function handle(o: ApiOptions, req: IncomingMessage, res: ServerResponse):
     } catch {
       return send(res, 400, { error: 'Invalid JSON' });
     }
-    for (const e of mapHookPayload(payload, (o.now ?? Date.now)())) void o.collector.ingest(e);
+    const now = (o.now ?? Date.now)();
+    const items = Array.isArray(payload) ? payload : [payload];
+    for (const item of items) for (const e of mapHookPayload(item, now)) void o.collector.ingest(e);
     return send(res, 204);
   }
 
@@ -3834,9 +3578,9 @@ git commit -m "Serve a token-protected localhost API"
 
 ---
 
-### Task 18: Daemon
+### Task 17: Daemon
 
-Wires everything together and records how to reach it in `<dataDir>/daemon.json` (mode 600), which the hook script and the CLI read. The token lives in `<dataDir>/token` (mode 600) and survives restarts.
+Wires everything together and records how to reach it in `<dataDir>/daemon.json` (mode 600), which the Claude Code mod and the CLI read. The token lives in `<dataDir>/token` (mode 600) and survives restarts.
 
 **Files:**
 - Create: `src/daemon-file.ts`, `src/daemon.ts`, `test/daemon.test.ts`
@@ -4069,9 +3813,9 @@ git commit -m "Run the daemon: store, collector, filesystem watcher and API"
 
 ---
 
-### Task 19: CLI: start, status, ls, ack
+### Task 18: CLI: start, status, ls, ack
 
-`status` runs on every tmux refresh, so it must start fast and stay quiet: it imports only `node:util`, `config.js`, `client.js`, `daemon-file.js` and `cli-format.js`. Commands that need the daemon, the store or the hook installer import them lazily.
+`status` runs on every tmux refresh, so it must start fast and stay quiet: it imports only `node:util`, `config.js`, `client.js`, `daemon-file.js` and `cli-format.js`. Commands that need the daemon or the store import them lazily.
 
 **Files:**
 - Create: `src/client.ts`, `src/cli-format.ts`, `src/cli.ts`, `src/bin.ts`, `test/cli-format.test.ts`, `test/cli.test.ts`
@@ -4554,458 +4298,506 @@ git commit -m "Add the CLI: start, status (text, tmux, json), ls and ack"
 
 ---
 
-### Task 20: install-hooks and uninstall-hooks
+### Task 19: Claude Code mod
 
-**Rule reminder:** tests use temp settings files only. Never run these commands against `~/.claude/settings.json` during implementation.
+The mod is a Claude Code plugin made of function hooks. It does two jobs in every session where it is installed:
+
+1. **Reports the session.** It hooks Claude Code's native events and queues one payload per event, in the format of Task 2. A timer posts the queue to the daemon every 500 ms; `session.end` posts what is left at once.
+
+   | Native event | Payload sent |
+   |---|---|
+   | `prompt.submit` | `UserPromptSubmit` (`prompt`) |
+   | `tool.call`, before running | `PreToolUse` (`tool_name`, `tool_input`, `tool_use_id`, `agent_id` inside a subagent) |
+   | `tool.call`, after running | `PostToolUse`, or `PostToolUseFailure` when the call was refused or errored |
+   | `tool.check`, when the verdict is `ask` | `PermissionRequest` (`tool_name`, `tool_input`) |
+   | `agent.spawn`, once spawned | `SubagentStart` (`agent_id`, `agent_type`) |
+   | `turn.complete` | `Stop` |
+   | `session.end` | `SessionEnd` (`reason`) |
+
+2. **Draws a band above the prompt** while another session needs the user or has finished: `◉ 1 waiting · orders-api-c3: Bash [Go] ✓ 1 done`. It polls `GET /api/attention` every 3 s. A session never lists itself. `Go` appears only inside tmux and runs `tmux switch-client`, `select-window` and `select-pane` on the waiting session's pane. There are no desktop notifications: with ten sessions open there would be ten of each.
+
+Subagents that finish are not reported here: the filesystem adapter (Task 12) already marks them done when their transcript goes quiet.
+
+**What was verified, and how.** This exact code passed `claude plugin validate`, `tsc` against the API declarations, and the seven tests below under `claude plugin test`, on Claude Code 2.1.296. One live `claude -p` session with the mod loaded posted `UserPromptSubmit`, `PreToolUse` (with `tool_input.command`), `PostToolUse`, `Stop` and `SessionEnd` to a test server, with the right `Host`, token, session id and `cwd`. The `tool.check` verdict `ask` cannot happen under `claude -p`, so `PermissionRequest` is covered by the kit test only; the filesystem adapter's `waiting` status is the fallback. Under `claude -p`, `classic.*` events (the settings hooks' own events) did not reach the mod, which is why it hooks the native events.
+
+**Rules of the mod runtime** (the validator enforces most of them):
+- No Node and no DOM. Everything outside the module goes through `$`: `$.fs`, `$.http`, `$.env`, `$.process`, `$.clock`, `$.session`, `$.ui`.
+- `$` may only be passed to functions declared at the top level of the file. That is why the helpers are top-level functions and the queue is module state. Module state resets when the module reloads; that is acceptable.
+- No `import()`. `$.env.get` takes string literals only.
+- In a test, register every `on(...)` before the first call on `$`. Every event the mod passes on with `next` needs an answer beneath it: `session.start` answers `{ cwd }`, `session.end` answers `{ sessionId }`, `tool.call` answers `{ result }`, `prompt.submit` answers `{ text }`, `turn.complete` answers `{ text }`, `tool.check` answers `{ decision }`. Calls on `$` (`fs.read`, `http.fetch`, `process.run`, `session.id`) answer `{ value }` or `{ deny }`.
+- `Text` takes no `key`. Tests find texts with `{ type: 'Text', text: /…/ }` and buttons by `key`.
 
 **Files:**
-- Create: `src/hooks-install.ts`, `test/hooks-install.test.ts`
-- Modify: `src/cli.ts` (two commands, help text)
+- Create: `mod/.claude-plugin/plugin.json`, `mod/hooks/hooks.json`, `mod/types/index.d.ts`, `mod/hooks/register.tsx`, `mod/tests/forward.test.ts`, `mod/tests/band.test.tsx`, `.claude-plugin/marketplace.json`, `test/mod-contract.test.ts`
+- Modify: `package.json` (one script)
 
-**Step 1: Write the failing test**
+**Step 1: Create the manifests and the state contract**
+
+`mod/.claude-plugin/plugin.json`
+```json
+{
+  "name": "scranton-hq",
+  "version": "0.1.0",
+  "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local scranton-hq daemon.",
+  "author": { "name": "scranton-hq contributors" },
+  "license": "Apache-2.0",
+  "types": "./types/index.d.ts"
+}
+```
+
+`mod/hooks/hooks.json`
+```json
+{ "modules": ["./register.tsx"] }
+```
+
+`mod/types/index.d.ts`
+```ts
+export type AttentionItem = {
+  id: string
+  name: string | null
+  repo: string
+  state: 'needs_you' | 'done'
+  since: number
+  reason: { kind: string; text: string; detail?: string } | null
+  title: string | null
+  tmuxPane: string | null
+}
+
+export type Attention = { needsYou: number; done: number; items: AttentionItem[] }
+
+declare module 'claude-code' {
+  interface PluginState {
+    'scranton-hq': { attention: Attention | null }
+  }
+}
+```
+
+`.claude-plugin/marketplace.json` (repository root)
+```json
+{
+  "name": "scranton-hq",
+  "description": "scranton-hq for Claude Code: see which of your sessions are waiting for you.",
+  "owner": { "name": "scranton-hq contributors" },
+  "plugins": [
+    {
+      "name": "scranton-hq",
+      "source": "./mod",
+      "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local scranton-hq daemon."
+    }
+  ]
+}
+```
+
+**Step 2: Write the failing mod tests**
+
+`mod/tests/forward.test.ts`
+```ts
+import { expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+type Post = { url: string; body: Record<string, any>[]; auth: string | undefined }
+
+function daemon(on: On, posts: Post[]) {
+  mock.env(on, { HOME: '/home/dev' })
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async ($, e, next) =>
+    e.path === '/home/dev/.scranton-hq/daemon.json' ? { value: JSON.stringify({ port: 7337, token: 'tok' }) } : next(e),
+  )
+  on('http.fetch', async ($, e) => {
+    if (e.init?.method === 'POST') posts.push({ url: e.url, body: JSON.parse(e.init.body ?? '[]'), auth: e.init.headers?.authorization })
+    return { value: { status: e.init?.method === 'POST' ? 204 : 200, ok: true, headers: {}, text: '{"needsYou":0,"done":0,"items":[]}' } }
+  })
+}
+
+const START = { cwd: '/home/dev/shop', surface: null, isInteractive: true } as const
+
+test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
+  const posts: Post[] = []
+  daemon(on, posts)
+  const clock = mock.clock(on)
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+  on('tool.call', async () => ({ result: 'file-a' }))
+  on('turn.complete', async ($, e) => ({ text: e.answer }))
+
+  await $.session.start(START)
+  await $.prompt.submit({ text: 'list the files', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't1' })
+  expect(posts).toEqual([])
+  await clock.advance(600)
+
+  expect(posts).toHaveLength(1)
+  expect(posts[0]?.url).toBe('http://127.0.0.1:7337/api/hooks')
+  expect(posts[0]?.auth).toBe('Bearer tok')
+  const batch = posts[0]?.body ?? []
+  expect(batch.map(b => b.hook_event_name)).toEqual(['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'])
+  expect(batch[0]).toMatchObject({ session_id: 'S-OWN', cwd: '/home/dev/shop', prompt: 'list the files' })
+  expect(batch[1]).toMatchObject({ tool_name: 'Bash', tool_input: { command: 'ls' } })
+  expect(typeof batch[0]?._scranton_ts).toBe('number')
+})
+
+test('reports a permission prompt and a failed tool', async ($, on) => {
+  const posts: Post[] = []
+  daemon(on, posts)
+  const clock = mock.clock(on)
+  on('tool.check', async () => ({ decision: 'ask' }))
+  on('tool.call', async () => ({ isError: true, result: 'boom' }))
+
+  await $.session.start(START)
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf dist' } })
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf dist' })
+  await clock.advance(600)
+
+  const batch = posts[0]?.body ?? []
+  expect(batch.map(b => b.hook_event_name)).toEqual(['PermissionRequest', 'PreToolUse', 'PostToolUseFailure'])
+  expect(batch[0]).toMatchObject({ tool_name: 'Bash', tool_input: { command: 'rm -rf dist' } })
+})
+
+test('sends what is queued at once when the session ends', async ($, on) => {
+  const posts: Post[] = []
+  daemon(on, posts)
+  mock.clock(on)
+  on('session.end', async ($, e) => ({ sessionId: e.sessionId }))
+
+  await $.session.start(START)
+  await $.session.end({ reason: 'other', sessionId: 'S-OWN', resume: { id: 'S-OWN' } })
+
+  expect(posts.map(p => p.body.map(b => b.hook_event_name))).toEqual([['SessionEnd']])
+  expect(posts[0]?.body[0]).toMatchObject({ reason: 'other', session_id: 'S-OWN' })
+})
+
+test('keeps working when the daemon is not running', async ($, on) => {
+  mock.env(on, { HOME: '/home/dev' })
+  const clock = mock.clock(on)
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ deny: 'ENOENT' }))
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+
+  await $.session.start(START)
+  const r = await $.prompt.submit({ text: 'still fine', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(5000)
+  expect(r).toMatchObject({ text: 'still fine' })
+})
+```
+
+`mod/tests/band.test.tsx`
+```tsx
+import { expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+const ATTENTION = {
+  needsYou: 2,
+  done: 1,
+  items: [
+    { id: 'S-OWN', name: 'me', repo: 'shop', state: 'needs_you', since: 1, reason: { kind: 'question', text: 'mine' }, title: null, tmuxPane: '%1' },
+    { id: 'S2', name: 'orders-api-c3', repo: 'orders-api', state: 'needs_you', since: 2, reason: { kind: 'permission', text: 'Bash' }, title: null, tmuxPane: '%7' },
+    { id: 'S3', name: 'storefront-web-b2', repo: 'storefront-web', state: 'done', since: 3, reason: null, title: 'Copy', tmuxPane: null },
+  ],
+}
+const NOBODY = { needsYou: 0, done: 0, items: [] }
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {}, title: '', isFocused: false }
+const START = { cwd: '/home/dev/shop', surface: null, isInteractive: true } as const
+
+function daemon(on: On, attention: object, env: Record<string, string>, ran: string[][]) {
+  mock.env(on, env)
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(attention) } }))
+  on('process.run', async ($, e) => {
+    ran.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+}
+
+test('shows who else is waiting and jumps to their tmux pane', async ($, on) => {
+  const ran: string[][] = []
+  daemon(on, ATTENTION, { HOME: '/home/dev', TMUX: '/tmp/tmux-501/default,1,0' }, ran)
+  const clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'scranton-hq', surface, component: 'AbovePrompt', props: BAND })
+    expect((await ui.find({ type: 'Text', text: /waiting/ }))?.text).toBe('◉ 1 waiting · orders-api-c3: Bash ')
+    expect((await ui.find({ type: 'Text', text: /done/ }))?.text).toBe(' ✓ 1 done')
+    await ui.press({ key: 'go' })
+    await ui.unmount()
+  }
+  expect(ran.slice(0, 3)).toEqual([
+    ['tmux', 'switch-client', '-t', '%7'],
+    ['tmux', 'select-window', '-t', '%7'],
+    ['tmux', 'select-pane', '-t', '%7'],
+  ])
+})
+
+test('offers no jump outside tmux', async ($, on) => {
+  daemon(on, ATTENTION, { HOME: '/home/dev' }, [])
+  const clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await ui.find({ key: 'go' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('draws nothing when nobody else needs you', async ($, on) => {
+  daemon(on, NOBODY, { HOME: '/home/dev' }, [])
+  const clock = mock.clock(on)
+  on('ui.render', async () => ({ type: 'Box', children: [] }))
+  await $.session.start(START)
+  await clock.advance(3100)
+  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await ui.find({ type: 'Text' })).toBeUndefined()
+  await ui.unmount()
+})
+```
+
+**Step 3: Run them to see them fail**
+
+Run: `claude plugin test mod`
+Expected: FAIL (the plugin has no hooks module yet).
+
+**Step 4: Write `mod/hooks/register.tsx`**
+
+```tsx
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+
+import type { Attention } from '../types'
+
+// scranton-hq for Claude Code: forwards what the session does to the local scranton-hq daemon,
+// and shows above the prompt who else is waiting for you. Payloads use the field names of
+// Claude Code's settings hooks, so the daemon reads them with one mapper.
+
+const MAX_STRING = 400
+const MAX_QUEUE = 500
+const FLUSH_MS = 500
+const POLL_MS = 3000
+
+const attention = atom({ plugin: 'scranton-hq', key: 'attention' } as const, null)
+
+type Daemon = { port: number; token: string }
+type Payload = Record<string, unknown>
+
+const queue: Payload[] = []
+let daemon: Daemon | null = null
+let sessionCwd = ''
+
+function slim(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') return value.length > MAX_STRING ? value.slice(0, MAX_STRING) : value
+  if (value === null || typeof value !== 'object' || depth > 3) return value
+  if (Array.isArray(value)) return value.slice(0, 20).map(v => slim(v, depth + 1))
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(value).slice(0, 30)) out[k] = slim(v, depth + 1)
+  return out
+}
+
+async function enqueue($: EngineInterface, fields: Payload) {
+  const body: Payload = { _scranton_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined) body[k] = slim(v)
+  queue.push(body)
+  if (queue.length > MAX_QUEUE) queue.splice(0, queue.length - MAX_QUEUE)
+}
+
+async function locate($: EngineInterface): Promise<Daemon | null> {
+  const dir = (await $.env.get('SCRANTON_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.scranton-hq`
+  try {
+    const d = JSON.parse(await $.fs.read(`${dir}/daemon.json`)) as Partial<Daemon>
+    return typeof d.port === 'number' && typeof d.token === 'string' ? { port: d.port, token: d.token } : null
+  } catch {
+    return null
+  }
+}
+
+async function call($: EngineInterface, method: string, path: string, body?: string) {
+  daemon ??= await locate($)
+  if (!daemon) return null
+  try {
+    const r = await $.http.fetch(`http://127.0.0.1:${daemon.port}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${daemon.token}`, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body }),
+    })
+    if (r.status === 401) daemon = null
+    return r
+  } catch {
+    daemon = null
+    return null
+  }
+}
+
+async function flush($: EngineInterface) {
+  if (queue.length === 0) return
+  const batch = queue.splice(0, queue.length)
+  const r = await call($, 'POST', '/api/hooks', JSON.stringify(batch))
+  if (!r?.ok) queue.unshift(...batch.slice(-(MAX_QUEUE - queue.length)))
+}
+
+async function poll($: EngineInterface) {
+  const r = await call($, 'GET', '/api/attention')
+  let next: Attention | null = null
+  if (r?.ok) {
+    try {
+      next = JSON.parse(r.text) as Attention
+    } catch {
+      next = null
+    }
+  }
+  await update($, attention, () => next)
+}
+
+async function jump($: EngineInterface, pane: string) {
+  await $.process.run(['tmux', 'switch-client', '-t', pane])
+  await $.process.run(['tmux', 'select-window', '-t', pane])
+  await $.process.run(['tmux', 'select-pane', '-t', pane])
+}
+
+export const register: Register = on => {
+  on('session.start', async ($, e, next) => {
+    sessionCwd = e.cwd
+    $.clock.every(FLUSH_MS, () => void flush($))
+    $.clock.every(POLL_MS, () => void poll($))
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    await enqueue($, { hook_event_name: 'UserPromptSubmit', prompt: e.text })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('tool.call', async ($, e, next) => {
+    const { tool, tool_use_id, agentId, ...input } = e as unknown as Payload & { tool: string; tool_use_id?: string; agentId?: string }
+    await enqueue($, { hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input, tool_use_id, agent_id: agentId })
+    const result = await next(e)
+    const failed = result.deny !== undefined || result.isError === true
+    await enqueue($, { hook_event_name: failed ? 'PostToolUseFailure' : 'PostToolUse', tool_name: tool, tool_use_id, agent_id: agentId })
+    return result
+  }).catch(($, e, next) => next(e))
+
+  on('tool.check', async ($, e, next) => {
+    const verdict = await next(e)
+    if (verdict.decision === 'ask') {
+      await enqueue($, { hook_event_name: 'PermissionRequest', tool_name: e.tool, tool_input: e.input, agent_id: e.agentId })
+    }
+    return verdict
+  }).catch(($, e, next) => next(e))
+
+  on('agent.spawn', async ($, e, next) => {
+    const spawned = await next(e)
+    if (spawned.agentId) await enqueue($, { hook_event_name: 'SubagentStart', agent_id: spawned.agentId, agent_type: e.subagentType })
+    return spawned
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    await enqueue($, { hook_event_name: 'Stop', background_tasks: 0 })
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    await enqueue($, { hook_event_name: 'SessionEnd', reason: e.reason })
+    await flush($)
+    return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const a = await read($, attention)
+    if (e.props.hasSurvey || !a) return next(e)
+    const own = await $.session.id()
+    const waiting = a.items.filter(i => i.state === 'needs_you' && i.id !== own)
+    const done = a.items.filter(i => i.state === 'done' && i.id !== own).length
+    if (waiting.length === 0 && done === 0) return next(e)
+    const inTmux = (await $.env.get('TMUX')) !== undefined
+    const first = waiting[0]
+    const pane = first?.tmuxPane ?? null
+    const { Box, Button, Text } = $.ui.resolve(e)
+    return (
+      <Box>
+        {first ? <Text color="red">◉ {waiting.length} waiting · {first.name ?? first.repo}: {first.reason?.text ?? 'needs you'} </Text> : null}
+        {pane && inTmux ? <Button key="go" label="Go" onPress={() => jump($, pane)} /> : null}
+        {done > 0 ? <Text color="green"> ✓ {done} done</Text> : null}
+      </Box>
+    )
+  })
+}
+```
+
+**Step 5: Validate and run the mod tests**
+
+Run: `claude plugin validate mod && claude plugin validate . && claude plugin test mod`
+Expected: `✔ Validation passed` twice. The hooks report lists `session.start, prompt.submit, tool.call, tool.check, agent.spawn, turn.complete, session.end, ui.render{component=AbovePrompt}` and a `gating hook with .catch` line for each of `prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`. Then `7 pass, 0 fail`.
+
+A `gating hook without .catch` line is a bug: add the `.catch`. If a test fails on a shape the declarations disagree with, the declarations win: read them (next step), adapt, and report the difference to the coordinator.
+
+**Step 6: Type-check the mod**
+
+The coordinator passes you the path of `claude-code.d.ts` for the installed Claude Code. The `plugin-authoring` skill writes it when it loads, under `/private/tmp/claude-<uid>/bundled-skills/<version>/<hash>/plugin-authoring/types/claude-code.d.ts`. Create a tsconfig **outside the repository** (for example in your scratchpad), never inside `mod/`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["es2023"], "types": [],
+    "module": "esnext", "moduleResolution": "bundler",
+    "strict": true, "noUncheckedIndexedAccess": true,
+    "noEmit": true, "skipLibCheck": true,
+    "jsx": "react", "jsxFactory": "h", "jsxFragmentFactory": "Fragment"
+  },
+  "include": ["<path to claude-code.d.ts>", "<repo>/mod/hooks", "<repo>/mod/types", "<repo>/mod/tests"]
+}
+```
+
+Run: `npx tsc -p <that tsconfig>`
+Expected: no output. If no path was given, skip this step and say so in your report.
+
+**Step 7: Write the contract test `test/mod-contract.test.ts`**
+
+The mod cannot import from `src/`, so this vitest reads its source as text and checks that it only sends payloads the mapper understands.
 
 ```ts
 import { describe, expect, it } from 'vitest';
-import { lstat, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { HOOK_EVENTS } from '../src/adapters/claude-code/hooks.js';
-import { main, type Io } from '../src/cli.js';
-import { countOurHandlers, HOOK_MARKER, hookCommand, installHooks, mergeHooks, removeHooks, uninstallHooks } from '../src/hooks-install.js';
+import { readFileSync } from 'node:fs';
+import { HOOK_EVENTS, mapHookPayload } from '../src/adapters/claude-code/hooks.js';
 
-const CMD = hookCommand('/usr/local/bin/node', '/opt/scranton-hq/dist/hook.js');
-const EXISTING = {
-  model: 'opus',
-  hooks: {
-    Stop: [{ hooks: [{ type: 'command', command: '/usr/local/bin/judge stop' }] }],
-    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'guard.sh' }] }],
-  },
-  permissions: { allow: ['Bash(ls:*)'] },
-};
+const source = readFileSync(new URL('../mod/hooks/register.tsx', import.meta.url), 'utf8');
+const sent = [...new Set(
+  source.split('\n')
+    .filter((line) => line.includes('hook_event_name'))
+    .flatMap((line) => [...line.matchAll(/'([A-Z][A-Za-z]+)'/g)].map((m) => m[1]!)),
+)].sort();
 
-function capture() {
-  const out: string[] = [];
-  const err: string[] = [];
-  const io: Io = { out: (l) => out.push(l), err: (l) => err.push(l) };
-  return { io, out, err };
-}
-const yes = async () => true;
-const no = async () => false;
-
-describe('hookCommand', () => {
-  it('quotes paths for the shell and carries the marker', () => {
-    expect(CMD).toBe(`'/usr/local/bin/node' '/opt/scranton-hq/dist/hook.js' ${HOOK_MARKER}`);
-    expect(hookCommand('/opt/my node/node', "/x/it's/hook.js")).toBe(`'/opt/my node/node' '/x/it'\\''s/hook.js' ${HOOK_MARKER}`);
-  });
-});
-
-describe('mergeHooks / removeHooks', () => {
-  it('adds one async handler per event after the existing ones and keeps everything else', () => {
-    const merged = mergeHooks(EXISTING, CMD) as typeof EXISTING & { hooks: Record<string, any[]> };
-    expect(Object.keys(merged)).toEqual(['model', 'hooks', 'permissions']);
-    expect(Object.keys(merged.hooks).sort()).toEqual([...HOOK_EVENTS].sort());
-    expect(merged.hooks.Stop).toEqual([EXISTING.hooks.Stop[0], { hooks: [{ type: 'command', command: CMD, async: true, timeout: 5 }] }]);
-    expect(merged.hooks.PreToolUse![0]).toEqual(EXISTING.hooks.PreToolUse[0]);
-    expect(countOurHandlers(merged)).toBe(HOOK_EVENTS.length);
+describe('the mod and the daemon agree on payloads', () => {
+  it('the mod sends only names the mapper understands', () => {
+    expect(sent).toEqual(['PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionEnd', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
+    for (const name of sent) expect(HOOK_EVENTS).toContain(name);
   });
 
-  it('is idempotent and replaces an older install', () => {
-    const once = mergeHooks(EXISTING, CMD);
-    expect(mergeHooks(once, CMD)).toEqual(once);
-    const old = mergeHooks(EXISTING, `'/old/node' '/old/hook.js' ${HOOK_MARKER}`);
-    expect(mergeHooks(old, CMD)).toEqual(once);
-  });
-
-  it('removes only our handlers', () => {
-    expect(removeHooks(mergeHooks(EXISTING, CMD))).toEqual(EXISTING);
-    const mixed = { hooks: { Stop: [{ hooks: [{ type: 'command', command: CMD }, { type: 'command', command: 'theirs' }] }] } };
-    expect(removeHooks(mixed)).toEqual({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'theirs' }] }] } });
-    expect(removeHooks({ model: 'x' })).toEqual({ model: 'x' });
-    expect(removeHooks(mergeHooks({}, CMD))).toEqual({ hooks: {} });
-  });
-
-  it('refuses a hooks value that is not an object', () => {
-    expect(() => mergeHooks({ hooks: 'nope' }, CMD)).toThrow('settings.hooks is not an object');
-  });
-});
-
-describe('installHooks / uninstallHooks on a file', () => {
-  async function settingsFile(content: string | null) {
-    const dir = await mkdtemp(join(tmpdir(), 'shq-settings-'));
-    const path = join(dir, 'settings.json');
-    if (content !== null) await writeFile(path, content);
-    return { dir, path };
-  }
-
-  it('dry run prints and writes nothing', async () => {
-    const { path } = await settingsFile(JSON.stringify(EXISTING));
-    const c = capture();
-    expect(await installHooks({ settingsPath: path, command: CMD, dryRun: true, confirm: yes, io: c.io })).toBe(0);
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(EXISTING);
-    expect(c.out.at(-1)).toBe('Dry run: nothing was written.');
-  });
-
-  it('writes nothing when not confirmed', async () => {
-    const { path } = await settingsFile(JSON.stringify(EXISTING));
-    expect(await installHooks({ settingsPath: path, command: CMD, confirm: no, io: capture().io })).toBe(1);
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(EXISTING);
-  });
-
-  it('backs up, writes, and uninstalls back to the original', async () => {
-    const original = JSON.stringify(EXISTING, null, 2);
-    const { dir, path } = await settingsFile(original);
-    expect(await installHooks({ settingsPath: path, command: CMD, confirm: yes, io: capture().io, now: () => new Date('2026-10-10T12:00:00Z') })).toBe(0);
-    expect(countOurHandlers(JSON.parse(await readFile(path, 'utf8')))).toBe(HOOK_EVENTS.length);
-    const backups = (await readdir(dir)).filter((f) => f.includes('scranton-hq-backup'));
-    expect(backups).toEqual(['settings.json.scranton-hq-backup-2026-10-10T12-00-00-000Z']);
-    expect(await readFile(join(dir, backups[0]!), 'utf8')).toBe(original);
-    expect(await uninstallHooks({ settingsPath: path, confirm: yes, io: capture().io })).toBe(0);
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(EXISTING);
-  });
-
-  it('creates a missing settings file without a backup', async () => {
-    const { dir, path } = await settingsFile(null);
-    expect(await installHooks({ settingsPath: path, command: CMD, confirm: yes, io: capture().io })).toBe(0);
-    expect(countOurHandlers(JSON.parse(await readFile(path, 'utf8')))).toBe(HOOK_EVENTS.length);
-    expect((await readdir(dir)).filter((f) => f.includes('backup'))).toEqual([]);
-  });
-
-  it('refuses a file that is not a JSON object', async () => {
-    const { path } = await settingsFile('{ not json');
-    const c = capture();
-    expect(await installHooks({ settingsPath: path, command: CMD, confirm: yes, io: c.io })).toBe(1);
-    expect(await readFile(path, 'utf8')).toBe('{ not json');
-    expect(c.err[0]).toContain('Nothing was changed');
-  });
-
-  it('keeps a symlinked settings file a symlink', async () => {
-    const { dir, path } = await settingsFile(JSON.stringify(EXISTING));
-    const link = join(dir, 'linked-settings.json');
-    await symlink(path, link);
-    expect(await installHooks({ settingsPath: link, command: CMD, confirm: yes, io: capture().io })).toBe(0);
-    expect((await lstat(link)).isSymbolicLink()).toBe(true);
-    expect(countOurHandlers(JSON.parse(await readFile(path, 'utf8')))).toBe(HOOK_EVENTS.length);
-  });
-
-  it('says so when there is nothing to uninstall', async () => {
-    const { path } = await settingsFile(JSON.stringify(EXISTING));
-    const c = capture();
-    expect(await uninstallHooks({ settingsPath: path, confirm: yes, io: c.io })).toBe(0);
-    expect(c.out[0]).toContain('No scranton-hq hooks');
-  });
-});
-
-describe('cli install-hooks', () => {
-  it('installs with --yes into the given settings file and uninstalls again', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'shq-cli-settings-'));
-    const path = join(dir, 'settings.json');
-    await writeFile(path, JSON.stringify(EXISTING));
-    expect(await main(['install-hooks', '--settings', path, '--yes'], capture().io)).toBe(0);
-    const written = JSON.parse(await readFile(path, 'utf8'));
-    const ours = written.hooks.Stop.at(-1).hooks[0].command as string;
-    expect(ours).toContain(process.execPath);
-    expect(ours).toContain('hook.js');
-    expect(ours.endsWith(HOOK_MARKER)).toBe(true);
-    expect(await main(['uninstall-hooks', '--settings', path, '--yes'], capture().io)).toBe(0);
-    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(EXISTING);
-  });
-
-  it('refuses to write without a terminal unless --yes is given', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'shq-cli-settings-'));
-    const path = join(dir, 'settings.json');
-    await writeFile(path, '{}');
-    const c = capture();
-    expect(await main(['install-hooks', '--settings', path], c.io)).toBe(1);
-    expect(c.err[0]).toContain('--yes');
-    expect(await readFile(path, 'utf8')).toBe('{}');
-  });
-});
-```
-
-Note on the last test: vitest workers have no TTY on stdin, which is exactly the case under test.
-
-**Step 2: Run it to see it fail**
-
-Run: `npx vitest run test/hooks-install.test.ts`
-Expected: FAIL, module not found.
-
-**Step 3: Implement `src/hooks-install.ts`**
-
-```ts
-import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { HOOK_EVENTS } from './adapters/claude-code/hooks.js';
-
-type Json = Record<string, unknown>;
-
-/** Every handler scranton-hq installs carries this string; uninstall removes exactly those. */
-export const HOOK_MARKER = 'scranton-hq-hook';
-
-const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
-
-export function hookCommand(nodePath: string, hookScript: string): string {
-  return `${shellQuote(nodePath)} ${shellQuote(hookScript)} ${HOOK_MARKER}`;
-}
-
-function isPlainObject(v: unknown): v is Json {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
-}
-
-function isOurs(handler: unknown): boolean {
-  return isPlainObject(handler) && typeof handler.command === 'string' && handler.command.includes(HOOK_MARKER);
-}
-
-function hooksOf(settings: Json): Json | undefined {
-  if (settings.hooks === undefined) return undefined;
-  if (!isPlainObject(settings.hooks)) throw new Error('settings.hooks is not an object');
-  return settings.hooks;
-}
-
-export function countOurHandlers(settings: Json): number {
-  const hooks = isPlainObject(settings.hooks) ? settings.hooks : {};
-  let n = 0;
-  for (const groups of Object.values(hooks)) {
-    if (!Array.isArray(groups)) continue;
-    for (const g of groups) if (isPlainObject(g) && Array.isArray(g.hooks)) n += g.hooks.filter(isOurs).length;
-  }
-  return n;
-}
-
-/** Removes scranton-hq handlers; groups and events left empty by that removal disappear. */
-export function removeHooks(settings: Json): Json {
-  const hooks = hooksOf(settings);
-  if (hooks === undefined) return { ...settings };
-  const next: Json = {};
-  for (const [event, groups] of Object.entries(hooks)) {
-    if (!Array.isArray(groups)) {
-      next[event] = groups;
-      continue;
+  it('every payload the mod sends maps to at least one event', () => {
+    for (const name of sent) {
+      const payload = JSON.parse(readFileSync(new URL(`./fixtures/hooks/${name}.json`, import.meta.url), 'utf8'));
+      expect(mapHookPayload(payload, 0).length, name).toBeGreaterThan(0);
     }
-    const kept: unknown[] = [];
-    for (const g of groups) {
-      if (isPlainObject(g) && Array.isArray(g.hooks)) {
-        const remaining = g.hooks.filter((h) => !isOurs(h));
-        if (remaining.length === g.hooks.length) kept.push(g);
-        else if (remaining.length > 0) kept.push({ ...g, hooks: remaining });
-      } else {
-        kept.push(g);
-      }
-    }
-    if (kept.length > 0 || groups.length === 0) next[event] = kept;
-  }
-  return { ...settings, hooks: next };
-}
-
-/** Adds one async scranton-hq handler per event, after the existing ones. Idempotent. */
-export function mergeHooks(settings: Json, command: string, events: readonly string[] = HOOK_EVENTS): Json {
-  const clean = removeHooks(settings);
-  const hooks: Json = { ...(hooksOf(clean) ?? {}) };
-  for (const event of events) {
-    const groups = Array.isArray(hooks[event]) ? [...(hooks[event] as unknown[])] : [];
-    groups.push({ hooks: [{ type: 'command', command, async: true, timeout: 5 }] });
-    hooks[event] = groups;
-  }
-  return { ...clean, hooks };
-}
-
-function ourGroups(settings: Json): Json {
-  const out: Json = {};
-  for (const [event, groups] of Object.entries(isPlainObject(settings.hooks) ? settings.hooks : {})) {
-    if (!Array.isArray(groups)) continue;
-    const mine = groups.filter((g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.some(isOurs));
-    if (mine.length) out[event] = mine;
-  }
-  return { hooks: out };
-}
-
-export interface HookFileOptions {
-  settingsPath: string;
-  dryRun?: boolean;
-  confirm: (question: string) => Promise<boolean>;
-  io: { out(line: string): void; err(line: string): void };
-  now?: () => Date;
-}
-
-async function readSettings(path: string, io: HookFileOptions['io']): Promise<{ text: string | null; json: Json } | null> {
-  let text: string | null = null;
-  try {
-    text = await readFile(path, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      io.err(`Cannot read ${path}: ${(err as Error).message}. Nothing was changed.`);
-      return null;
-    }
-  }
-  if (text === null || !text.trim()) return { text, json: {} };
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (!isPlainObject(parsed)) throw new Error('not an object');
-    return { text, json: parsed };
-  } catch {
-    io.err(`${path} is not a JSON object. Nothing was changed.`);
-    return null;
-  }
-}
-
-async function writeSettings(path: string, original: string | null, next: Json, now: Date, io: HookFileOptions['io']): Promise<void> {
-  let target = path;
-  try {
-    target = await realpath(path);
-  } catch {
-    // new file
-  }
-  if (original !== null) {
-    const backup = `${target}.scranton-hq-backup-${now.toISOString().replace(/[:.]/g, '-')}`;
-    await writeFile(backup, original, { mode: 0o600 });
-    io.out(`Backup: ${backup}`);
-  }
-  await mkdir(dirname(target), { recursive: true });
-  let mode = 0o600;
-  try {
-    mode = (await stat(target)).mode & 0o777;
-  } catch {
-    // new file
-  }
-  const tmp = `${target}.scranton-hq-tmp`;
-  await writeFile(tmp, JSON.stringify(next, null, 2) + '\n', { mode });
-  await rename(tmp, target);
-}
-
-export async function installHooks(o: HookFileOptions & { command: string }): Promise<number> {
-  const read = await readSettings(o.settingsPath, o.io);
-  if (!read) return 1;
-  let next: Json;
-  try {
-    next = mergeHooks(read.json, o.command);
-  } catch (err) {
-    o.io.err(`${(err as Error).message}. Nothing was changed.`);
-    return 1;
-  }
-  const earlier = countOurHandlers(read.json);
-  o.io.out(`Settings file: ${o.settingsPath}`);
-  o.io.out(`Hook command:  ${o.command}`);
-  o.io.out(`Events:        ${HOOK_EVENTS.join(', ')}`);
-  if (earlier > 0) o.io.out(`Replaces ${earlier} earlier scranton-hq handler${earlier === 1 ? '' : 's'}.`);
-  o.io.out('Other hooks in the file stay as they are. Each handler runs in the background and never blocks Claude Code.');
-  if (o.dryRun) {
-    o.io.out(JSON.stringify(ourGroups(next), null, 2));
-    o.io.out('Dry run: nothing was written.');
-    return 0;
-  }
-  if (!(await o.confirm(`Write these hooks to ${o.settingsPath}? A backup is saved first. [y/N] `))) {
-    o.io.out('Nothing was written.');
-    return 1;
-  }
-  await writeSettings(o.settingsPath, read.text, next, (o.now ?? (() => new Date()))(), o.io);
-  o.io.out('Hooks installed.');
-  return 0;
-}
-
-export async function uninstallHooks(o: HookFileOptions): Promise<number> {
-  const read = await readSettings(o.settingsPath, o.io);
-  if (!read) return 1;
-  const count = countOurHandlers(read.json);
-  if (count === 0) {
-    o.io.out(`No scranton-hq hooks in ${o.settingsPath}. Nothing was changed.`);
-    return 0;
-  }
-  let next: Json;
-  try {
-    next = removeHooks(read.json);
-  } catch (err) {
-    o.io.err(`${(err as Error).message}. Nothing was changed.`);
-    return 1;
-  }
-  o.io.out(`Removes ${count} scranton-hq handler${count === 1 ? '' : 's'} from ${o.settingsPath}. Other hooks stay as they are.`);
-  if (o.dryRun) {
-    o.io.out('Dry run: nothing was written.');
-    return 0;
-  }
-  if (!(await o.confirm('Remove them? A backup is saved first. [y/N] '))) {
-    o.io.out('Nothing was written.');
-    return 1;
-  }
-  await writeSettings(o.settingsPath, read.text, next, (o.now ?? (() => new Date()))(), o.io);
-  o.io.out('Hooks removed.');
-  return 0;
-}
-
-export async function askYesNo(question: string): Promise<boolean> {
-  const { createInterface } = await import('node:readline/promises');
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return /^y(es)?$/i.test((await rl.question(question)).trim());
-  } finally {
-    rl.close();
-  }
-}
-```
-
-**Step 4: Add the commands to `src/cli.ts`**
-
-Add these imports at the top:
-
-```ts
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-```
-
-Add two cases to the `switch` in `main`, before `case undefined:`:
-
-```ts
-      case 'install-hooks':
-        return await cmdHooks(args, io, 'install');
-      case 'uninstall-hooks':
-        return await cmdHooks(args, io, 'uninstall');
-```
-
-Add two lines to `HELP`, after the `ack` line:
-
-```
-  scranton-hq install-hooks [--settings FILE] [--claude-dir DIR] [--dry-run] [--yes]
-  scranton-hq uninstall-hooks [--settings FILE] [--claude-dir DIR] [--dry-run] [--yes]
-```
-
-Add the command function at the end of the file:
-
-```ts
-async function cmdHooks(args: string[], io: Io, action: 'install' | 'uninstall'): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: { settings: { type: 'string' }, 'claude-dir': { type: 'string' }, 'dry-run': { type: 'boolean', default: false }, yes: { type: 'boolean', default: false } },
   });
-  const { claudeDir } = resolvePaths({ claudeDir: values['claude-dir'] });
-  const settingsPath = values.settings ?? join(claudeDir, 'settings.json');
-  if (!values.yes && !values['dry-run'] && !process.stdin.isTTY) {
-    io.err('Not running in a terminal: pass --yes to confirm, or --dry-run to preview.');
-    return 1;
-  }
-  const m = await import('./hooks-install.js');
-  const confirm = values.yes ? async () => true : m.askYesNo;
-  if (action === 'uninstall') return m.uninstallHooks({ settingsPath, dryRun: values['dry-run'], confirm, io });
-  const hookScript = fileURLToPath(new URL('./hook.js', import.meta.url));
-  if (/[\\/]_npx[\\/]/.test(hookScript)) {
-    io.err('Warning: scranton-hq is running from a temporary npx cache. Install it globally (npm i -g scranton-hq) so the hook path stays valid.');
-  }
-  return m.installHooks({ settingsPath, command: m.hookCommand(process.execPath, hookScript), dryRun: values['dry-run'], confirm, io });
-}
+});
 ```
 
-**Step 5: Run the tests**
-
-Run: `npx vitest run test/hooks-install.test.ts test/cli.test.ts && npm run typecheck`
+Run: `npx vitest run test/mod-contract.test.ts`
 Expected: PASS.
 
-**Step 6: Commit**
+**Step 8: Add the local script to `package.json`**
+
+Add to `"scripts"`: `"test:mod": "claude plugin validate mod && claude plugin validate . && claude plugin test mod"`. It needs the `claude` CLI, so it runs locally only, not in CI. The root `tsconfig.json` (`include: ["src", "test"]`) and vitest (`test/**/*.test.ts`) already leave `mod/` out; keep it that way.
+
+**Step 9: Commit**
 
 ```bash
-git add src/hooks-install.ts src/cli.ts test/hooks-install.test.ts
-git commit -m "Install and remove the Claude Code hooks safely"
+git add mod .claude-plugin test/mod-contract.test.ts package.json
+git commit -m "Add the Claude Code mod: live session events and the band above the prompt"
 ```
 
 ---
 
-### Task 21: Demo adapter and `demo` command
+### Task 20: Demo adapter and `demo` command
 
 Scripted synthetic sessions that flow through the real collector. Used for development, README screenshots and contributors without live sessions. The demo daemon uses its own data directory (`<dataDir>/demo`) and port (7338), keeps everything in memory, and ignores hook and filesystem events.
 
@@ -5223,7 +5015,7 @@ and
 
 **Step 5: Add the `demo` command to `src/cli.ts`**
 
-Add `case 'demo': return await cmdDemo(args, io);` to the switch, the help line `scranton-hq demo [--port N] [--data-dir DIR]`, and:
+Add `import { join } from 'node:path';` to the imports at the top, `case 'demo': return await cmdDemo(args, io);` to the switch, the help line `scranton-hq demo [--port N] [--data-dir DIR]` after the `ack` line, and:
 
 ```ts
 async function cmdDemo(args: string[], io: Io): Promise<number> {
@@ -5266,7 +5058,7 @@ git commit -m "Add scripted demo sessions and the demo command"
 
 ---
 
-### Task 22: README, end-to-end test, handover
+### Task 21: README, end-to-end test, handover
 
 **Files:**
 - Create: `test/e2e.test.ts`
@@ -5389,18 +5181,18 @@ Keep the existing "A note on the name" and "License" sections word for word. Rep
 2. **Status:** "Early. The collector, the CLI and the tmux counter work. The 3D building UI is next." Link the design document.
 3. **What it does:** three bullets, one per problem: which sessions work on the same feature (grouped by branch across repos); which sessions are waiting for you, and why; a record of finished sessions (coming).
 4. **Install:** `npm install -g scranton-hq` (Node 22.13 or later). From a clone: `npm install && npm run build && npm link`.
-5. **Quick start:** `scranton-hq start` in its own tmux window or terminal, then `scranton-hq ls`. Say that this already works from the files Claude Code writes, without hooks.
+5. **Quick start:** `scranton-hq start` in its own tmux window or terminal, then `scranton-hq ls`. Say that this already works from the files Claude Code writes, without the mod.
 6. **tmux:**
    ```tmux
    set -g status-right '#(scranton-hq status --format tmux) %H:%M'
    set -g status-interval 5
    ```
    `◉` is sessions waiting for you, `✓` is finished sessions you have not looked at. `scranton-hq ack` clears the `✓`.
-7. **Hooks (recommended):** hooks give the exact reason a session waits and react instantly. `scranton-hq install-hooks --dry-run` to preview, then `scranton-hq install-hooks`. Explain: it adds one background (`async`) handler per event to `~/.claude/settings.json`, keeps your other hooks, saves a backup first, and `scranton-hq uninstall-hooks` removes only its own handlers.
-8. **Commands:** a table of `start`, `status`, `ls`, `ack`, `install-hooks`, `uninstall-hooks`, `demo`.
-9. **How it works:** two sources (hooks, and Claude Code's own files under `~/.claude`), one collector, a localhost API. Note that the files under `~/.claude` are internal to Claude Code and can change between versions; scranton-hq reads them defensively and never writes there except when you run `install-hooks`.
+7. **The Claude Code mod (recommended):** it reports each session as things happen, with the exact reason a session waits, and shows above the prompt of every session who else is waiting for you, with a `Go` button that jumps to that tmux pane. Install: `/plugin install scranton-hq --marketplace <owner>/<repo>` (keep `<owner>/<repo>` as a placeholder until the repository is published). Try it from a clone for one session: `claude --plugin-dir /path/to/scranton-hq/mod`. Without the mod, scranton-hq still works from the files Claude Code writes, with up to a second of delay and less detail about why a session waits.
+8. **Commands:** a table of `start`, `status`, `ls`, `ack`, `demo`.
+9. **How it works:** two sources (the mod, and Claude Code's own files under `~/.claude`), one collector, a localhost API. The files under `~/.claude` are internal to Claude Code and can change between versions; scranton-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
 10. **Privacy and security:** listens on 127.0.0.1 only; every request needs a token stored in `~/.scranton-hq/token` (mode 600); no telemetry; nothing leaves your machine.
-11. **Development:** `npm test`, `npm run typecheck`, `scranton-hq demo` (or `node dist/bin.js demo`) for synthetic sessions, then `scranton-hq ls --data-dir ~/.scranton-hq/demo`.
+11. **Development:** `npm test`, `npm run typecheck`, `npm run test:mod` (needs the `claude` CLI; not run in CI), `scranton-hq demo` (or `node dist/bin.js demo`) for synthetic sessions, then `scranton-hq ls --data-dir ~/.scranton-hq/demo`.
 
 **Step 4: Commit**
 
@@ -5418,17 +5210,19 @@ Dispatch an Opus reviewer (`model: "opus"`) over the whole branch with this chec
 1. `npm ci && npm run typecheck && npm test && npm run build` pass from a clean checkout.
 2. `grep -rn "\.claude" src/ | grep -v "join(homedir(), '.claude')"` shows no hard-coded paths into the real home, and `git grep -n "homedir()" test/` is empty.
 3. `node dist/bin.js status --format tmux --data-dir "$(mktemp -d)"` prints an empty line, exits 0, and prints nothing on stderr. Time it: under 300 ms.
-4. `echo '{}' | node dist/hook.js; echo "exit=$?"` prints only `exit=0`.
-5. `node dist/bin.js demo --data-dir "$(mktemp -d)"` starts; in another shell `node dist/bin.js ls --data-dir <same dir>` shows three floors; Ctrl-C stops it and removes `daemon.json`.
-6. Types are defined once: `src/core/types.ts` is the only place that declares `Session`, `CollectorEvent`, `Workspace`.
-7. Every test file was seen failing before its implementation (check the commit order: test and implementation land in the same commit, and the task log shows the failing run).
-8. No runtime dependencies in `package.json`.
+4. `npm run test:mod` passes (`claude plugin validate mod`, `claude plugin validate .`, `claude plugin test mod`: 7 pass), and the mod type-checks as in Task 19 Step 6.
+5. Every gating hook in `mod/hooks/register.tsx` has a `.catch`, every hook returns `next(e)`'s result, and the mod has no `$.ui.notify`.
+6. `node dist/bin.js demo --data-dir "$(mktemp -d)"` starts; in another shell `node dist/bin.js ls --data-dir <same dir>` shows three floors; Ctrl-C stops it and removes `daemon.json`.
+7. Types are defined once: `src/core/types.ts` is the only place that declares `Session`, `CollectorEvent`, `Workspace`.
+8. Every test was seen failing before its implementation existed (the task logs show the failing run).
+9. No runtime dependencies in `package.json`.
 
 ## Handover: manual steps for the user (do not run these during implementation)
 
 These touch the user's real setup. The coordinator stops here and asks the user before each one.
 
 1. Build and link: `npm run build && npm link` (puts `scranton-hq` on the PATH).
-2. Start the daemon in its own tmux window: `scranton-hq start`. Check: `scranton-hq ls` lists the running sessions.
-3. Preview the hooks: `scranton-hq install-hooks --dry-run`. Then, if the user agrees: `scranton-hq install-hooks` (it asks for confirmation and saves a backup of `~/.claude/settings.json`).
-4. Add the tmux lines from the README to `~/.tmux.conf` and reload with `tmux source-file ~/.tmux.conf`.
+2. Start the daemon in its own tmux window: `scranton-hq start`. Check: `scranton-hq ls` lists the running sessions (this already works from Claude Code's own files).
+3. Try the mod in one new session: `claude --plugin-dir /Users/alexiocassani/Projects/watchtower/mod`. The band shows up there when another session waits or finishes.
+4. To have it in every session: publish the repository, then in any Claude Code session `/plugin install scranton-hq --marketplace <owner>/<repo>`. Before publishing, install from the local clone; check the exact command with `claude plugin --help` (`claude plugin marketplace add <repo path>`, then install `scranton-hq` from that marketplace).
+5. Add the tmux lines from the README to `~/.tmux.conf` and reload with `tmux source-file ~/.tmux.conf`.
