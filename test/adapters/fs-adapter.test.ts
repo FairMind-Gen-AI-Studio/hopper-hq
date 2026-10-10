@@ -37,7 +37,6 @@ function adapter(overrides: Partial<FsAdapterOptions> = {}) {
     ...overrides,
   });
 }
-
 const writeSession = (data: object) => writeFile(join(root, 'sessions', '4242.json'), JSON.stringify(data));
 async function writeTranscript(dirName: string, entries: object[]) {
   const dir = join(root, 'projects', dirName);
