@@ -1,0 +1,1 @@
+{ "_scranton_ts": 1791660002700, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Grep", "tool_input": { "pattern": "useCart" }, "tool_use_id": "toolu_03ABCDEFGHIJKLMNOPQRSTUV", "agent_id": "a58cb74ebedcc3070" }
