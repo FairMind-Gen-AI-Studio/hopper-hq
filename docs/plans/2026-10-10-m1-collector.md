@@ -21,7 +21,7 @@
 3. **The mod must never get in the way of a session.** Every hook ends by returning `next(e)`'s result. Every hook at a gating site (`prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`) carries `.catch(($, e, next) => next(e))`. Hooks only append to a queue; network calls happen in timers and at session end.
 4. **Tolerate undocumented formats.** `~/.claude/sessions/*.json`, transcripts and `subagents/*.meta.json` are internal Claude Code formats. Parse defensively: unknown fields are ignored, missing fields degrade, a bad line is skipped. Never throw out of a parser.
 5. **Imports:** in `src/` and `test/`, all relative imports use the `.js` extension (NodeNext), e.g. `import { x } from './types.js'` even though the file is `types.ts`. Vitest resolves these to the `.ts` sources. The mod in `mod/` follows its own rules (Task 19).
-6. **TDD:** write the test, run it and watch it fail, implement, run it and watch it pass, commit. Commit after every task with the message given. End every commit message with the line `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+6. **TDD:** write the test, run it and watch it fail, implement, run it and watch it pass, commit. Commit after every task with the commit block given; each block already carries the `Co-Authored-By` trailer as a second `-m`. Keep it.
 7. **Types are the contract.** Task 3 defines every shared type. Later tasks import them by name and never redefine them. If a task seems to need a type change, stop and report it to the coordinator instead of improvising.
 8. Commands run from the repository root: `/Users/alexiocassani/Projects/watchtower`.
 
@@ -190,7 +190,7 @@ Expected: `package-lock.json` is created; typecheck passes; `1 passed`.
 
 ```bash
 git add package.json package-lock.json tsconfig.json tsconfig.build.json vitest.config.ts .github/workflows/ci.yml test/scaffold.test.ts
-git commit -m "Scaffold the TypeScript package, tests and CI"
+git commit -m "Scaffold the TypeScript package, tests and CI" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -271,7 +271,7 @@ Expected: no `BAD` lines.
 
 ```bash
 git add test/fixtures/hooks
-git commit -m "Add the payload fixtures the mod and the daemon share"
+git commit -m "Add the payload fixtures the mod and the daemon share" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -494,7 +494,7 @@ Expected: PASS.
 
 ```bash
 git add src/core/types.ts src/config.ts test/config.test.ts
-git commit -m "Define shared domain types, paths and thresholds"
+git commit -m "Define shared domain types, paths and thresholds" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -661,7 +661,7 @@ Expected: PASS.
 
 ```bash
 git add src/core/tool-label.ts test/core/tool-label.test.ts
-git commit -m "Label tool calls and detect tools that wait for the user"
+git commit -m "Label tool calls and detect tools that wait for the user" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -783,7 +783,7 @@ Expected: PASS.
 
 ```bash
 git add src/core/feature.ts test/core/feature.test.ts
-git commit -m "Derive a feature key from branch names"
+git commit -m "Derive a feature key from branch names" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -968,6 +968,7 @@ describe('markSeen', () => {
   it('marks a done session as seen and ignores other states', () => {
     const done = run(seen(), ev('prompt', 1100, { text: 'x' }), ev('turn.finished', 1200, { backgroundTasks: 0 }));
     expect(markSeen(done, 5000).seenAt).toBe(5000);
+    expect(markSeen({ ...done, stateSince: 9000 }, 5000).seenAt).toBe(9000);
     const working = run(seen(), ev('prompt', 1100, { text: 'x' }));
     expect(markSeen(working, 5000)).toBe(working);
   });
@@ -1155,9 +1156,9 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
   return s;
 }
 
-/** The user has looked at a finished session. Only 'done' sessions change. */
+/** The user has looked at a finished session. Only 'done' sessions change; a 'done' stamped ahead of this clock counts as seen from its own time. */
 export function markSeen(s: Session, now: number): Session {
-  return s.state === 'done' ? { ...s, seenAt: now } : s;
+  return s.state === 'done' ? { ...s, seenAt: Math.max(now, s.stateSince) } : s;
 }
 ```
 
@@ -1172,7 +1173,7 @@ Expected: PASS. If a test fails, fix the implementation, not the test. If you be
 
 ```bash
 git add src/core/reducer.ts test/core/reducer.test.ts test/helpers/events.ts
-git commit -m "Fold normalized events into session state"
+git commit -m "Fold normalized events into session state" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1379,7 +1380,7 @@ Expected: PASS.
 
 ```bash
 git add src/core/view.ts test/core/view.test.ts
-git commit -m "Derive time-based states, feature floors and the attention queue"
+git commit -m "Derive time-based states, feature floors and the attention queue" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1588,7 +1589,7 @@ Expected: PASS.
 
 ```bash
 git add src/adapters/claude-code/jsonl.ts test/adapters/jsonl.test.ts
-git commit -m "Read JSONL files incrementally without splitting lines"
+git commit -m "Read JSONL files incrementally without splitting lines" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -1783,14 +1784,14 @@ Expected: PASS.
 
 ```bash
 git add src/adapters/claude-code/transcript.ts test/adapters/transcript.test.ts
-git commit -m "Parse Claude Code transcript lines into events"
+git commit -m "Parse Claude Code transcript lines into events" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
 
 ### Task 10: Sessions directory and process liveness
 
-`~/.claude/sessions/<pid>.json` lists live interactive sessions. A file can outlive its process, and pids get recycled, so a session counts as live only when its pid is running **and** that process started no later than the file's `startedAt` (plus a tolerance). Process start comes from `ps -o etime=` (elapsed time, a locale-independent format), never from parsing date strings.
+`~/.claude/sessions/<pid>.json` lists live interactive sessions. A file can outlive its process, and pids get recycled, so a session counts as live only when its pid is running **and** that process started no later than the file's `startedAt` (plus a tolerance). Process start comes from `ps -A -o pid=,etime=` (elapsed time, a locale-independent format), never from parsing date strings. All processes are listed in one call because `ps -p <list>` fails outright, printing nothing, when one pid in the list is out of range.
 
 **Files:**
 - Create: `src/adapters/claude-code/sessions-dir.ts`, `test/adapters/sessions-dir.test.ts`
@@ -1997,18 +1998,18 @@ export function parseEtime(etime: string): number | null {
 
 export const psProbe: ProcessProbe = async (pids, now) => {
   const out = new Map<number, number>();
-  const unique = [...new Set(pids)].filter((p) => Number.isInteger(p) && p > 0);
-  if (unique.length === 0) return out;
+  const wanted = new Set(pids.filter((p) => Number.isInteger(p) && p > 0));
+  if (wanted.size === 0) return out;
   let stdout = '';
   try {
-    ({ stdout } = await execFileP('ps', ['-o', 'pid=,etime=', '-p', unique.join(',')]));
+    // Every process in one call: a pid list makes ps fail outright (and print nothing) when one pid is out of range.
+    ({ stdout } = await execFileP('ps', ['-A', '-o', 'pid=,etime='], { maxBuffer: 16 * 1024 * 1024 }));
   } catch (err) {
-    // ps exits 1 when some pids are gone but still prints the ones it found
     stdout = (err as { stdout?: string }).stdout ?? '';
   }
   for (const line of stdout.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(\S+)$/);
-    if (!m) continue;
+    if (!m || !wanted.has(Number(m[1]))) continue;
     const seconds = parseEtime(m[2]!);
     if (seconds !== null) out.set(Number(m[1]), now - seconds * 1000);
   }
@@ -2032,7 +2033,7 @@ Expected: PASS.
 
 ```bash
 git add src/adapters/claude-code/sessions-dir.ts test/adapters/sessions-dir.test.ts
-git commit -m "Read live session files and check process liveness"
+git commit -m "Read live session files and check process liveness" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2191,7 +2192,7 @@ Expected: PASS.
 
 ```bash
 git add src/adapters/git.ts test/adapters/git.test.ts
-git commit -m "Resolve repository, worktree and branch for a working directory"
+git commit -m "Resolve repository, worktree and branch for a working directory" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2629,7 +2630,7 @@ Expected: PASS. Note the event order in the first test: `session.seen`, then the
 
 ```bash
 git add src/adapters/claude-code/fs-adapter.ts test/adapters/fs-adapter.test.ts
-git commit -m "Watch Claude Code's session files, transcripts and subagents"
+git commit -m "Watch Claude Code's session files, transcripts and subagents" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -2847,7 +2848,7 @@ Expected: PASS. If a fixture test fails, fix the implementation, not the fixture
 
 ```bash
 git add src/adapters/claude-code/hooks.ts test/adapters/hooks.test.ts
-git commit -m "Map the payloads the mod sends to events"
+git commit -m "Map the payloads the mod sends to events" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3012,7 +3013,7 @@ Expected: PASS. (Vitest may print one `ExperimentalWarning` for SQLite; that is 
 
 ```bash
 git add src/store/store.ts test/store.test.ts
-git commit -m "Persist sessions and an event log in SQLite"
+git commit -m "Persist sessions and an event log in SQLite" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3124,6 +3125,7 @@ describe('Collector', () => {
     expect(b.snapshot().floors[0]!.sessions[0]).toMatchObject({ id: 'S1', effectiveState: 'working' });
     await b.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, ts: NOW }));
     expect(b.attentionSummary().done).toBe(1);
+    await b.close();
     store.close();
   });
 });
@@ -3325,7 +3327,7 @@ Expected: PASS.
 
 ```bash
 git add src/collector.ts test/collector.test.ts
-git commit -m "Collect events into sessions, floors and the attention queue"
+git commit -m "Collect events into sessions, floors and the attention queue" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3366,7 +3368,7 @@ let port: number;
 let collector: Collector;
 
 beforeAll(async () => {
-  collector = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' }), saveDelayMs: 0 });
+  collector = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' }), saveDelayMs: 0, now: () => 1791660010000 });
   server = createApiServer({ collector, token: TOKEN, maxBodyBytes: 4096 });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   port = (server.address() as AddressInfo).port;
@@ -3426,7 +3428,7 @@ describe('API routes', () => {
 
   it('marks a finished session as seen', async () => {
     expect((await call({ method: 'POST', path: `/api/sessions/${SID}/seen` })).status).toBe(404);
-    const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: '/home/dev/shop/orders-api', _scranton_ts: Date.now() + 1000 });
+    const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: '/home/dev/shop/orders-api', _scranton_ts: 1791660009000 });
     expect((await call({ method: 'POST', path: '/api/hooks', body: stop })).status).toBe(204);
     await collector.idle();
     expect((await call({ path: '/api/attention' })).json.done).toBe(1);
@@ -3573,7 +3575,7 @@ Expected: PASS.
 
 ```bash
 git add src/server/http.ts test/server.test.ts
-git commit -m "Serve a token-protected localhost API"
+git commit -m "Serve a token-protected localhost API" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -3710,7 +3712,7 @@ export interface DaemonOptions {
   port?: number;
   claudeDir?: string;
   dataDir?: string;
-  /** Watch ~/.claude on disk (default true). Hooks work either way. */
+  /** Watch ~/.claude on disk (default true). The mod works either way. */
   watchFiles?: boolean;
   log?: (line: string) => void;
 }
@@ -3808,7 +3810,7 @@ Expected: PASS.
 
 ```bash
 git add src/daemon-file.ts src/daemon.ts test/daemon.test.ts
-git commit -m "Run the daemon: store, collector, filesystem watcher and API"
+git commit -m "Run the daemon: store, collector, filesystem watcher and API" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4293,7 +4295,7 @@ Expected: tests PASS; the help text prints.
 
 ```bash
 git add src/client.ts src/cli-format.ts src/cli.ts src/bin.ts test/cli-format.test.ts test/cli.test.ts
-git commit -m "Add the CLI: start, status (text, tmux, json), ls and ack"
+git commit -m "Add the CLI: start, status (text, tmux, json), ls and ack" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4302,7 +4304,7 @@ git commit -m "Add the CLI: start, status (text, tmux, json), ls and ack"
 
 The mod is a Claude Code plugin made of function hooks. It does two jobs in every session where it is installed:
 
-1. **Reports the session.** It hooks Claude Code's native events and queues one payload per event, in the format of Task 2. A timer posts the queue to the daemon every 500 ms; `session.end` posts what is left at once.
+1. **Reports the session.** It hooks Claude Code's native events and queues one payload per event, in the format of Task 2. A timer posts the queue to the daemon every 500 ms; `session.end` posts what is left at once. A batch is retried only when it can succeed later (no daemon, a stale token, a server error); a batch the daemon refuses (400, 413) is dropped, so one bad batch never stalls the session's reporting. Strings are cut at 400 characters and objects deeper than four levels are replaced by `'[…]'`.
 
    | Native event | Payload sent |
    |---|---|
@@ -4318,7 +4320,7 @@ The mod is a Claude Code plugin made of function hooks. It does two jobs in ever
 
 Subagents that finish are not reported here: the filesystem adapter (Task 12) already marks them done when their transcript goes quiet.
 
-**What was verified, and how.** This exact code passed `claude plugin validate`, `tsc` against the API declarations, and the seven tests below under `claude plugin test`, on Claude Code 2.1.296. One live `claude -p` session with the mod loaded posted `UserPromptSubmit`, `PreToolUse` (with `tool_input.command`), `PostToolUse`, `Stop` and `SessionEnd` to a test server, with the right `Host`, token, session id and `cwd`. The `tool.check` verdict `ask` cannot happen under `claude -p`, so `PermissionRequest` is covered by the kit test only; the filesystem adapter's `waiting` status is the fallback. Under `claude -p`, `classic.*` events (the settings hooks' own events) did not reach the mod, which is why it hooks the native events.
+**What was verified, and how.** This exact code passed `claude plugin validate`, `tsc` against the API declarations, and the eight tests below under `claude plugin test`, on Claude Code 2.1.296. One live `claude -p` session with the mod loaded posted `UserPromptSubmit`, `PreToolUse` (with `tool_input.command`), `PostToolUse`, `Stop` and `SessionEnd` to a test server, with the right `Host`, token, session id and `cwd`. The `tool.check` verdict `ask` cannot happen under `claude -p`, so `PermissionRequest` is covered by the kit test only; the filesystem adapter's `waiting` status is the fallback. Under `claude -p`, `classic.*` events (the settings hooks' own events) did not reach the mod, which is why it hooks the native events.
 
 **Rules of the mod runtime** (the validator enforces most of them):
 - No Node and no DOM. Everything outside the module goes through `$`: `$.fs`, `$.http`, `$.env`, `$.process`, `$.clock`, `$.session`, `$.ui`.
@@ -4480,6 +4482,26 @@ test('keeps working when the daemon is not running', async ($, on) => {
   await clock.advance(5000)
   expect(r).toMatchObject({ text: 'still fine' })
 })
+
+test('drops a batch the daemon refuses instead of resending it forever', async ($, on) => {
+  mock.env(on, { HOME: '/home/dev' })
+  const clock = mock.clock(on)
+  let posts = 0
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async ($, e) => {
+    if (e.init?.method === 'POST') posts += 1
+    return { value: { status: e.init?.method === 'POST' ? 413 : 200, ok: e.init?.method !== 'POST', headers: {}, text: '{"needsYou":0,"done":0,"items":[]}' } }
+  })
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+
+  await $.session.start(START)
+  await $.prompt.submit({ text: 'x'.repeat(10), wait: false, origin: { kind: 'composer' } })
+  await clock.advance(600)
+  await clock.advance(2000)
+  expect(posts).toBe(1)
+})
 ```
 
 `mod/tests/band.test.tsx`
@@ -4554,12 +4576,43 @@ test('draws nothing when nobody else needs you', async ($, on) => {
 })
 ```
 
-**Step 3: Run them to see them fail**
+**Step 3: Write the contract test `test/mod-contract.test.ts`**
 
-Run: `claude plugin test mod`
-Expected: FAIL (the plugin has no hooks module yet).
+The mod cannot import from `src/`, so this vitest reads its source as text and checks that it only sends payloads the mapper understands.
 
-**Step 4: Write `mod/hooks/register.tsx`**
+```ts
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { HOOK_EVENTS, mapHookPayload } from '../src/adapters/claude-code/hooks.js';
+
+const source = readFileSync(new URL('../mod/hooks/register.tsx', import.meta.url), 'utf8');
+const sent = [...new Set(
+  source.split('\n')
+    .filter((line) => line.includes('hook_event_name'))
+    .flatMap((line) => [...line.matchAll(/'([A-Z][A-Za-z]+)'/g)].map((m) => m[1]!)),
+)].sort();
+
+describe('the mod and the daemon agree on payloads', () => {
+  it('the mod sends only names the mapper understands', () => {
+    expect(sent).toEqual(['PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionEnd', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
+    for (const name of sent) expect(HOOK_EVENTS).toContain(name);
+  });
+
+  it('every payload the mod sends maps to at least one event', () => {
+    for (const name of sent) {
+      const payload = JSON.parse(readFileSync(new URL(`./fixtures/hooks/${name}.json`, import.meta.url), 'utf8'));
+      expect(mapHookPayload(payload, 0).length, name).toBeGreaterThan(0);
+    }
+  });
+});
+```
+
+**Step 4: Run them to see them fail**
+
+Run: `claude plugin test mod; npx vitest run test/mod-contract.test.ts`
+Expected: both FAIL: the plugin has no hooks module yet, and the contract test cannot read `mod/hooks/register.tsx` (ENOENT).
+
+**Step 5: Write `mod/hooks/register.tsx`**
 
 ```tsx
 import { atom, read, update } from 'claude-code'
@@ -4587,7 +4640,8 @@ let sessionCwd = ''
 
 function slim(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') return value.length > MAX_STRING ? value.slice(0, MAX_STRING) : value
-  if (value === null || typeof value !== 'object' || depth > 3) return value
+  if (value === null || typeof value !== 'object') return value
+  if (depth > 3) return '[…]'
   if (Array.isArray(value)) return value.slice(0, 20).map(v => slim(v, depth + 1))
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(value).slice(0, 30)) out[k] = slim(v, depth + 1)
@@ -4632,7 +4686,8 @@ async function flush($: EngineInterface) {
   if (queue.length === 0) return
   const batch = queue.splice(0, queue.length)
   const r = await call($, 'POST', '/api/hooks', JSON.stringify(batch))
-  if (!r?.ok) queue.unshift(...batch.slice(-(MAX_QUEUE - queue.length)))
+  // Retry only what can succeed later: no daemon, a stale token, a server error. A refused batch is dropped.
+  if (!r || r.status === 401 || r.status >= 500) queue.unshift(...batch.slice(-(MAX_QUEUE - queue.length)))
 }
 
 async function poll($: EngineInterface) {
@@ -4723,14 +4778,14 @@ export const register: Register = on => {
 }
 ```
 
-**Step 5: Validate and run the mod tests**
+**Step 6: Validate and run all the mod's tests**
 
-Run: `claude plugin validate mod && claude plugin validate . && claude plugin test mod`
-Expected: `✔ Validation passed` twice. The hooks report lists `session.start, prompt.submit, tool.call, tool.check, agent.spawn, turn.complete, session.end, ui.render{component=AbovePrompt}` and a `gating hook with .catch` line for each of `prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`. Then `7 pass, 0 fail`.
+Run: `claude plugin validate mod && claude plugin validate . && claude plugin test mod && npx vitest run test/mod-contract.test.ts`
+Expected: `✔ Validation passed` twice. The hooks report lists `session.start, prompt.submit, tool.call, tool.check, agent.spawn, turn.complete, session.end, ui.render{component=AbovePrompt}` and a `gating hook with .catch` line for each of `prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`. Then `8 pass, 0 fail` from the plugin tests, and the contract test passes.
 
 A `gating hook without .catch` line is a bug: add the `.catch`. If a test fails on a shape the declarations disagree with, the declarations win: read them (next step), adapt, and report the difference to the coordinator.
 
-**Step 6: Type-check the mod**
+**Step 7: Type-check the mod**
 
 The coordinator passes you the path of `claude-code.d.ts` for the installed Claude Code. The `plugin-authoring` skill writes it when it loads, under `/private/tmp/claude-<uid>/bundled-skills/<version>/<hash>/plugin-authoring/types/claude-code.d.ts`. Create a tsconfig **outside the repository** (for example in your scratchpad), never inside `mod/`:
 
@@ -4750,40 +4805,6 @@ The coordinator passes you the path of `claude-code.d.ts` for the installed Clau
 Run: `npx tsc -p <that tsconfig>`
 Expected: no output. If no path was given, skip this step and say so in your report.
 
-**Step 7: Write the contract test `test/mod-contract.test.ts`**
-
-The mod cannot import from `src/`, so this vitest reads its source as text and checks that it only sends payloads the mapper understands.
-
-```ts
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { HOOK_EVENTS, mapHookPayload } from '../src/adapters/claude-code/hooks.js';
-
-const source = readFileSync(new URL('../mod/hooks/register.tsx', import.meta.url), 'utf8');
-const sent = [...new Set(
-  source.split('\n')
-    .filter((line) => line.includes('hook_event_name'))
-    .flatMap((line) => [...line.matchAll(/'([A-Z][A-Za-z]+)'/g)].map((m) => m[1]!)),
-)].sort();
-
-describe('the mod and the daemon agree on payloads', () => {
-  it('the mod sends only names the mapper understands', () => {
-    expect(sent).toEqual(['PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionEnd', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
-    for (const name of sent) expect(HOOK_EVENTS).toContain(name);
-  });
-
-  it('every payload the mod sends maps to at least one event', () => {
-    for (const name of sent) {
-      const payload = JSON.parse(readFileSync(new URL(`./fixtures/hooks/${name}.json`, import.meta.url), 'utf8'));
-      expect(mapHookPayload(payload, 0).length, name).toBeGreaterThan(0);
-    }
-  });
-});
-```
-
-Run: `npx vitest run test/mod-contract.test.ts`
-Expected: PASS.
-
 **Step 8: Add the local script to `package.json`**
 
 Add to `"scripts"`: `"test:mod": "claude plugin validate mod && claude plugin validate . && claude plugin test mod"`. It needs the `claude` CLI, so it runs locally only, not in CI. The root `tsconfig.json` (`include: ["src", "test"]`) and vitest (`test/**/*.test.ts`) already leave `mod/` out; keep it that way.
@@ -4792,7 +4813,7 @@ Add to `"scripts"`: `"test:mod": "claude plugin validate mod && claude plugin va
 
 ```bash
 git add mod .claude-plugin test/mod-contract.test.ts package.json
-git commit -m "Add the Claude Code mod: live session events and the band above the prompt"
+git commit -m "Add the Claude Code mod: live session events and the band above the prompt" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -4845,7 +4866,7 @@ describe('demoScript', () => {
     now = base + 59_000;
     const end = c.snapshot().attention;
     expect(end.needsYou.map((s) => s.id)).toEqual(['demo-sw-a1']);
-    expect(end.done.map((s) => s.id)).toEqual(['demo-oa-h8', 'demo-ps-d4', 'demo-oa-c3']);
+    expect(end.done.map((s) => s.id)).toEqual(['demo-sw-b2', 'demo-oa-h8', 'demo-ps-d4', 'demo-oa-c3']);
     expect(DEMO_SESSIONS).toHaveLength(7);
   });
 });
@@ -4867,7 +4888,7 @@ describe('startDemo', () => {
 
 describe('demo daemon', () => {
   it('serves demo sessions and ignores real ones', async () => {
-    const d = await startDaemon({ demo: true, port: 0, dataDir: await mkdtemp(join(tmpdir(), 'shq-demo-')), log: () => {} });
+    const d = await startDaemon({ demo: true, port: 0, dataDir: await mkdtemp(join(tmpdir(), 'shq-demo-')), claudeDir: await mkdtemp(join(tmpdir(), 'shq-claude-')), log: () => {} });
     await new Promise((r) => setTimeout(r, 50));
     await d.collector.ingest({ type: 'prompt', sessionId: 'REAL', ts: Date.now(), source: 'hook', cwd: '/w/real', text: 'x' });
     await d.collector.idle();
@@ -5053,7 +5074,7 @@ Expected: PASS.
 
 ```bash
 git add src/adapters/demo.ts src/daemon.ts src/cli.ts test/adapters/demo.test.ts
-git commit -m "Add scripted demo sessions and the demo command"
+git commit -m "Add scripted demo sessions and the demo command" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5166,12 +5187,10 @@ describe('end to end', () => {
 export type { Snapshot };
 ```
 
-Note: `_scranton_ts` is set slightly in the future so the hook events are newer than the session file's `statusUpdatedAt`, which the filesystem watcher keeps re-reporting as `busy` with an older timestamp.
-
 **Step 2: Run the whole suite**
 
 Run: `npm run typecheck && npm test && npm run build`
-Expected: everything passes; `dist/` contains `bin.js`, `hook.js`, `cli.js`.
+Expected: everything passes; `dist/` contains `bin.js`, `cli.js`, `daemon.js`.
 
 **Step 3: Rewrite `README.md`**
 
@@ -5188,7 +5207,7 @@ Keep the existing "A note on the name" and "License" sections word for word. Rep
    set -g status-interval 5
    ```
    `◉` is sessions waiting for you, `✓` is finished sessions you have not looked at. `scranton-hq ack` clears the `✓`.
-7. **The Claude Code mod (recommended):** it reports each session as things happen, with the exact reason a session waits, and shows above the prompt of every session who else is waiting for you, with a `Go` button that jumps to that tmux pane. Install: `/plugin install scranton-hq --marketplace <owner>/<repo>` (keep `<owner>/<repo>` as a placeholder until the repository is published). Try it from a clone for one session: `claude --plugin-dir /path/to/scranton-hq/mod`. Without the mod, scranton-hq still works from the files Claude Code writes, with up to a second of delay and less detail about why a session waits.
+7. **The Claude Code mod (recommended):** it reports each session as things happen, with the exact reason a session waits, and shows above the prompt of every session who else is waiting for you, with a `Go` button that jumps to that tmux pane. Install from a shell: `claude plugin marketplace add <owner>/<repo>`, then `claude plugin install scranton-hq@scranton-hq` (keep `<owner>/<repo>` as a placeholder until the repository is published). Try it from a clone for one session: `claude --plugin-dir /path/to/scranton-hq/mod`. Without the mod, scranton-hq still works from the files Claude Code writes, with up to a second of delay and less detail about why a session waits.
 8. **Commands:** a table of `start`, `status`, `ls`, `ack`, `demo`.
 9. **How it works:** two sources (the mod, and Claude Code's own files under `~/.claude`), one collector, a localhost API. The files under `~/.claude` are internal to Claude Code and can change between versions; scranton-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
 10. **Privacy and security:** listens on 127.0.0.1 only; every request needs a token stored in `~/.scranton-hq/token` (mode 600); no telemetry; nothing leaves your machine.
@@ -5198,7 +5217,7 @@ Keep the existing "A note on the name" and "License" sections word for word. Rep
 
 ```bash
 git add README.md test/e2e.test.ts
-git commit -m "Document install and usage; add an end-to-end test"
+git commit -m "Document install and usage; add an end-to-end test" -m "Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ```
 
 ---
@@ -5208,13 +5227,13 @@ git commit -m "Document install and usage; add an end-to-end test"
 Dispatch an Opus reviewer (`model: "opus"`) over the whole branch with this checklist. Every item needs evidence (command output or file and line), not a yes.
 
 1. `npm ci && npm run typecheck && npm test && npm run build` pass from a clean checkout.
-2. `grep -rn "\.claude" src/ | grep -v "join(homedir(), '.claude')"` shows no hard-coded paths into the real home, and `git grep -n "homedir()" test/` is empty.
+2. `grep -rnE "~/\.claude|'\.claude'" src/ | grep -v "join(homedir(), '.claude')"` shows only the doc comment in `src/daemon.ts`, and `git grep -n "homedir()" test/ ':!test/config.test.ts'` is empty.
 3. `node dist/bin.js status --format tmux --data-dir "$(mktemp -d)"` prints an empty line, exits 0, and prints nothing on stderr. Time it: under 300 ms.
-4. `npm run test:mod` passes (`claude plugin validate mod`, `claude plugin validate .`, `claude plugin test mod`: 7 pass), and the mod type-checks as in Task 19 Step 6.
+4. `npm run test:mod` passes (`claude plugin validate mod`, `claude plugin validate .`, `claude plugin test mod`: 8 pass), and the mod type-checks as in Task 19 Step 7.
 5. Every gating hook in `mod/hooks/register.tsx` has a `.catch`, every hook returns `next(e)`'s result, and the mod has no `$.ui.notify`.
 6. `node dist/bin.js demo --data-dir "$(mktemp -d)"` starts; in another shell `node dist/bin.js ls --data-dir <same dir>` shows three floors; Ctrl-C stops it and removes `daemon.json`.
 7. Types are defined once: `src/core/types.ts` is the only place that declares `Session`, `CollectorEvent`, `Workspace`.
-8. Every test was seen failing before its implementation existed (the task logs show the failing run).
+8. Every test was seen failing before its implementation existed (the task logs show the failing run), except `test/scaffold.test.ts` and `test/e2e.test.ts`, which check finished work.
 9. No runtime dependencies in `package.json`.
 
 ## Handover: manual steps for the user (do not run these during implementation)
@@ -5224,5 +5243,5 @@ These touch the user's real setup. The coordinator stops here and asks the user 
 1. Build and link: `npm run build && npm link` (puts `scranton-hq` on the PATH).
 2. Start the daemon in its own tmux window: `scranton-hq start`. Check: `scranton-hq ls` lists the running sessions (this already works from Claude Code's own files).
 3. Try the mod in one new session: `claude --plugin-dir /Users/alexiocassani/Projects/watchtower/mod`. The band shows up there when another session waits or finishes.
-4. To have it in every session: publish the repository, then in any Claude Code session `/plugin install scranton-hq --marketplace <owner>/<repo>`. Before publishing, install from the local clone; check the exact command with `claude plugin --help` (`claude plugin marketplace add <repo path>`, then install `scranton-hq` from that marketplace).
+4. To have it in every session: `claude plugin marketplace add /Users/alexiocassani/Projects/watchtower` (or `<owner>/<repo>` once published), then `claude plugin install scranton-hq@scranton-hq`. `claude plugin uninstall scranton-hq` removes it.
 5. Add the tmux lines from the README to `~/.tmux.conf` and reload with `tmux source-file ~/.tmux.conf`.
