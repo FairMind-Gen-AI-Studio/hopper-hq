@@ -54,6 +54,12 @@
   --repo-b: #E58FB9;
   --repo-c: #7C8FE8;
   --feature: #2E3A59;
+  --figure-skin: #DCC3A1;
+  --figure-legs: #3B4252;
+  --bot-shell: #D5DAE1;
+  --bot-visor: #7FE7FF;
+  --visor-int: 1.0;
+  --hardhat: #4A5163;
 
   --s-needs: #D63A3A;
   --s-done: #1C9A6A;
@@ -85,6 +91,7 @@
     --hemi-sky: #8EA2D8; --hemi-ground: #1A1D2A; --hemi-int: 0.6; --sun: #9DB4FF; --sun-int: 0.55;
     --s-needs: #FF5A5F; --s-done: #3DD68C; --s-working: #FFD27A; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A; --s-off: #3A4458;
     --needs-ink: #FF8A8E; --done-ink: #5BE0A0;
+    --figure-skin: #A8916F; --figure-legs: #23272F; --bot-shell: #7E8796; --bot-visor: #8FF0FF; --visor-int: 1.8; --hardhat: #D3D8E0;
     color-scheme: dark;
   }
 }
@@ -99,6 +106,7 @@
   --hemi-sky: #8EA2D8; --hemi-ground: #1A1D2A; --hemi-int: 0.6; --sun: #9DB4FF; --sun-int: 0.55;
   --s-needs: #FF5A5F; --s-done: #3DD68C; --s-working: #FFD27A; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A; --s-off: #3A4458;
   --needs-ink: #FF8A8E; --done-ink: #5BE0A0;
+  --figure-skin: #A8916F; --figure-legs: #23272F; --bot-shell: #7E8796; --bot-visor: #8FF0FF; --visor-int: 1.8; --hardhat: #D3D8E0;
   color-scheme: dark;
 }
 
@@ -157,6 +165,11 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .tool:hover { background: var(--hover); }
 .tool:disabled { opacity: .5; cursor: default; }
 .tool svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.seg { display: inline-flex; height: 30px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: color-mix(in oklab, var(--panel) 92%, transparent); }
+.seg button { border: 0; background: none; padding: 0 10px; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { background: var(--hover); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--panel); }
 .sim-clock { font: 500 12px var(--font-mono); color: var(--muted); background: color-mix(in oklab, var(--panel) 85%, transparent); border: 1px solid var(--line); padding: 4px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 .log { position: absolute; left: 10px; bottom: 10px; margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; max-width: min(470px, calc(100% - 20px)); pointer-events: none; }
 .log li { display: flex; align-items: center; gap: 7px; background: color-mix(in oklab, var(--panel) 92%, transparent); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; font-size: 12px; min-width: 0; }
@@ -265,6 +278,7 @@ code { font-family: var(--font-mono); font-size: .92em; }
         <span class="sim-clock" id="sim-clock" title="Simulated time">0:00</span>
       </div>
       <div class="stage-tools">
+        <div class="seg" id="char-style" role="group" aria-label="Character style"></div>
         <button class="tool" id="rot-left" type="button" title="Rotate left (Q)" aria-label="Rotate left"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/></svg></button>
         <button class="tool" id="rot-right" type="button" title="Rotate right (E)" aria-label="Rotate right"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/></svg></button>
         <button class="tool" id="reset-view" type="button" title="Reset view (R)">Reset view</button>
@@ -315,7 +329,7 @@ const COUCH = { x: 20.5, z: 15.0, w: 3.2, d: 1.0 };
 const COFFEE = { x: 20.5, z: 12.9, r: 0.6 };
 const LOUNGE = [
   { x: 19.7, z: 14.85, facing: Math.PI, seatY: 0.44 }, { x: 21.3, z: 14.85, facing: Math.PI, seatY: 0.44 },
-  { x: 18.3, z: 12.4, facing: Math.PI / 2, seatY: 0.32 }, { x: 22.7, z: 12.4, facing: -Math.PI / 2, seatY: 0.32 }
+  { x: 18.3, z: 12.4, facing: Math.PI / 2, seatY: 0.4 }, { x: 22.7, z: 12.4, facing: -Math.PI / 2, seatY: 0.4 }
 ];
 const ELEV = { x: 20.5, z: 0.8 };
 const PLANTS = [[8.9, 0.7], [23.2, 0.8], [0.8, 15.2], [16.9, 6.2], [8.8, 15.2]];
@@ -356,11 +370,11 @@ const INITIAL = {
   }
 };
 const STATES = {
-  needs_you: { label: 'Needs you', desc: 'Stands up with a red badge: a permission, a question or a plan to approve.' },
+  needs_you: { label: 'Needs you', desc: 'Stands up and waves, with a red badge: a permission, a question or a plan to approve.' },
   done: { label: 'Done, to review', desc: 'Stands by the desk holding the result.' },
   working: { label: 'Working', desc: 'Seated, typing. The screen glows.' },
   in_meeting: { label: 'In a meeting', desc: 'Sits in the meeting room while its workflow runs.' },
-  no_signal: { label: 'No signal', desc: 'Seated, but nothing new for a while. Often a long command.' },
+  no_signal: { label: 'No signal', desc: 'Seated, hands still, head down. Nothing new for a while; often a long command.' },
   idle: { label: 'Idle', desc: 'Reviewed and waiting for a new prompt, in the lounge.' },
   dormant: { label: 'Dormant', desc: 'Went home days ago. Desk dark; candidate for the archive.' }
 };
@@ -440,6 +454,8 @@ const M = {
   beanA: mat('--scene-bean-a'), beanB: mat('--scene-bean-b'), plant: mat('--scene-plant'), pot: mat('--scene-pot'),
   board: mat('--scene-board', { roughness: 0.4 }), elevator: mat('--scene-elevator', { roughness: 0.4 }), frame: mat('--scene-frame'),
   paper: mat('--scene-paper'), eye: mat('--scene-eye', { roughness: 0.3 }), feature: mat('--feature'),
+  skin: mat('--figure-skin', { roughness: 0.75 }), trousers: mat('--figure-legs'), shell: mat('--bot-shell', { roughness: 0.45 }),
+  visor: mat('--bot-visor', { emissive: '--bot-visor', intensity: '--visor-int' }), hardhat: mat('--hardhat', { roughness: 0.5 }),
   window: mat('--window-glow', { emissive: '--window-glow', intensity: '--window-int' }),
   lamp: mat('--lamp-glow', { emissive: '--lamp-glow', intensity: '--lamp-int' }),
   loungeRug: mat(null, { mix: ['--scene-floor', '--scene-couch', 0.25] })
@@ -539,7 +555,7 @@ function buildDesk(isl, k) {
   const mon = add(rbox(0.74, 0.46, 0.05, 0.02), M.monitor, x, 1.15, z - 0.24);
   const screenMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.4 });
   add(new THREE.PlaneGeometry(0.66, 0.38), screenMat, x, 1.15, z - 0.212, { cast: false });
-  add(box(0.46, 0.02, 0.15), M.key, x, 0.785, z + 0.12, { cast: false });
+  add(box(0.46, 0.02, 0.15), M.key, x, 0.785, z + 0.26, { cast: false });
   // Chair (faces the desk)
   add(rbox(0.5, 0.08, 0.5, 0.03), M.chair, x, 0.45, z + 0.78);
   add(rbox(0.5, 0.5, 0.07, 0.03), M.chair, x, 0.75, z + 1.03);
@@ -737,50 +753,149 @@ function buildBadgeTextures() {
   mascots.forEach((m) => { if (m.badge) { m.badge.material.map = badgeTex[m.badgeKind]; m.badge.material.needsUpdate = true; } });
 }
 
-// ---------- Mascots ----------
-const GEO = {
-  body: new THREE.SphereGeometry(0.3, 32, 20), eye: new THREE.SphereGeometry(0.038, 12, 8), foot: new THREE.SphereGeometry(0.075, 12, 8),
-  beret: new THREE.CylinderGeometry(0.2, 0.23, 0.07, 28), pom: new THREE.SphereGeometry(0.045, 10, 8),
-  small: new THREE.SphereGeometry(0.17, 24, 16), antenna: new THREE.CylinderGeometry(0.012, 0.012, 0.16, 6), tip: new THREE.SphereGeometry(0.035, 10, 8),
-  dropBall: new THREE.SphereGeometry(0.2, 24, 16), dropCone: new THREE.ConeGeometry(0.19, 0.34, 24), paper: new THREE.BoxGeometry(0.26, 0.02, 0.34)
+// ---------- Characters ----------
+// One shared rig (hip, shoulder and neck pivots); each style dresses it with different primitives.
+const CHAR_STYLES = { figures: 'Figures', bots: 'Bots', blocks: 'Blocks' };
+let charStyle = 'figures';
+try { const v = localStorage.getItem('scranton-hq.characters'); if (CHAR_STYLES[v]) charStyle = v; } catch (err) { /* storage unavailable */ }
+const SPEC = {
+  figures: { hip: 0.40, torso: 0.42, sx: 0.19, lx: 0.075, arm: 0.36 },
+  bots: { hip: 0.34, torso: 0.36, sx: 0.22, lx: 0.09, arm: 0.32 },
+  blocks: { hip: 0.36, torso: 0.38, sx: 0.205, lx: 0.065, arm: 0.34 }
 };
+const SIZE = { session: 1, intern: 0.68, agent: 0.9 };
+const charGeo = new Map();
+const cg = (key, make) => { if (!charGeo.has(key)) charGeo.set(key, make()); return charGeo.get(key); };
+const facet = (g) => { const n = g.toNonIndexed(); n.computeVertexNormals(); return n; };
+const prism = (rt, rb, h, n) => cg('prism' + [rt, rb, h, n], () => { const g = new THREE.CylinderGeometry(rt, rb, h, n); g.rotateY(Math.PI / n); return facet(g); });
+const cube = (w, h, d) => cg('box' + [w, h, d], () => new THREE.BoxGeometry(w, h, d));
+const rcube = (w, h, d, r) => cg('rbox' + [w, h, d, r], () => rbox(w, h, d, r));
+const ball = (r) => cg('ball' + r, () => new THREE.SphereGeometry(r, 16, 12));
+const rod = (r, h) => cg('rod' + [r, h], () => new THREE.CylinderGeometry(r, r, h, 12));
+const dome = (r) => cg('dome' + r, () => new THREE.SphereGeometry(r, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2));
+const disc = (r, h) => cg('disc' + [r, h], () => new THREE.CylinderGeometry(r, r, h, 24));
+const PAPER_GEO = new THREE.BoxGeometry(0.2, 0.015, 0.26);
+
+function part(parent, geo, material, x, y, z, rx) {
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.position.set(x, y, z);
+  if (rx) mesh.rotation.x = rx;
+  mesh.castShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+// Feature marker: a tie in the feature colour.
+function tie(parent, y, z) {
+  part(parent, cube(0.05, 0.04, 0.03), M.feature, 0, y, z);
+  const blade = cg('tie', () => { const g = new THREE.CylinderGeometry(0.03, 0.05, 0.2, 4); g.rotateY(Math.PI / 4); g.scale(1, 1, 0.35); return g; });
+  part(parent, blade, M.feature, 0, y - 0.12, z - 0.004, 0.08);
+}
+// Workflow-agent marker: a hard hat.
+function hardHat(parent, y) {
+  part(parent, dome(0.155), M.hardhat, 0, y, 0);
+  part(parent, disc(0.205, 0.025), M.hardhat, 0, y, 0.02);
+}
+
+function dressFigure(r, s, kind, body, dark) {
+  const tY = s.hip + s.torso / 2;
+  for (const leg of [r.legL, r.legR]) {
+    part(leg, prism(0.066, 0.054, s.hip, 5), M.trousers, 0, -s.hip / 2, 0);
+    part(leg, rcube(0.11, 0.06, 0.17, 0.025), M.trousers, 0, -s.hip + 0.03, 0.03);
+  }
+  part(r.inner, prism(0.165, 0.125, s.torso, 6), body, 0, tY, 0);
+  for (const arm of [r.armL, r.armR]) {
+    part(arm, prism(0.048, 0.04, s.arm, 5), body, 0, -s.arm / 2, 0);
+    part(arm, cg('hand', () => new THREE.IcosahedronGeometry(0.05, 0)), M.skin, 0, -s.arm, 0);
+  }
+  part(r.neck, prism(0.05, 0.05, 0.07, 6), M.skin, 0, 0.03, 0);
+  part(r.neck, cg('fhead', () => new THREE.DodecahedronGeometry(0.135, 0)), M.skin, 0, 0.17, 0);
+  if (kind === 'agent') hardHat(r.neck, 0.2);
+  else part(r.neck, cg('hair', () => facet(new THREE.SphereGeometry(0.146, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2))), M.trousers, 0, 0.19, -0.012);
+  if (kind === 'session') tie(r.inner, s.hip + s.torso - 0.05, 0.14);
+  if (kind === 'intern') part(r.inner, rcube(0.22, 0.26, 0.11, 0.03), dark, 0, tY + 0.02, -0.17);
+  return { top: s.hip + s.torso + (kind === 'agent' ? 0.36 : 0.33) };
+}
+
+function dressBot(r, s, kind, body, dark, hover) {
+  const tY = s.hip + s.torso / 2;
+  if (!hover) for (const leg of [r.legL, r.legR]) {
+    part(leg, rod(0.04, s.hip), M.shell, 0, -s.hip / 2, 0);
+    part(leg, rcube(0.12, 0.07, 0.18, 0.03), dark, 0, -s.hip + 0.035, 0.03);
+  }
+  part(r.inner, rcube(0.36, s.torso, 0.24, 0.05), body, 0, tY, 0);
+  for (const arm of [r.armL, r.armR]) {
+    part(arm, ball(0.055), M.shell, 0, 0, 0);
+    part(arm, rod(0.032, s.arm), M.shell, 0, -s.arm / 2, 0);
+    part(arm, ball(0.05), dark, 0, -s.arm, 0);
+  }
+  // Monitor head: shell, dark face, glowing visor bar
+  part(r.neck, rod(0.04, 0.07), M.shell, 0, 0.03, 0);
+  part(r.neck, rcube(0.38, 0.28, 0.26, 0.04), M.shell, 0, 0.2, 0);
+  part(r.neck, rcube(0.31, 0.2, 0.02, 0.008), M.monitor, 0, 0.2, 0.125);
+  part(r.neck, cube(0.18, 0.035, 0.012), M.visor, 0, 0.21, 0.137);
+  if (kind === 'agent') hardHat(r.neck, 0.34);
+  if (kind === 'session') tie(r.inner, s.hip + s.torso - 0.05, 0.125);
+  if (kind === 'intern') {
+    for (const x of [-0.08, 0.08]) { part(r.inner, rod(0.05, 0.24), dark, x, tY, -0.16); part(r.inner, cg('nozzle', () => new THREE.ConeGeometry(0.05, 0.08, 12)), M.shell, x, tY - 0.16, -0.16, Math.PI); }
+  }
+  return { top: s.hip + s.torso + (kind === 'agent' ? 0.5 : 0.34), hover: hover ? 0.24 : 0 };
+}
+
+function dressBlock(r, s, kind, body, dark) {
+  const tY = s.hip + s.torso / 2;
+  for (const leg of [r.legL, r.legR]) part(leg, cube(0.12, s.hip, 0.13), M.trousers, 0, -s.hip / 2, 0);
+  part(r.inner, cube(0.32, s.torso, 0.19), body, 0, tY, 0);
+  for (const arm of [r.armL, r.armR]) {
+    part(arm, cube(0.09, s.arm - 0.06, 0.1), body, 0, -(s.arm - 0.06) / 2 + 0.02, 0);
+    part(arm, cube(0.085, 0.08, 0.09), M.skin, 0, -s.arm + 0.02, 0);
+  }
+  part(r.neck, cube(0.28, 0.28, 0.28), M.skin, 0, 0.15, 0);
+  part(r.neck, cube(0.2, 0.045, 0.012), M.eye, 0, 0.17, 0.145);
+  if (kind === 'agent') {
+    part(r.neck, cube(0.36, 0.03, 0.36), M.hardhat, 0, 0.3, 0.02);
+    part(r.neck, cube(0.29, 0.1, 0.29), M.hardhat, 0, 0.36, 0);
+  } else {
+    part(r.neck, cube(0.3, 0.07, 0.3), M.trousers, 0, 0.3, -0.005);
+    part(r.neck, cube(0.3, 0.16, 0.06), M.trousers, 0, 0.22, -0.125);
+  }
+  if (kind === 'session') tie(r.inner, s.hip + s.torso - 0.05, 0.105);
+  if (kind === 'intern') part(r.inner, cube(0.22, 0.24, 0.1), dark, 0, tY + 0.02, -0.145);
+  return { top: s.hip + s.torso + (kind === 'agent' ? 0.41 : 0.34) };
+}
+const DRESS = { figures: dressFigure, bots: dressBot, blocks: dressBlock };
+
 const mascots = new Map();
 let phaseSeed = 0;
 class Mascot {
   constructor(id, kind, colorToken, pick) {
-    this.id = id; this.kind = kind; this.pick = pick;
+    this.id = id; this.kind = kind; this.colorToken = colorToken; this.pick = pick;
     this.group = new THREE.Group();
+    this.sizer = new THREE.Group();
     this.inner = new THREE.Group();
-    this.group.add(this.inner);
+    this.group.add(this.sizer);
+    this.sizer.add(this.inner);
+    this.size = SIZE[kind];
+    this.sizer.scale.setScalar(this.size);
     this.phase = (phaseSeed++ * 1.7) % 6.28;
-    const bodyMat = REPO[colorToken], footMat = REPO_DARK[colorToken];
-    const part = (geo, m, x, y, z) => { const mesh = new THREE.Mesh(geo, m); mesh.position.set(x, y, z); mesh.castShadow = true; this.inner.add(mesh); return mesh; };
-    let body;
-    if (kind === 'session') {
-      body = part(GEO.body, bodyMat, 0, 0.34, 0); body.scale.set(1, 1.12, 1);
-      part(GEO.eye, M.eye, -0.1, 0.43, 0.262); part(GEO.eye, M.eye, 0.1, 0.43, 0.262);
-      this.feet = [part(GEO.foot, footMat, -0.12, 0.05, 0.08), part(GEO.foot, footMat, 0.12, 0.05, 0.08)];
-      const beret = part(GEO.beret, M.feature, 0.04, 0.69, -0.02); beret.rotation.z = -0.22;
-      part(GEO.pom, M.feature, 0.06, 0.74, -0.02);
-      this.badgeY = 1.06; this.labelY = 1.42; this.speed = 2.0;
-    } else if (kind === 'intern') {
-      body = part(GEO.small, bodyMat, 0, 0.2, 0); body.scale.set(1, 1.08, 1);
-      part(GEO.eye, M.eye, -0.06, 0.24, 0.155).scale.setScalar(0.7); part(GEO.eye, M.eye, 0.06, 0.24, 0.155).scale.setScalar(0.7);
-      this.feet = [part(GEO.foot, footMat, -0.07, 0.035, 0.05), part(GEO.foot, footMat, 0.07, 0.035, 0.05)];
-      this.feet.forEach((f) => f.scale.setScalar(0.6));
-      part(GEO.antenna, M.leg, 0, 0.45, 0); part(GEO.tip, M.lamp, 0, 0.54, 0);
-      this.badgeY = 0.8; this.labelY = 0.9; this.speed = 2.4;
-    } else {
-      body = part(GEO.dropBall, bodyMat, 0, 0.22, 0);
-      part(GEO.dropCone, bodyMat, 0, 0.5, 0);
-      part(GEO.eye, M.eye, -0.07, 0.27, 0.18); part(GEO.eye, M.eye, 0.07, 0.27, 0.18);
-      this.feet = [part(GEO.foot, footMat, -0.09, 0.04, 0.06), part(GEO.foot, footMat, 0.09, 0.04, 0.06)];
-      this.feet.forEach((f) => f.scale.setScalar(0.75));
-      this.badgeY = 0.95; this.labelY = 1.0; this.speed = 2.2;
-    }
-    this.inner.children.forEach((c) => pickable(c, pick));
-    this.path = []; this.pose = 'stand'; this.seatY = SEAT_Y; this.facing = 0; this.targetFacing = 0;
-    this.spawnT = 1; this.leaving = false; this.leaveT = 0; this.badge = null; this.badgeKind = null; this.carry = null; this.typing = false;
+    const s = SPEC[charStyle];
+    this.spec = s;
+    const hover = charStyle === 'bots' && kind === 'intern';
+    const pivot = (x, y) => { const g = new THREE.Group(); g.position.set(x, y, 0); this.inner.add(g); return g; };
+    const shoulderY = s.hip + s.torso - 0.05;
+    this.rig = {
+      inner: this.inner,
+      legL: hover ? null : pivot(-s.lx, s.hip), legR: hover ? null : pivot(s.lx, s.hip),
+      armL: pivot(-s.sx, shoulderY), armR: pivot(s.sx, shoulderY), neck: pivot(0, s.hip + s.torso)
+    };
+    const out = DRESS[charStyle](this.rig, s, kind, REPO[colorToken], REPO_DARK[colorToken], hover);
+    this.hover = out.hover || 0;
+    const top = out.top * this.size + this.hover;
+    this.badgeY = top + 0.22; this.labelY = top + 0.5;
+    this.speed = kind === 'intern' ? 2.3 : 1.9;
+    this.base = { aL: 0, aR: 0, zL: -0.1, zR: 0.1, legs: 0, neck: 0 };
+    this.inner.traverse((o) => { if (o.isMesh) pickable(o, pick); });
+    this.path = []; this.pose = 'stand'; this.gesture = 'idle'; this.seatY = SEAT_Y; this.facing = 0; this.targetFacing = 0;
+    this.spawnT = 1; this.leaving = false; this.leaveT = 0; this.badge = null; this.badgeKind = null; this.carry = null;
     scene.add(this.group);
     mascots.set(id, this);
   }
@@ -797,9 +912,17 @@ class Mascot {
     this.group.add(sp);
   }
   setCarry(on) {
-    if (on && !this.carry) { this.carry = new THREE.Mesh(GEO.paper, M.paper); this.carry.position.set(0, 0.36, 0.33); this.carry.rotation.x = -0.9; this.carry.castShadow = true; this.inner.add(this.carry); }
-    if (!on && this.carry) { this.inner.remove(this.carry); this.carry = null; }
+    if (on && !this.carry) {
+      const p = new THREE.Mesh(PAPER_GEO, M.paper);
+      p.position.set(-0.07, -this.spec.arm - 0.03, 0.05);
+      p.rotation.x = 2.6;
+      p.castShadow = true;
+      this.rig.armR.add(p);
+      this.carry = p;
+    }
+    if (!on && this.carry) { this.carry.parent.remove(this.carry); this.carry = null; }
   }
+  sitY() { return this.seatY - this.spec.hip * this.size; }
   place(t) {
     this.group.position.set(t.x, 0, t.z);
     this.path = [];
@@ -820,15 +943,16 @@ class Mascot {
     this.pose = t.pose || 'stand';
     this.seatY = t.seatY ?? SEAT_Y;
     this.targetFacing = t.facing ?? this.facing;
-    if (instant) { this.facing = this.targetFacing; this.group.position.y = this.pose === 'sit' ? this.seatY : 0; }
+    if (instant) { this.facing = this.targetFacing; this.group.position.y = this.pose === 'sit' ? this.sitY() : 0; }
     if (t.exit) { this.leaving = true; elevator.trigger(); }
   }
   spawnAt(x, z) { this.group.position.set(x, 0, z); this.spawnT = RM ? 1 : 0; elevator.trigger(); }
-  dispose() {
+  dispose(keepTag) {
     scene.remove(this.group);
-    this.inner.children.forEach((c) => { const i = pickables.indexOf(c); if (i >= 0) pickables.splice(i, 1); });
+    this.group.traverse((o) => { if (o.isMesh) { const i = pickables.indexOf(o); if (i >= 0) pickables.splice(i, 1); } });
+    if (this.badge) this.badge.material.dispose();
     mascots.delete(this.id);
-    removeTag(this.id);
+    if (!keepTag) removeTag(this.id);
   }
   update(dt, time) {
     let walking = false;
@@ -845,21 +969,38 @@ class Mascot {
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     this.facing += diff * Math.min(1, dt * 10);
     this.group.rotation.y = this.facing;
-    const baseY = !walking && this.pose === 'sit' ? this.seatY : 0;
-    p.y += (baseY - p.y) * Math.min(1, dt * 12);
-    if (!RM) {
-      if (walking) {
-        const ph = time * 11 + this.phase, s = Math.cos(ph * 2) * 0.045;
-        this.inner.position.y = Math.abs(Math.sin(ph)) * 0.07;
-        this.inner.scale.set(1 + s, 1 - s, 1 + s);
-        if (this.feet) { this.feet[0].position.y = 0.05 + Math.max(0, Math.sin(ph)) * 0.06; this.feet[1].position.y = 0.05 + Math.max(0, -Math.sin(ph)) * 0.06; }
-      } else {
-        const amp = this.typing ? 0.016 : 0.008, sp = this.typing ? 9 : 1.6;
-        this.inner.position.y = Math.abs(Math.sin(time * sp + this.phase)) * amp;
-        this.inner.scale.set(1, 1, 1);
+    const sitting = !walking && this.pose === 'sit';
+    p.y += ((sitting ? this.sitY() : 0) - p.y) * Math.min(1, dt * 12);
+
+    // Pose targets. Rotating a limb pivot by a negative x angle swings it forward; z splays the arms.
+    const t = { aL: 0.05, aR: 0.05, zL: -0.1, zR: 0.1, legs: sitting ? -1.45 : 0, neck: 0 };
+    let oL = 0, oR = 0, oLeg = 0, oZR = 0, bob = 0;
+    if (walking) {
+      const ph = time * 9 + this.phase, sw = Math.sin(ph) * 0.6;
+      oLeg = sw; oL = -sw * 0.8; oR = sw * 0.8;
+      bob = Math.abs(Math.cos(ph)) * 0.03;
+    } else {
+      switch (this.gesture) {
+        case 'type': t.aL = t.aR = -1.25; t.zL = -0.02; t.zR = 0.02; oL = Math.sin(time * 15 + this.phase) * 0.08; oR = -oL; break;
+        case 'raise': t.aR = -2.8; t.zR = 0.25; oZR = Math.sin(time * 7) * 0.3; break;
+        case 'hold': t.aL = t.aR = -1.0; t.zL = 0.18; t.zR = -0.18; break;
+        case 'rest': t.aL = t.aR = -0.95; break;
+        case 'still': t.aL = t.aR = -1.1; t.neck = 0.3; break;
+        case 'relax': if (sitting) { t.aL = t.aR = -0.3; t.zL = -0.25; t.zR = 0.25; } break;
       }
-      if (this.badge) this.badge.scale.setScalar(0.42 * (this.badgeKind === 'needs' ? 1 + 0.12 * Math.sin(time * 6) : 1));
+      bob = Math.abs(Math.sin(time * 1.6 + this.phase)) * 0.006;
     }
+    if (RM) { oL = oR = oLeg = oZR = bob = 0; }
+    const k = Math.min(1, dt * 10), b = this.base, r = this.rig;
+    for (const key in t) b[key] += (t[key] - b[key]) * k;
+    r.armL.rotation.set(b.aL + oL, 0, b.zL);
+    r.armR.rotation.set(b.aR + oR, 0, b.zR + oZR);
+    if (r.legL) { r.legL.rotation.x = b.legs + oLeg; r.legR.rotation.x = b.legs - oLeg; }
+    r.neck.rotation.x = b.neck;
+    this.inner.position.y = bob;
+    this.sizer.position.y = this.hover + (this.hover && !RM ? Math.sin(time * 3 + this.phase) * 0.03 : 0);
+    if (this.badge && !RM) this.badge.scale.setScalar(0.42 * (this.badgeKind === 'needs' ? 1 + 0.12 * Math.sin(time * 6) : 1));
+
     if (this.spawnT < 1) this.spawnT = Math.min(1, this.spawnT + dt * 2.5);
     let sc = easeOut(this.spawnT);
     if (this.leaving && this.arrived) {
@@ -869,6 +1010,28 @@ class Mascot {
     }
     this.group.scale.setScalar(Math.max(0.001, sc));
   }
+}
+const GESTURE = { working: 'type', no_signal: 'still', needs_you: 'raise', done: 'hold', in_meeting: 'rest', idle: 'relax' };
+
+function setCharStyle(style) {
+  if (!CHAR_STYLES[style] || style === charStyle) return;
+  charStyle = style;
+  try { localStorage.setItem('scranton-hq.characters', style); } catch (err) { /* storage unavailable */ }
+  const keep = ['path', 'target', 'arrived', 'pose', 'gesture', 'seatY', 'facing', 'targetFacing', 'spawnT', 'leaving', 'leaveT'];
+  for (const m of [...mascots.values()]) {
+    const snap = {};
+    keep.forEach((k) => { snap[k] = m[k]; });
+    const pos = m.group.position.clone(), badge = m.badgeKind, carry = !!m.carry;
+    m.dispose(true);
+    const n = new Mascot(m.id, m.kind, m.colorToken, m.pick);
+    Object.assign(n, snap);
+    n.group.position.copy(pos);
+    n.group.rotation.y = n.facing;
+    n.setBadge(badge);
+    n.setCarry(carry);
+  }
+  renderStylePicker();
+  if (!ui.sel) renderPanel();
 }
 
 // ---------- Session / agent placement ----------
@@ -908,7 +1071,7 @@ function syncSession(s, animate) {
       if (animate) { m.spawnAt(ELEV.x, ELEV.z); m.goTo(t); } else m.place(t);
     } else if (animate) m.goTo(t);
     else m.place(t);
-    m.typing = s.state === 'working';
+    m.gesture = GESTURE[s.state] || 'idle';
     m.setBadge(BADGE[s.state] || null);
     m.setCarry(s.state === 'done');
   }
@@ -934,6 +1097,7 @@ function syncAgent(i, animate) {
   if (a.status === 'running') {
     if (!m) {
       m = new Mascot(id, 'agent', ISLANDS[owner.island].color, { type: 'room' });
+      m.gesture = 'type';
       if (animate) { m.spawnAt(ELEV.x, ELEV.z); m.goTo(agentTarget(i)); } else m.place(agentTarget(i));
     }
   } else if (m) {
@@ -1131,8 +1295,10 @@ function panelFloor() {
   });
   h += '<section><h3 class="p-h3">Who is who</h3><ul class="who">' +
     '<li><span class="k">Colour</span><span class="swatches">' + ISLANDS.map((isl) => '<span class="rc-' + isl.rc + '"><i></i>' + esc(isl.repo) + '</span>').join('') + '</span></li>' +
-    '<li><span class="k">Shape</span><span>Round with a beret: a session. Small with an antenna: a subagent. Drop: a workflow agent.</span></li>' +
-    '<li><span class="k">Beret</span><span>The feature. Everyone on this floor wears the checkout-v2 one.</span></li></ul></section>';
+    '<li><span class="k">Shape</span><span>' + (charStyle === 'bots'
+      ? 'Full size with a tie: a session. Small, hovering, with a jetpack: a subagent. Hard hat: a workflow agent.'
+      : 'Full size with a tie: a session. Small with a backpack: a subagent. Hard hat: a workflow agent.') + '</span></li>' +
+    '<li><span class="k">Tie</span><span>The feature. Everyone on this floor wears the checkout-v2 one.</span></li></ul></section>';
   h += '<section><h3 class="p-h3">States</h3><ul class="legend">' +
     Object.keys(STATES).map((k) => '<li class="sw-' + k + '"><span class="sw"></span><span class="ln">' + STATES[k].label + '</span><span class="ld">' + STATES[k].desc + '</span></li>').join('') + '</ul></section>';
   return h;
@@ -1244,10 +1410,17 @@ renderer.domElement.addEventListener('pointermove', (ev) => {
 let toastTimer;
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2600); }
 
+function renderStylePicker() {
+  $('char-style').innerHTML = Object.keys(CHAR_STYLES).map((k) =>
+    '<button type="button" data-style="' + k + '" aria-pressed="' + (k === charStyle) + '">' + CHAR_STYLES[k] + '</button>').join('');
+}
+renderStylePicker();
+
 document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-goto],[data-room],[data-back],[data-action]');
+  const el = e.target.closest('[data-goto],[data-room],[data-back],[data-action],[data-style]');
   if (!el) return;
-  if (el.dataset.goto) select({ type: 'session', id: el.dataset.goto });
+  if (el.dataset.style) setCharStyle(el.dataset.style);
+  else if (el.dataset.goto) select({ type: 'session', id: el.dataset.goto });
   else if (el.dataset.room) select({ type: 'room' });
   else if (el.dataset.back) select(null);
   else if (el.dataset.action === 'focus') toast('Would bring tmux pane ' + sess(ui.sel.id).pane + ' to the front (not wired in this mockup).');
