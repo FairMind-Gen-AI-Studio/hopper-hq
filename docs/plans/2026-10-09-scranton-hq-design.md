@@ -49,7 +49,9 @@ sources ──► adapters ──► normalized events ──► SQLite ──�
 - One TypeScript (Node) process: collector, store, API, static UI. Distributed via `npx scranton-hq`.
 - Storage: SQLite (events, derived session state, user-side state such as "seen" and manual feature tags, archive with FTS5).
 - Transport: WebSocket push to the UI; plain HTTP API for the CLI.
-- UI: React for chrome (attention bar, panels, search) + procedurally generated isometric SVG for the building.
+- Client store and scene model: framework-agnostic TypeScript modules, shared by the UI, the renderer and the CLI.
+- UI chrome (attention bar, panels, archive search, settings): Svelte 5 single-page app built with Vite, served as static files by the daemon. No SvelteKit: there is no server-side routing or rendering to do.
+- Renderer: a framework-agnostic TypeScript module on plain three.js (see §10). It receives the scene model and emits selections; the UI mounts it on a canvas and never reaches into it.
 
 ### Adapter interface
 
@@ -140,11 +142,26 @@ Floor order is stable (newest on top) to preserve spatial memory. Floors where e
 
 Rendering:
 
-- Isometric SVG, geometric style: capsule bodies with a sphere head, no limbs or faces. State is conveyed by props, color and small motion (glowing monitor, red lamp, mug, dimmed desk).
-- 8–10 parametric SVG components (floor tile, desk, monitor, person, lamp, meeting table, whiteboard, cabinet, wall), colored through theme tokens (light/dark).
+- 3D diorama in WebGL (three.js): orthographic isometric camera that rotates around the vertical axis, zooms and pans. Walls facing the camera are cut away.
+- Everything is built from primitives in code (rounded boxes, cylinders, spheres): no model files, no rigging. Colors come from theme tokens, so light and dark themes (day and night) share one scene.
+- Characters walk on a grid with A* pathfinding. Walking, sitting and gestures are procedural (pivot rotations), not skeletal animation.
+- Labels, placards and the selection UI are HTML overlaid on the canvas, positioned by projecting 3D points.
 - Level of detail: only the open floor is rendered in detail; other floors render as façade. The server streams the façade summary to all clients and floor detail only for the subscribed floor.
-- Pan/zoom through the SVG `viewBox`. Depth sorting by isometric `(x + y)`.
-- If animated element counts outgrow SVG, the character layer can move to canvas without touching the scene model.
+- The render loop pauses when the tab is hidden.
+
+Characters encode information, not decoration:
+
+| Channel | Meaning |
+|---|---|
+| Body color | Repo |
+| Silhouette and size | Kind: session, subagent, workflow agent |
+| One fixed accessory | Feature (visible across floors) |
+| Location and pose | State: at the desk typing (`working`), standing and waving (`needs_you`), holding the result (`done`), at the meeting table (`in_meeting`), still at the desk (`no_signal`), in the lounge (`idle`), gone home (`dormant`) |
+| Badge above the head | State again, readable when characters are small |
+
+Movement is the main signal: a state change is seen as a character walking somewhere, not read from a label. Subagents and workflow agents arrive and leave through the elevator.
+
+Reference prototypes (single HTML files, sample data, no build): `prototypes/building-mockup.html` (façade and floor directory, SVG) and `prototypes/floor-3d-mockup.html` (one floor as a 3D diorama with a scripted simulation).
 
 ## 11. Archive (basement)
 
@@ -167,7 +184,8 @@ Rendering:
 - **Adapter contract tests**: redacted fixtures per supported Claude Code version → expected normalized events.
 - **Unit tests**: state machine (event sequences → state), feature rule (branch → key).
 - **Scene snapshots**: domain model → layout model.
-- **Demo mode**: `scranton-hq demo` generates synthetic sessions for UI development, README screenshots and contributors without a fleet of live sessions.
+- **Demo mode**: `scranton-hq demo` is an adapter that emits scripted normalized events, so synthetic sessions flow through the real pipeline. Used for UI development, README screenshots and contributors without a fleet of live sessions.
+- **Pure functions first**: pathfinding, state → target (location, pose, gesture), feature rule and layout generation are pure and unit-tested; the render loop stays thin.
 
 ## 14. Milestones
 

@@ -1,0 +1,1073 @@
+<title>Scranton HQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: top bar + attention strip over a two-column workspace (isometric stage | detail panel); stacks on narrow screens.
+   Look: an architect's model by day, an office tower at night. State colors are semantic; the accent is only for focus and selection. */
+:root {
+  --bg: #E3E8EE;
+  --sky: #F2F5F8;
+  --fg: #18202B;
+  --muted: #566173;
+  --panel: #FBFCFD;
+  --line: #D0D8E1;
+  --hover: #EEF2F6;
+  --accent: #2C59C9;
+  --halo: #F2F5F8;
+
+  --shade: #1C2531;
+  --edge: #1C253124;
+  --shadow: #1C25312E;
+  --wall: #F3F4F3;
+  --slab: #C9D1DA;
+  --floor: #E9EDF1;
+  --rug: #DCE3EA;
+  --grid: #1C25310F;
+  --desk: #C9A47E;
+  --chair: #7C8796;
+  --monitor: #2A303A;
+  --table: #B58E68;
+  --paper: #FFFFFF;
+  --roof: #D3D9E0;
+  --plinth: #AEB8C3;
+  --basement: #8D98A5;
+  --glass: #8DB3DA45;
+  --glass-edge: #5C83AD55;
+  --board: #FFFFFF;
+  --person: #435069;
+  --head: #6C7A91;
+  --intern: #98A6BA;
+
+  --win-off: #A9B8C8;
+  --win-back: #CFE0EF;
+  --screen-off: #3A424E;
+  --shutter: #B7BEC7;
+  --win-filter: none;
+
+  --s-needs: #D63A3A;
+  --s-done: #1C9A6A;
+  --s-working: #E8B030;
+  --s-meeting: #6857DB;
+  --s-nosignal: #C88A35;
+  --needs-ink: #B92D2D;
+  --done-ink: #137A53;
+  --working-ink: #9E6C05;
+  --meeting-ink: #5141C2;
+  --nosignal-ink: #8F5E14;
+  --badge-fg: #FFFFFF;
+
+  --tmux-bg: #1B2230;
+  --tmux-fg: #C9D1DF;
+  --tmux-needs: #FF6B6B;
+  --tmux-done: #46D69A;
+
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1320; --sky: #18223A; --fg: #E6EAF2; --muted: #9AA5B9; --panel: #141B2A; --line: #27314A; --hover: #1B2436; --accent: #7EA4FF; --halo: #141C2E;
+    --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --floor: #1E2636; --rug: #252F42; --grid: #FFFFFF0A;
+    --desk: #6E5743; --chair: #4A5468; --monitor: #0A0E15; --table: #604C3A; --paper: #D9DEE6; --roof: #283146; --plinth: #1B2232; --basement: #131A28;
+    --glass: #7FA6DC2B; --glass-edge: #9CC0F040; --board: #DCE2EA; --person: #A7B2C6; --head: #CAD2E0; --intern: #76839C;
+    --win-off: #18202F; --win-back: #23304A; --screen-off: #141A24; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
+    --s-needs: #FF5A5F; --s-done: #3DD68C; --s-working: #FFD27A; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A;
+    --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1320; --sky: #18223A; --fg: #E6EAF2; --muted: #9AA5B9; --panel: #141B2A; --line: #27314A; --hover: #1B2436; --accent: #7EA4FF; --halo: #141C2E;
+  --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --floor: #1E2636; --rug: #252F42; --grid: #FFFFFF0A;
+  --desk: #6E5743; --chair: #4A5468; --monitor: #0A0E15; --table: #604C3A; --paper: #D9DEE6; --roof: #283146; --plinth: #1B2232; --basement: #131A28;
+  --glass: #7FA6DC2B; --glass-edge: #9CC0F040; --board: #DCE2EA; --person: #A7B2C6; --head: #CAD2E0; --intern: #76839C;
+  --win-off: #18202F; --win-back: #23304A; --screen-off: #141A24; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
+  --s-needs: #FF5A5F; --s-done: #3DD68C; --s-working: #FFD27A; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A;
+  --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { height: 100%; }
+body { height: 100%; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.45; }
+button { font: inherit; color: inherit; }
+code, .mono { font-family: var(--font-mono); font-size: .92em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 10px; padding-inline: 16px; padding-block: 12px 16px; }
+
+/* Top bar */
+.topbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; min-width: 0; }
+.brand { margin: 0; font-family: var(--font-display); font-stretch: 72%; font-weight: 800; font-size: 22px; letter-spacing: .14em; text-transform: uppercase; line-height: 1; }
+.crumbs { display: flex; align-items: center; gap: 6px; color: var(--muted); min-width: 0; font-size: 13px; }
+.crumbs .sep { opacity: .6; }
+.crumbs .here { color: var(--fg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.linkbtn { background: none; border: 0; padding: 2px 4px; border-radius: 4px; color: var(--accent); cursor: pointer; }
+.linkbtn:hover { background: var(--hover); }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tag { font-size: 11px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--line); padding: 3px 8px; border-radius: 4px; }
+.tmux { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 12px; font-weight: 500; background: var(--tmux-bg); color: var(--tmux-fg); padding: 4px 10px; border-radius: 4px; }
+.tmux .k { opacity: .55; }
+.tmux .n { color: var(--tmux-needs); }
+.tmux .d { color: var(--tmux-done); }
+
+/* Attention strip */
+.attention { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-width: 0; }
+.att-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.att-label { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.att-empty { color: var(--muted); font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 5px 10px 5px 9px; font-size: 13px; cursor: pointer; text-align: left; }
+.chip:hover { background: var(--hover); }
+.chip .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.chip.needs { border-color: color-mix(in oklab, var(--s-needs) 50%, var(--line)); }
+.chip.needs .dot { background: var(--s-needs); box-shadow: 0 0 0 3px color-mix(in oklab, var(--s-needs) 22%, transparent); }
+.chip.done .dot { background: var(--s-done); }
+.chip .who { font-weight: 600; white-space: nowrap; }
+.chip .what { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; min-width: 0; }
+.chip .time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.chip.needs .time { color: var(--needs-ink); font-weight: 600; }
+
+/* Workspace */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; min-height: 0; }
+.stage { position: relative; min-height: 0; min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(180deg, var(--sky), var(--bg)); overflow: auto; }
+.stage svg { display: block; width: 100%; height: 100%; }
+.stage-hint { position: absolute; left: 12px; bottom: 10px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
+.panel { min-height: 0; min-width: 0; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding-inline: 18px; padding-block: 16px 18px; display: flex; flex-direction: column; gap: 16px; }
+
+@media (max-width: 900px) {
+  .app { height: auto; }
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: 460px; }
+  .stage svg { min-width: 640px; }
+  .panel { overflow: visible; }
+}
+
+/* Panel content */
+.eyebrow { margin: 0 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.p-title { margin: 0; font-family: var(--font-display); font-stretch: 78%; font-weight: 700; font-size: 24px; letter-spacing: .02em; line-height: 1.1; text-wrap: balance; overflow-wrap: anywhere; }
+.p-title.mono { font-family: var(--font-mono); font-stretch: normal; font-size: 18px; font-weight: 600; letter-spacing: 0; }
+.p-sub { margin: 6px 0 0; color: var(--muted); }
+.p-text { margin: 0; max-width: 62ch; }
+.p-note { margin: 0; color: var(--muted); font-size: 13px; }
+.p-h3 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.back { align-self: flex-start; }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--sw); }
+.head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+.directory, .rows, .agents, .phases, .records { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.dir-btn, .row-btn { width: 100%; display: grid; align-items: center; gap: 2px 12px; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: none; cursor: pointer; text-align: left; }
+.dir-btn:hover, .row-btn:hover { background: var(--hover); border-color: var(--line); }
+.dir-btn { grid-template-columns: 30px minmax(0, 1fr) auto; }
+.fl-num { grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border: 1.5px solid var(--fg); border-radius: 50%; font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.fl-name { font-family: var(--font-display); font-stretch: 75%; font-weight: 700; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; overflow-wrap: anywhere; }
+.fl-meta { color: var(--muted); font-size: 12.5px; grid-column: 2; }
+.fl-counts { grid-row: span 2; display: flex; gap: 6px; font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cnt-needs { color: var(--needs-ink); font-weight: 600; }
+.cnt-done { color: var(--done-ink); font-weight: 600; }
+.cnt-shut { color: var(--muted); }
+
+.row-btn { grid-template-columns: 10px minmax(0, 1fr) auto; }
+.row-btn .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--sw); }
+.row-btn .r-name { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
+.row-btn .r-task { grid-column: 2; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.row-btn .r-state { grid-row: span 2; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.island-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+.island-head .repo { font-weight: 600; }
+.island-head .br { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+
+.facts { margin: 0; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 12px; }
+.facts dt { color: var(--muted); font-size: 12.5px; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.facts dd.warn { color: var(--needs-ink); font-weight: 500; }
+.facts code { background: var(--hover); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
+.agents li, .phases li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 4px 0; }
+.agents .dot, .phases .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sw); }
+.agents .a-kind { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.agents .a-state, .phases .a-state { font-size: 12px; color: var(--muted); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 7px 12px; cursor: pointer; font-size: 13px; font-weight: 500; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--fg); color: var(--panel); border-color: var(--fg); }
+.btn.primary:hover { background: color-mix(in oklab, var(--fg) 86%, var(--panel)); }
+.cmd { display: block; font-family: var(--font-mono); font-size: 12px; background: var(--hover); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: nowrap; user-select: all; }
+
+.legend { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.legend li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 2px 10px; align-items: start; }
+.legend .sw { width: 12px; height: 12px; border-radius: 3px; background: var(--sw); margin-top: 3px; }
+.legend .ln { font-weight: 600; font-size: 13px; }
+.legend .ld { grid-column: 2; color: var(--muted); font-size: 12.5px; }
+
+.search { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+.records li { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
+.records .rec-title { font-weight: 600; }
+.records .rec-meta { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.records .rec-meta code { font-size: 12px; }
+
+/* State swatches shared by HTML and SVG */
+.sw-needs_you { --sw: var(--s-needs); }
+.sw-done { --sw: var(--s-done); }
+.sw-working { --sw: var(--s-working); }
+.sw-in_meeting { --sw: var(--s-meeting); }
+.sw-no_signal { --sw: var(--s-nosignal); }
+.sw-idle { --sw: color-mix(in oklab, var(--win-off) 70%, var(--s-working)); }
+.sw-dormant { --sw: var(--shutter); }
+.sw-running { --sw: var(--s-meeting); }
+.sw-pending { --sw: var(--line); }
+.sw-active { --sw: var(--s-meeting); }
+
+/* Toast */
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--panel); padding: 9px 14px; border-radius: 8px; font-size: 13px; max-width: calc(100% - 32px); box-shadow: 0 6px 24px var(--shadow); }
+
+/* ---------- SVG scene ---------- */
+.m-wall { --c: var(--wall); } .m-plate { --c: var(--slab); } .m-plinth { --c: var(--plinth); } .m-basement { --c: var(--basement); }
+.m-roof { --c: var(--roof); } .m-hvac { --c: var(--slab); } .m-floorslab { --c: var(--floor); } .m-desk { --c: var(--desk); }
+.m-chair { --c: var(--chair); } .m-monitor { --c: var(--monitor); } .m-table { --c: var(--table); } .m-glass { --c: var(--glass); } .m-paper { --c: var(--paper); }
+.box .t { fill: var(--c); }
+.box .l { fill: color-mix(in oklab, var(--c) 84%, var(--shade)); }
+.box .r { fill: color-mix(in oklab, var(--c) 68%, var(--shade)); }
+.box polygon { stroke: var(--edge); stroke-width: .6; stroke-linejoin: round; }
+.m-glass polygon { stroke: var(--glass-edge); }
+.ground-shadow { fill: var(--shadow); }
+.grid-line { stroke: var(--grid); stroke-width: 1; }
+.rug { fill: var(--rug); }
+.carpet { fill: color-mix(in oklab, var(--s-meeting) 14%, var(--floor)); }
+
+.sfill { fill: var(--win-off); color: var(--win-off); stroke: var(--edge); stroke-width: .5; }
+.sfill.st-working { fill: var(--s-working); color: var(--s-working); }
+.sfill.st-needs_you { fill: var(--s-needs); color: var(--s-needs); }
+.sfill.st-done { fill: var(--s-done); color: var(--s-done); }
+.sfill.st-in_meeting { fill: var(--s-meeting); color: var(--s-meeting); }
+.sfill.st-no_signal { fill: var(--s-nosignal); color: var(--s-nosignal); }
+.sfill.st-idle { fill: color-mix(in oklab, var(--win-off) 74%, var(--s-working)); }
+.sfill.st-dormant, .sfill.shut { fill: var(--shutter); }
+.sfill.lit { filter: var(--win-filter); }
+.screen.st-idle, .screen.st-dormant, .screen.st-empty { fill: var(--screen-off); }
+.win-back { fill: var(--win-back); stroke: var(--edge); stroke-width: .5; }
+.door { fill: color-mix(in oklab, var(--s-working) 55%, var(--win-off)); stroke: var(--edge); stroke-width: .5; }
+.slit { fill: var(--win-off); }
+.shutter-line { stroke: color-mix(in oklab, var(--shutter) 70%, var(--shade)); stroke-width: 1; }
+.board { fill: var(--board); stroke: var(--edge); stroke-width: .6; }
+.phase.ph-done { fill: var(--s-done); }
+.phase.ph-active { fill: var(--s-meeting); }
+.phase.ph-pending { fill: var(--line); }
+
+.pawn .body { fill: var(--person); }
+.pawn .head { fill: var(--head); }
+.pawn .pawn-shadow { fill: var(--shadow); }
+.intern .body { fill: var(--intern); }
+.intern .head { fill: color-mix(in oklab, var(--intern) 70%, var(--panel)); }
+.agent.ag-running .head { fill: var(--s-meeting); }
+.agent.ag-done .head { fill: var(--s-done); }
+.agent.ag-pending { opacity: .5; }
+.desk.st-idle .pawn { opacity: .8; }
+.mug { fill: var(--paper); stroke: var(--edge); stroke-width: .6; }
+
+.badge .bg { stroke: var(--panel); stroke-width: 2; }
+.b-needs .bg { fill: var(--s-needs); }
+.b-needs .ring { fill: none; stroke: var(--s-needs); stroke-width: 2; }
+.b-done .bg { fill: var(--s-done); }
+.b-meet .bg { fill: var(--s-meeting); }
+.b-nos .bg { fill: var(--s-nosignal); }
+.badge .ico { fill: none; stroke: var(--badge-fg); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.badge .btxt { fill: var(--badge-fg); font-family: var(--font-body); font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+.typing .bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+.typing .tdot { fill: var(--working-ink); }
+
+.focus-ring { fill: none; stroke: transparent; stroke-width: 2; }
+.sel-ring { fill: color-mix(in oklab, var(--accent) 16%, transparent); stroke: var(--accent); stroke-width: 2; }
+.desk, .floor, .room { cursor: pointer; outline: none; }
+.desk:hover .focus-ring, .desk:focus-visible .focus-ring, .room:hover .focus-ring, .room:focus-visible .focus-ring { stroke: var(--accent); stroke-dasharray: 4 3; }
+.outline { fill: transparent; stroke: transparent; stroke-width: 2; pointer-events: none; }
+.floor:hover .outline, .floor:focus-visible .outline { stroke: var(--accent); fill: color-mix(in oklab, var(--accent) 8%, transparent); }
+
+.t-name { font-family: var(--font-display); font-stretch: 72%; font-weight: 700; font-size: 16px; letter-spacing: .07em; fill: var(--fg); }
+.t-sign { font-family: var(--font-display); font-stretch: 75%; font-weight: 700; font-size: 13px; letter-spacing: .06em; fill: var(--fg); }
+.t-meta { font-family: var(--font-body); font-size: 11.5px; fill: var(--muted); }
+.t-mono { font-family: var(--font-mono); font-size: 10.5px; fill: var(--muted); }
+.t-num { font-family: var(--font-mono); font-size: 11px; font-weight: 600; fill: var(--fg); text-anchor: middle; dominant-baseline: central; }
+.t-btn { fill: var(--panel); stroke: var(--fg); stroke-width: 1.3; }
+.c-needs { fill: var(--needs-ink); font-weight: 600; }
+.c-done { fill: var(--done-ink); font-weight: 600; }
+.c-meet { fill: var(--meeting-ink); font-weight: 600; }
+.halo { paint-order: stroke; stroke: var(--halo); stroke-width: 4px; stroke-linejoin: round; }
+.leader { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.sign-post { stroke: var(--muted); stroke-width: 1; }
+.placard { pointer-events: none; }
+.placard .plate { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+.floor-dormant .desk { opacity: .72; }
+
+/* Motion */
+.pawn-body, .badge .ring { transform-box: fill-box; transform-origin: center; }
+@keyframes bob { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+.desk.st-working .pawn > .pawn-body { animation: bob 1.3s ease-in-out infinite alternate; }
+@keyframes ping { 0% { transform: scale(1); opacity: .75; } 100% { transform: scale(2.2); opacity: 0; } }
+.badge .ring { animation: ping 1.8s ease-out infinite; }
+@keyframes typing { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+.typing .tdot { animation: typing 1.2s ease-in-out infinite; }
+.typing .tdot:nth-of-type(2) { animation-delay: .2s; }
+.typing .tdot:nth-of-type(3) { animation-delay: .4s; }
+@keyframes pulse-win { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+.sfill.st-needs_you { animation: pulse-win 1.6s ease-in-out infinite; }
+@keyframes flicker { 0%, 100% { opacity: .9; } 45% { opacity: .55; } 50% { opacity: .85; } }
+.sfill.st-no_signal { animation: flicker 3.2s ease-in-out infinite; }
+@keyframes scene-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.scene-in { animation: scene-in .28s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <h1 class="brand">Scranton HQ</h1>
+    <nav class="crumbs" id="crumbs" aria-label="Location"></nav>
+    <div class="top-right">
+      <span class="tag" title="All sessions on this page are invented examples">Sample data</span>
+      <span class="tmux" id="tmux" title="What the tmux status line shows"></span>
+    </div>
+  </header>
+  <section class="attention" id="attention" aria-label="Sessions that need your attention"></section>
+  <main class="main">
+    <div class="stage" id="stage">
+      <svg id="scene" role="group" aria-label="Office building" preserveAspectRatio="xMidYMid meet"></svg>
+      <p class="stage-hint" id="hint"></p>
+    </div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </main>
+  <div class="toast" id="toast" role="status" hidden></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Sample data (shaped like the scene model) ----------
+  const DATA = {
+    archivedTotal: 38,
+    floors: [
+      {
+        id: 'checkout-v2', kind: 'feature', name: 'checkout-v2',
+        islands: [
+          { repo: 'storefront-web', branch: 'feat/checkout-v2', cwd: '~/code/storefront-web', desks: [
+            { id: 'sw-a1', name: 'storefront-web-a1', pane: '%4', state: 'working',
+              task: 'Build the address step of the new checkout',
+              step: 'Wire form validation to the orders API (3 of 7)',
+              last: 'Edit src/checkout/AddressStep.tsx', lastAgo: '40 s ago',
+              interns: [
+                { kind: 'Explore', task: 'Find every caller of useCart()' },
+                { kind: 'general-purpose', task: 'Write a Playwright test for the address step' }
+              ] },
+            { id: 'sw-b2', name: 'storefront-web-b2', pane: '%5', state: 'done', mins: 18,
+              task: 'Rewrite checkout copy and empty states',
+              last: 'Turn finished: copy updated in 6 files', lastAgo: '18 min ago', interns: [] }
+          ] },
+          { repo: 'orders-api', branch: 'feat/checkout-v2', cwd: '~/code/orders-api/.worktrees/checkout-v2', worktree: true, desks: [
+            { id: 'oa-c3', name: 'orders-api-c3', pane: '%7', state: 'needs_you', mins: 12,
+              reason: { kind: 'Permission', text: 'Bash', code: 'rm -rf dist && npm run build' },
+              task: 'Add idempotency keys to POST /orders',
+              step: 'Rebuild the client SDK (5 of 6)',
+              last: 'Edit src/routes/orders.ts', lastAgo: '12 min ago', interns: [] }
+          ] },
+          { repo: 'payments-svc', branch: 'feat/checkout-v2', cwd: '~/code/payments-svc', desks: [
+            { id: 'ps-d4', name: 'payments-svc-d4', pane: '%9', state: 'in_meeting',
+              task: 'Support split payments across two cards',
+              step: 'Waiting for workflow checkout-verify',
+              last: 'Started workflow checkout-verify', lastAgo: '9 min ago', interns: [] }
+          ] }
+        ],
+        workflow: {
+          name: 'checkout-verify', owner: 'ps-d4',
+          phases: [ { title: 'Explore', status: 'done' }, { title: 'Implement', status: 'active' }, { title: 'Verify', status: 'pending' } ],
+          agents: [
+            { kind: 'Explore', task: 'Map how payment intents are created', status: 'done' },
+            { kind: 'general-purpose', task: 'Implement the split ledger entries', status: 'running' },
+            { kind: 'general-purpose', task: 'Implement the refund path for split payments', status: 'running' },
+            { kind: 'general-purpose', task: 'Run contract tests against orders-api', status: 'pending' }
+          ]
+        }
+      },
+      {
+        id: 'search-ranking', kind: 'feature', name: 'search-ranking',
+        islands: [
+          { repo: 'search-svc', branch: 'feat/search-ranking', cwd: '~/code/search-svc', desks: [
+            { id: 'ss-e5', name: 'search-svc-e5', pane: '%11', state: 'no_signal', mins: 14,
+              task: 'Tune BM25 weights with last month of click data',
+              step: 'Run the full test suite',
+              last: 'Bash: npm test', lastAgo: 'running for 14 min, no new output', interns: [] }
+          ] },
+          { repo: 'storefront-web', branch: 'feat/search-ranking', cwd: '~/code/storefront-web/.worktrees/search-ranking', worktree: true, desks: [
+            { id: 'sw-f6', name: 'storefront-web-f6', pane: '%12', state: 'working',
+              task: 'Explain why a result ranks where it does (debug overlay)',
+              step: 'Add the score breakdown tooltip (2 of 4)',
+              last: 'Read src/search/ResultCard.tsx', lastAgo: '5 s ago',
+              interns: [ { kind: 'Explore', task: 'Map the search response schema' } ] }
+          ] }
+        ]
+      },
+      {
+        id: 'orders-api', kind: 'department', name: 'orders-api',
+        islands: [
+          { repo: 'orders-api', branch: 'main', cwd: '~/code/orders-api', desks: [
+            { id: 'oa-g7', name: 'orders-api-g7', pane: '%2', state: 'needs_you', mins: 4,
+              reason: { kind: 'Question', text: 'Should the retry queue use Redis or Postgres?' },
+              task: 'Investigate duplicate order confirmation emails',
+              step: 'Choose where retries are stored',
+              last: 'AskUserQuestion', lastAgo: '4 min ago', interns: [] },
+            { id: 'oa-h8', name: 'orders-api-h8', pane: '%3', state: 'working',
+              task: 'Bump dependencies and fix the type errors',
+              step: 'Fix type errors in src/billing (4 of 9)',
+              last: 'Bash: npm run typecheck', lastAgo: '12 s ago', interns: [] },
+            { id: 'oa-i9', name: 'orders-api-i9', pane: '%6', state: 'done', mins: 65,
+              task: 'Explain the order state machine',
+              last: 'Turn finished: wrote docs/state-machine.md', lastAgo: '1 h ago', interns: [] },
+            { id: 'oa-j0', name: 'orders-api-j0', pane: '%8', state: 'idle', idleFor: '3 h',
+              task: 'Review the comments on PR #412', last: 'Turn finished', lastAgo: '3 h ago', interns: [] },
+            { id: 'oa-k1', name: 'orders-api-k1', pane: '%10', state: 'idle', idleFor: '1 day',
+              task: 'Draft a migration plan for the orders table', last: 'Turn finished', lastAgo: '1 day ago', interns: [] },
+            { id: 'oa-l2', name: 'orders-api-l2', pane: '%13', state: 'idle', idleFor: '2 days',
+              task: 'Find the flaky test in shipping.spec.ts', last: 'Turn finished', lastAgo: '2 days ago', interns: [] }
+          ] }
+        ]
+      },
+      {
+        id: 'docs-refresh', kind: 'feature', name: 'docs-refresh', dormant: true, dormantFor: '5 days',
+        islands: [
+          { repo: 'docs-site', branch: 'feat/docs-refresh', cwd: '~/code/docs-site', desks: [
+            { id: 'ds-m3', name: 'docs-site-m3', pane: '%14', state: 'dormant', idleFor: '5 days',
+              task: 'Restructure the API reference navigation', last: 'Turn finished', lastAgo: '5 days ago', interns: [] }
+          ] },
+          { repo: 'storefront-web', branch: 'feat/docs-refresh', cwd: '~/code/storefront-web', desks: [
+            { id: 'sw-n4', name: 'storefront-web-n4', pane: '%15', state: 'dormant', idleFor: '6 days',
+              task: 'Link product pages to the new docs', last: 'Turn finished', lastAgo: '6 days ago', interns: [] }
+          ] }
+        ]
+      }
+    ],
+    archive: [
+      { title: 'Investigate slow cold start', feature: null, repo: 'orders-api', branch: 'main', ended: '3 days ago', outcome: 'Found a blocking DNS lookup at boot; fix proposed', pr: null, cwd: '~/code/orders-api' },
+      { title: 'Spike Apple Pay in checkout', feature: 'checkout-v2', repo: 'storefront-web', branch: 'spike/apple-pay', ended: '1 week ago', outcome: 'Works behind a feature flag', pr: '#398', cwd: '~/code/storefront-web' },
+      { title: 'Fix currency rounding in invoices', feature: 'invoice-rounding', repo: 'payments-svc', branch: 'fix/invoice-rounding', ended: '2 weeks ago', outcome: 'Merged', pr: '#377', cwd: '~/code/payments-svc' },
+      { title: 'Add synonyms for product names', feature: 'search-ranking', repo: 'search-svc', branch: 'feat/search-ranking', ended: '2 weeks ago', outcome: 'Synonyms load from config', pr: '#121', cwd: '~/code/search-svc' },
+      { title: 'Write the API onboarding guide', feature: 'docs-refresh', repo: 'docs-site', branch: 'feat/docs-refresh', ended: '3 weeks ago', outcome: 'Draft in docs/onboarding.md', pr: null, cwd: '~/code/docs-site' }
+    ]
+  };
+
+  const STATES = {
+    needs_you: { label: 'Needs you', desc: 'Blocked on a permission, a question or a plan approval.' },
+    done: { label: 'Done, to review', desc: 'Finished its turn and waits for you to look.' },
+    working: { label: 'Working', desc: 'Making progress right now.' },
+    in_meeting: { label: 'In a meeting', desc: 'Idle itself, but its workflow or subagents are still running.' },
+    no_signal: { label: 'No signal', desc: 'Working, but nothing new for a while. Often a long command.' },
+    idle: { label: 'Idle', desc: 'Reviewed, nothing to do.' },
+    dormant: { label: 'Dormant', desc: 'Idle for days. Shutters down; candidate for the basement.' }
+  };
+
+  // ---------- UI state ----------
+  const ui = { view: 'building', floor: null, sel: null, panel: null, seen: new Set(), query: '' };
+
+  // ---------- Helpers ----------
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const desksOf = (f) => f.islands.flatMap((i) => i.desks);
+  const floorById = (id) => DATA.floors.find((f) => f.id === id);
+  const floorNum = (f) => DATA.floors.length - DATA.floors.indexOf(f);
+  function findDesk(id) {
+    for (const f of DATA.floors) for (const i of f.islands) for (const d of i.desks) if (d.id === id) return { d, f, i };
+    return null;
+  }
+  const stateOf = (d) => (d.state === 'done' && ui.seen.has(d.id) ? 'idle' : d.state);
+  const fmtMins = (m) => (m < 60 ? m + 'm' : Math.floor(m / 60) + 'h');
+  function counts(f) {
+    const c = { needs_you: 0, done: 0, working: 0, in_meeting: 0, no_signal: 0, idle: 0, dormant: 0 };
+    desksOf(f).forEach((d) => { c[stateOf(d)]++; });
+    return c;
+  }
+  function fakeUuid(seed) {
+    let h = 2166136261 >>> 0, out = '';
+    for (let k = 0; out.length < 32; k++) {
+      for (const ch of seed + k) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+      out += h.toString(16).padStart(8, '0');
+    }
+    out = out.slice(0, 32);
+    return out.slice(0, 8) + '-' + out.slice(8, 12) + '-' + out.slice(12, 16) + '-' + out.slice(16, 20) + '-' + out.slice(20);
+  }
+  const resumeCmd = (cwd, seed) => 'cd ' + cwd + ' && claude --resume ' + fakeUuid(seed);
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
+  // ---------- Isometric primitives ----------
+  const TW = 64, TH = 32, CELL = 2, PER_ROW = 4;
+  let bb;
+  const resetBounds = () => { bb = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }; };
+  function grow(x, y) { if (x < bb.x0) bb.x0 = x; if (x > bb.x1) bb.x1 = x; if (y < bb.y0) bb.y0 = y; if (y > bb.y1) bb.y1 = y; }
+  function P(x, y, z) { const p = [(x - y) * TW / 2, (x + y) * TH / 2 - (z || 0)]; grow(p[0], p[1]); return p; }
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const pts = (a) => a.map((p) => r1(p[0]) + ',' + r1(p[1])).join(' ');
+  const poly = (a, cls, attrs) => '<polygon class="' + (cls || '') + '" points="' + pts(a) + '"' + (attrs ? ' ' + attrs : '') + '/>';
+  function box(x0, y0, x1, y1, z0, z1, mat) {
+    const t = [P(x0, y0, z1), P(x1, y0, z1), P(x1, y1, z1), P(x0, y1, z1)];
+    const l = [P(x0, y1, z1), P(x1, y1, z1), P(x1, y1, z0), P(x0, y1, z0)];
+    const r = [P(x1, y0, z1), P(x1, y1, z1), P(x1, y1, z0), P(x1, y0, z0)];
+    return '<g class="box m-' + mat + '">' + poly(l, 'l') + poly(r, 'r') + poly(t, 't') + '</g>';
+  }
+  // Quads lying on a face at constant y (front-left faces) or constant x (front-right faces).
+  const qY = (y, x0, x1, z0, z1) => [P(x0, y, z1), P(x1, y, z1), P(x1, y, z0), P(x0, y, z0)];
+  const qX = (x, y0, y1, z0, z1) => [P(x, y0, z1), P(x, y1, z1), P(x, y1, z0), P(x, y0, z0)];
+
+  function pawn(sx, sy, scale, cls) {
+    const s = scale || 1, bw = 7 * s, bh = 26 * s, hr = 6.5 * s;
+    grow(sx - 10 * s, sy - bh - 2 * hr - 4);
+    return '<g class="pawn ' + (cls || '') + '">' +
+      '<ellipse class="pawn-shadow" cx="' + r1(sx) + '" cy="' + r1(sy) + '" rx="' + r1(9 * s) + '" ry="' + r1(4 * s) + '"/>' +
+      '<g class="pawn-body"><rect class="body" x="' + r1(sx - bw) + '" y="' + r1(sy - bh) + '" width="' + r1(bw * 2) + '" height="' + r1(bh) + '" rx="' + r1(bw) + '"/>' +
+      '<circle class="head" cx="' + r1(sx) + '" cy="' + r1(sy - bh - hr - 1.5 * s) + '" r="' + r1(hr) + '"/></g></g>';
+  }
+
+  function badge(cx, cy, state, n) {
+    const c = 'cx="' + r1(cx) + '" cy="' + r1(cy) + '"';
+    grow(cx, cy - 14);
+    switch (state) {
+      case 'needs_you':
+        return '<g class="badge b-needs"><circle class="ring" ' + c + ' r="10"/><circle class="bg" ' + c + ' r="10"/>' +
+          '<text class="btxt" x="' + r1(cx) + '" y="' + r1(cy + .5) + '">!</text></g>';
+      case 'done':
+        return '<g class="badge b-done"><circle class="bg" ' + c + ' r="10"/>' +
+          '<path class="ico" d="M' + r1(cx - 4.5) + ' ' + r1(cy + .5) + ' l3 3 l6 -6.5"/></g>';
+      case 'in_meeting':
+        return '<g class="badge b-meet"><circle class="bg" ' + c + ' r="10"/>' +
+          '<text class="btxt" x="' + r1(cx) + '" y="' + r1(cy + .5) + '">' + n + '</text></g>';
+      case 'no_signal':
+        return '<g class="badge b-nos"><circle class="bg" ' + c + ' r="10"/>' +
+          '<circle class="ico" ' + c + ' r="5.5"/><path class="ico" d="M' + r1(cx) + ' ' + r1(cy - 3) + ' v3 l2.2 1.6"/></g>';
+      case 'working':
+        return '<g class="badge typing"><rect class="bg" x="' + r1(cx - 13) + '" y="' + r1(cy - 7) + '" width="26" height="14" rx="7"/>' +
+          [-6, 0, 6].map((dx) => '<circle class="tdot" cx="' + r1(cx + dx) + '" cy="' + r1(cy) + '" r="2.2"/>').join('') + '</g>';
+      default:
+        return '';
+    }
+  }
+
+  function setViewBox(svg, pad) {
+    const w = bb.x1 - bb.x0 + pad * 2, h = bb.y1 - bb.y0 + pad * 2;
+    svg.setAttribute('viewBox', r1(bb.x0 - pad) + ' ' + r1(bb.y0 - pad) + ' ' + r1(w) + ' ' + r1(h));
+  }
+
+  // ---------- Building (façade) ----------
+  function renderBuilding() {
+    resetBounds();
+    const F = DATA.floors, n = F.length;
+    const W = Math.max(6, ...F.map((f) => desksOf(f).length)), D = 3, FH = 40, LH = 50, BH = 30;
+    const labelX = W * TW / 2 + 40;
+    let s = '';
+
+    // Ground shadow under the model
+    const gc = P(W / 2, D / 2, -BH - 8);
+    s += '<ellipse class="ground-shadow" cx="' + r1(gc[0]) + '" cy="' + r1(gc[1] + 10) + '" rx="' + r1((W + D) * 19) + '" ry="' + r1((W + D) * 8) + '"/>';
+
+    // Basement (archive)
+    let bs = box(0.15, 0.15, W - 0.15, D - 0.15, -BH - 6, -6, 'basement');
+    for (let i = 0; i < W; i++) bs += poly(qY(D - 0.15, i + 0.3, i + 0.7, -BH + 4, -BH + 11), 'slit');
+    const ba = P(W - 0.15, 0.15, -BH / 2 - 6);
+    bs += label(ba, labelX, 'B1', 'BASEMENT', [{ t: DATA.archivedTotal + ' archived sessions' }]);
+    bs += poly([P(0.15, D - 0.15, -6), P(0.15, D - 0.15, -BH - 6), P(W - 0.15, D - 0.15, -BH - 6), P(W - 0.15, 0.15, -BH - 6), P(W - 0.15, 0.15, -6), P(W - 0.15, D - 0.15, -6)], 'outline');
+    s += '<g class="floor" data-archive="1" tabindex="0" role="button" aria-label="Basement: ' + DATA.archivedTotal + ' archived sessions">' + bs + '</g>';
+
+    // Plinth and lobby
+    s += box(-0.4, -0.4, W + 0.4, D + 0.4, -6, 0, 'plinth');
+    s += box(0, 0, W, D, 0, LH, 'wall');
+    const doorA = Math.floor(W / 2) - 1;
+    for (let i = 0; i < W; i++) {
+      if (i === doorA || i === doorA + 1) s += poly(qY(D, i + 0.08, i + 0.92, 0, LH - 14), 'door');
+      else s += poly(qY(D, i + 0.15, i + 0.85, 14, LH - 10), 'sfill st-empty');
+    }
+    s += poly(qX(W, 0.3, D - 0.3, 14, LH - 10), 'sfill st-empty');
+    s += label(P(W, 0, LH / 2), labelX, 'L', 'LOBBY', []);
+
+    // Floors, bottom to top (the data lists them top to bottom)
+    for (let j = 0; j < n; j++) {
+      const f = F[n - 1 - j];
+      s += facadeFloor(f, LH + j * FH, W, D, FH, labelX);
+    }
+
+    // Roof
+    const zr = LH + n * FH;
+    s += box(-0.12, -0.12, W + 0.12, D + 0.12, zr, zr + 6, 'roof');
+    s += box(0.6, 0.5, 1.9, 1.7, zr + 6, zr + 22, 'hvac');
+    s += box(W - 2.3, 0.7, W - 1.1, 1.9, zr + 6, zr + 16, 'hvac');
+    const a0 = P(W - 0.5, 0.5, zr + 6), a1 = P(W - 0.5, 0.5, zr + 46);
+    s += '<line class="sign-post" x1="' + r1(a0[0]) + '" y1="' + r1(a0[1]) + '" x2="' + r1(a1[0]) + '" y2="' + r1(a1[1]) + '"/>';
+
+    grow(labelX + 330, bb.y0);
+    return s;
+  }
+
+  function label(anchor, lx, num, name, metas) {
+    const ay = anchor[1];
+    grow(lx + 330, ay - 20); grow(lx, ay + 20);
+    let s = '<line class="leader" x1="' + r1(anchor[0] + 4) + '" y1="' + r1(ay) + '" x2="' + r1(lx - 6) + '" y2="' + r1(ay) + '"/>';
+    s += '<circle class="t-btn" cx="' + r1(lx + 11) + '" cy="' + r1(ay) + '" r="11"/>';
+    s += '<text class="t-num" x="' + r1(lx + 11) + '" y="' + r1(ay + .5) + '">' + esc(num) + '</text>';
+    const ty = metas.length ? ay - 2 : ay + 5;
+    s += '<text class="t-name" x="' + r1(lx + 32) + '" y="' + r1(ty) + '">' + esc(name) + '</text>';
+    if (metas.length) {
+      s += '<text class="t-meta" x="' + r1(lx + 32) + '" y="' + r1(ay + 13) + '">' +
+        metas.map((m, k) => '<tspan' + (m.c ? ' class="' + m.c + '"' : '') + (k ? ' dx="10"' : '') + '>' + esc(m.t) + '</tspan>').join('') + '</text>';
+    }
+    return s;
+  }
+
+  function floorMeta(f) {
+    const c = counts(f), repos = new Set(f.islands.map((i) => i.repo)).size, n = desksOf(f).length;
+    const metas = [];
+    if (f.kind === 'department') metas.push({ t: 'Department · main · ' + plural(n, 'session', 'sessions') });
+    else metas.push({ t: plural(repos, 'repo', 'repos') + ' · ' + plural(n, 'session', 'sessions') });
+    if (f.dormant) metas.push({ t: 'shutters down ' + f.dormantFor });
+    if (c.needs_you) metas.push({ t: '● ' + c.needs_you + ' needs you', c: 'c-needs' });
+    if (c.done) metas.push({ t: '● ' + c.done + ' done', c: 'c-done' });
+    if (f.workflow) metas.push({ t: '● meeting', c: 'c-meet' });
+    return metas;
+  }
+
+  function facadeFloor(f, z0, W, D, FH, labelX) {
+    const desks = desksOf(f);
+    let g = box(-0.08, -0.08, W + 0.08, D + 0.08, z0, z0 + 4, 'plate') + box(0, 0, W, D, z0 + 4, z0 + FH, 'wall');
+    for (let i = 0; i < W; i++) {
+      const d = desks[i];
+      const st = d ? stateOf(d) : 'empty';
+      const lit = ['working', 'needs_you', 'done', 'in_meeting', 'no_signal'].includes(st) ? ' lit' : '';
+      const q = qY(D, i + 0.18, i + 0.82, z0 + 13, z0 + FH - 6);
+      g += poly(q, 'sfill st-' + st + lit + (f.dormant ? ' shut' : ''), d ? 'data-desk="' + d.id + '"' : '');
+      if (f.dormant) {
+        for (let k = 1; k < 4; k++) {
+          const z = z0 + 13 + k * (FH - 19) / 4, a = P(i + 0.18, D, z), b = P(i + 0.82, D, z);
+          g += '<line class="shutter-line" x1="' + r1(a[0]) + '" y1="' + r1(a[1]) + '" x2="' + r1(b[0]) + '" y2="' + r1(b[1]) + '"/>';
+        }
+      }
+    }
+    // Side window: the meeting room shows on the right face
+    const side = f.workflow ? 'sfill st-in_meeting lit' : 'sfill st-empty';
+    g += poly(qX(W, 0.35, D - 0.35, z0 + 13, z0 + FH - 6), side + (f.dormant ? ' shut' : ''));
+    g += label(P(W, 0, z0 + FH / 2 + 2), labelX, String(floorNum(f)), f.name.toUpperCase(), floorMeta(f));
+    const hull = [P(0, D, z0 + FH), P(0, D, z0), P(W, D, z0), P(W, 0, z0), P(W, 0, z0 + FH), P(W, D, z0 + FH)];
+    g += poly(hull, 'outline');
+    const c = counts(f);
+    const aria = 'Floor ' + floorNum(f) + ', ' + f.name + ': ' + plural(desks.length, 'session', 'sessions') +
+      (c.needs_you ? ', ' + c.needs_you + ' need you' : '') + (c.done ? ', ' + c.done + ' done' : '') + (f.dormant ? ', shutters down' : '');
+    return '<g class="floor" data-floor="' + f.id + '" tabindex="0" role="button" aria-label="' + esc(aria) + '">' + g + '</g>';
+  }
+
+  // ---------- Floor (inside) ----------
+  function layoutFloor(f) {
+    const room = f.workflow ? { x: 1.0, y: 0.7, w: 5.4, d: 3.8 } : null;
+    const GAP = 2.2;
+    let y = room ? room.y + room.d + GAP : 1.4;
+    const MAXW = 9.5;
+    const isl = [];
+    let x = 1.0, bandDepth = 0;
+    for (const i of f.islands) {
+      const cols = Math.min(PER_ROW, i.desks.length), rows = Math.ceil(i.desks.length / PER_ROW);
+      const w = cols * CELL;
+      if (x > 1.0 && x + w > MAXW) { y += bandDepth + GAP; x = 1.0; bandDepth = 0; }
+      isl.push({ i, x, y, cols, rows });
+      x += w + 1.2;
+      bandDepth = Math.max(bandDepth, rows * CELL);
+    }
+    const D = y + bandDepth + 0.6;
+    const W = Math.max(room ? room.x + room.w + 0.8 : 0, ...isl.map((o) => o.x + o.cols * CELL + 0.6), 7);
+    return { room, isl, W, D };
+  }
+
+  function renderFloor(f) {
+    resetBounds();
+    const L = layoutFloor(f);
+    let s = '';
+    s += box(0, 0, L.W, L.D, -12, 0, 'floorslab');
+    for (let gx = 1; gx < L.W; gx++) { const a = P(gx, 0, 0), b = P(gx, L.D, 0); s += '<line class="grid-line" x1="' + r1(a[0]) + '" y1="' + r1(a[1]) + '" x2="' + r1(b[0]) + '" y2="' + r1(b[1]) + '"/>'; }
+    for (let gy = 1; gy < L.D; gy++) { const a = P(0, gy, 0), b = P(L.W, gy, 0); s += '<line class="grid-line" x1="' + r1(a[0]) + '" y1="' + r1(a[1]) + '" x2="' + r1(b[0]) + '" y2="' + r1(b[1]) + '"/>'; }
+    // Back walls (cutaway: the front walls are removed)
+    s += box(-0.18, 0, 0, L.D, 0, 46, 'wall');
+    s += box(-0.18, -0.18, L.W, 0, 0, 46, 'wall');
+    for (let wx = 0.7; wx + 1 < L.W; wx += 1.6) s += poly(qY(0, wx, wx + 0.9, 16, 38), 'win-back');
+    for (let wy = 0.7; wy + 1 < L.D; wy += 1.6) s += poly(qX(0, wy, wy + 0.9, 16, 38), 'win-back');
+
+    // Rugs mark each island (one repo or worktree)
+    for (const o of L.isl) {
+      const x0 = o.x - 0.15, y0 = o.y - 0.15, x1 = o.x + o.cols * CELL + 0.1, y1 = o.y + o.rows * CELL + 0.1;
+      s += poly([P(x0, y0, 0.4), P(x1, y0, 0.4), P(x1, y1, 0.4), P(x0, y1, 0.4)], 'rug');
+    }
+
+    if (L.room) s += renderRoom(f, L.room);
+
+    // Desks, painted back to front
+    const cells = [];
+    for (const o of L.isl) o.i.desks.forEach((d, k) => cells.push({ d, cx: o.x + (k % PER_ROW) * CELL, cy: o.y + Math.floor(k / PER_ROW) * CELL }));
+    cells.sort((a, b) => (a.cx + a.cy) - (b.cx + b.cy) || a.cx - b.cx);
+    for (const c of cells) s += renderDesk(c.d, c.cx, c.cy, f);
+
+    // Placards above islands and the room, drawn last so nothing hides them
+    let signs = '';
+    for (const o of L.isl) {
+      signs += placard(P(o.x - 0.15, o.y - 0.15, 0), 58, o.i.repo.toUpperCase(), o.i.branch + (o.i.worktree ? ' · worktree' : ''));
+    }
+    if (L.room) {
+      const wf = f.workflow, r = L.room;
+      const running = wf.agents.filter((a) => a.status === 'running').length;
+      const active = wf.phases.find((p) => p.status === 'active');
+      signs += placard(P(r.x, r.y, 42), 26, 'MEETING ROOM · ' + wf.name.toUpperCase(),
+        (active ? active.title : 'Done') + ' · ' + running + ' of ' + wf.agents.length + ' agents running');
+    }
+    s += signs;
+    return s;
+  }
+
+  function placard(foot, h, line1, line2) {
+    const x = foot[0], y = foot[1] - h - 34;
+    const w = Math.round(Math.max(line1.length * 7.6, line2.length * 6.6) + 18);
+    grow(x + w, y);
+    return '<g class="placard"><line class="sign-post" x1="' + r1(foot[0]) + '" y1="' + r1(foot[1]) + '" x2="' + r1(x) + '" y2="' + r1(y + 34) + '"/>' +
+      '<rect class="plate" x="' + r1(x) + '" y="' + r1(y) + '" width="' + w + '" height="34" rx="4"/>' +
+      '<text class="t-sign" x="' + r1(x + 9) + '" y="' + r1(y + 15) + '">' + esc(line1) + '</text>' +
+      '<text class="t-mono" x="' + r1(x + 9) + '" y="' + r1(y + 28) + '">' + esc(line2) + '</text></g>';
+  }
+
+  function renderRoom(f, r) {
+    const wf = f.workflow;
+    let s = '';
+    const g0 = P(r.x + r.w / 2, r.y + r.d / 2, 0);
+    s += '<ellipse class="focus-ring" cx="' + r1(g0[0]) + '" cy="' + r1(g0[1]) + '" rx="' + r1((r.w + r.d) * 16) + '" ry="' + r1((r.w + r.d) * 8) + '"/>';
+    s += poly([P(r.x, r.y, 0.6), P(r.x + r.w, r.y, 0.6), P(r.x + r.w, r.y + r.d, 0.6), P(r.x, r.y + r.d, 0.6)], 'carpet');
+    s += box(r.x - 0.08, r.y, r.x, r.y + r.d, 0, 42, 'glass');
+    s += box(r.x - 0.08, r.y - 0.08, r.x + r.w, r.y, 0, 42, 'glass');
+    // Whiteboard with one segment per phase
+    const bx0 = r.x + 0.6, bw = 3.4, n = wf.phases.length;
+    s += poly(qY(r.y + 0.01, bx0 - 0.1, bx0 + bw + 0.1, 12, 38), 'board');
+    wf.phases.forEach((p, k) => {
+      s += poly(qY(r.y + 0.02, bx0 + k * bw / n + 0.07, bx0 + (k + 1) * bw / n - 0.07, 17, 33), 'phase ph-' + p.status);
+    });
+    const tx0 = r.x + 1.6, ty0 = r.y + 1.2, tx1 = r.x + 3.8, ty1 = r.y + 2.6;
+    const seats = [[r.x + 1.0, r.y + 1.9], [r.x + 2.7, r.y + 0.8], [r.x + 4.4, r.y + 1.9], [r.x + 2.7, r.y + 3.2], [r.x + 1.7, r.y + 3.2], [r.x + 3.7, r.y + 3.2]];
+    const items = wf.agents.map((a, k) => ({ a, x: seats[k % seats.length][0], y: seats[k % seats.length][1] }));
+    const tableKey = (tx0 + tx1) / 2 + (ty0 + ty1) / 2;
+    const agentSvg = (it) => { const p = P(it.x, it.y, 0); return pawn(p[0], p[1], 0.85, 'agent ag-' + it.a.status); };
+    items.filter((it) => it.x + it.y < tableKey).forEach((it) => { s += agentSvg(it); });
+    s += box(tx0, ty0, tx1, ty1, 0, 14, 'table');
+    items.filter((it) => it.x + it.y >= tableKey).forEach((it) => { s += agentSvg(it); });
+    s += box(r.x, r.y + r.d, r.x + r.w, r.y + r.d + 0.06, 0, 14, 'glass');
+    s += box(r.x + r.w, r.y, r.x + r.w + 0.06, r.y + r.d + 0.06, 0, 14, 'glass');
+    const running = wf.agents.filter((a) => a.status === 'running').length;
+    return '<g class="room" data-room="' + f.id + '" tabindex="0" role="button" aria-label="' +
+      esc('Meeting room: workflow ' + wf.name + ', ' + running + ' of ' + wf.agents.length + ' agents running') + '">' + s + '</g>';
+  }
+
+  function renderDesk(d, cx, cy, f) {
+    const st = stateOf(d);
+    let s = '';
+    const g0 = P(cx + 1.45, cy + 1.0, 0);
+    s += '<ellipse class="focus-ring" cx="' + r1(g0[0]) + '" cy="' + r1(g0[1]) + '" rx="30" ry="15"/>';
+    if (ui.sel === d.id) s += '<ellipse class="sel-ring" cx="' + r1(g0[0]) + '" cy="' + r1(g0[1]) + '" rx="30" ry="15"/>';
+    s += box(cx + 0.25, cy + 0.3, cx + 1.05, cy + 1.7, 0, 16, 'desk');
+    s += box(cx + 0.4, cy + 0.92, cx + 0.48, cy + 1.08, 16, 21, 'monitor');
+    s += box(cx + 0.36, cy + 0.62, cx + 0.5, cy + 1.38, 21, 44, 'monitor');
+    const lit = ['working', 'needs_you', 'done', 'in_meeting', 'no_signal'].includes(st) ? ' lit' : '';
+    s += poly(qX(cx + 0.505, cy + 0.68, cy + 1.32, 24, 41), 'sfill screen st-' + st + lit);
+    if (st === 'idle') {
+      const m = P(cx + 0.82, cy + 0.5, 16);
+      s += '<rect class="mug" x="' + r1(m[0] - 3.5) + '" y="' + r1(m[1] - 8) + '" width="7" height="8" rx="1.5"/>';
+    }
+    if (st === 'done') s += box(cx + 0.66, cy + 1.3, cx + 0.98, cy + 1.62, 16, 19, 'paper');
+    s += box(cx + 1.25, cy + 0.8, cx + 1.65, cy + 1.2, 0, 10, 'chair');
+    const personKey = (cx + 1.45) + (cy + 1.0);
+    const spots = [[cx + 1.9, cy + 0.35], [cx + 1.95, cy + 1.65], [cx + 1.25, cy + 1.9]];
+    const interns = (d.interns || []).map((it, k) => ({ x: spots[k % 3][0], y: spots[k % 3][1] }));
+    const internSvg = (it) => { const p = P(it.x, it.y, 0); return pawn(p[0], p[1], 0.7, 'intern'); };
+    if (st !== 'dormant') {
+      interns.filter((it) => it.x + it.y < personKey).forEach((it) => { s += internSvg(it); });
+      const seat = P(cx + 1.45, cy + 1.0, 10);
+      s += pawn(seat[0], seat[1], 1, 'person');
+      interns.filter((it) => it.x + it.y >= personKey).forEach((it) => { s += internSvg(it); });
+      const agents = f.workflow && f.workflow.owner === d.id ? f.workflow.agents.filter((a) => a.status === 'running').length : 0;
+      s += badge(seat[0], seat[1] - 56, st, agents);
+    }
+    const aria = d.name + ', ' + STATES[st].label + ': ' + d.task;
+    return '<g class="desk st-' + st + '" data-desk="' + d.id + '" tabindex="0" role="button" aria-label="' + esc(aria) + '">' + s + '</g>';
+  }
+
+  // ---------- Panel ----------
+  function legendHtml() {
+    return '<section><h3 class="p-h3">Legend</h3><ul class="legend">' +
+      Object.keys(STATES).map((k) => '<li class="sw-' + k + '"><span class="sw"></span><span class="ln">' + STATES[k].label + '</span><span class="ld">' + STATES[k].desc + '</span></li>').join('') +
+      '</ul></section>';
+  }
+
+  function panelBuilding() {
+    const total = DATA.floors.reduce((n, f) => n + desksOf(f).length, 0);
+    let h = '<div><p class="eyebrow">Directory</p><h2 class="p-title">The building</h2>' +
+      '<p class="p-sub">' + plural(DATA.floors.length, 'floor', 'floors') + ' · ' + total + ' sessions · ' + DATA.archivedTotal + ' archived</p></div>';
+    h += '<p class="p-text">Each floor is a feature, even when its sessions work in different repos. Sessions without a feature sit in their repo\'s department. Red windows are sessions waiting for you.</p>';
+    h += '<ol class="directory">';
+    for (const f of DATA.floors) {
+      const c = counts(f);
+      const meta = f.kind === 'department' ? 'Department · main · ' + plural(desksOf(f).length, 'session', 'sessions')
+        : plural(new Set(f.islands.map((i) => i.repo)).size, 'repo', 'repos') + ' · ' + plural(desksOf(f).length, 'session', 'sessions');
+      let cnt = '';
+      if (c.needs_you) cnt += '<span class="cnt-needs">◉' + c.needs_you + '</span>';
+      if (c.done) cnt += '<span class="cnt-done">✓' + c.done + '</span>';
+      if (f.dormant) cnt += '<span class="cnt-shut">shut</span>';
+      h += '<li><button class="dir-btn" data-goto-floor="' + f.id + '"><span class="fl-num">' + floorNum(f) + '</span>' +
+        '<span class="fl-name">' + esc(f.name) + '</span><span class="fl-counts">' + cnt + '</span><span class="fl-meta">' + esc(meta) + '</span></button></li>';
+    }
+    h += '<li><button class="dir-btn" data-archive="1"><span class="fl-num">B1</span><span class="fl-name">Basement</span><span class="fl-counts"></span>' +
+      '<span class="fl-meta">' + DATA.archivedTotal + ' archived sessions, searchable</span></button></li></ol>';
+    return h + legendHtml();
+  }
+
+  function panelFloor(f) {
+    const n = desksOf(f).length;
+    let h = '<div><p class="eyebrow">Floor ' + floorNum(f) + ' · ' + (f.kind === 'department' ? 'Department' : 'Feature') + '</p>' +
+      '<h2 class="p-title">' + esc(f.name) + '</h2><p class="p-sub">' +
+      (f.kind === 'department' ? 'Sessions on main with no feature branch' : plural(new Set(f.islands.map((i) => i.repo)).size, 'repo', 'repos') + ' working on this feature') +
+      ' · ' + plural(n, 'session', 'sessions') + '</p></div>';
+    if (f.dormant) {
+      h += '<p class="p-text">Shutters down: every session here has been idle for ' + esc(f.dormantFor) + ' or more. They are candidates for the basement.</p>' +
+        '<div class="actions"><button class="btn" data-action="archive-floor">Move ' + n + ' to the basement</button></div>';
+    }
+    if (f.workflow) {
+      const wf = f.workflow, running = wf.agents.filter((a) => a.status === 'running').length;
+      h += '<section><h3 class="p-h3">Meeting room</h3><ul class="rows"><li><button class="row-btn sw-in_meeting" data-room="' + f.id + '">' +
+        '<span class="dot"></span><span class="r-name">' + esc(wf.name) + '</span><span class="r-state">' + running + ' running</span>' +
+        '<span class="r-task">Workflow started by ' + esc(findDesk(wf.owner).d.name) + '</span></button></li></ul></section>';
+    }
+    for (const i of f.islands) {
+      h += '<section><div class="island-head"><span class="repo">' + esc(i.repo) + '</span><span class="br">' + esc(i.branch) + (i.worktree ? ' · worktree' : '') + '</span></div><ul class="rows">';
+      for (const d of i.desks) {
+        const st = stateOf(d);
+        h += '<li><button class="row-btn sw-' + st + '" data-goto-desk="' + d.id + '"><span class="dot"></span><span class="r-name">' + esc(d.name) + '</span>' +
+          '<span class="r-state">' + STATES[st].label + '</span><span class="r-task">' + esc(d.task) + '</span></button></li>';
+      }
+      h += '</ul></section>';
+    }
+    return h;
+  }
+
+  function panelDesk(id) {
+    const { d, f, i } = findDesk(id);
+    const st = stateOf(d);
+    let h = '<button class="linkbtn back" data-back="1">← Floor ' + floorNum(f) + ' · ' + esc(f.name) + '</button>';
+    h += '<div><p class="eyebrow">' + esc(i.repo) + ' · tmux pane ' + esc(d.pane) + '</p><div class="head-row"><h2 class="p-title mono">' + esc(d.name) + '</h2>' +
+      '<span class="pill sw-' + st + '">' + STATES[st].label + '</span></div></div>';
+    h += '<p class="p-text">' + esc(d.task) + '</p><dl class="facts">';
+    if (st === 'needs_you') {
+      const r = d.reason;
+      h += '<dt>Waiting for</dt><dd class="warn">' + esc(r.kind) + ': ' + esc(r.text) + (r.code ? ' <code>' + esc(r.code) + '</code>' : '') + ' · ' + d.mins + ' min</dd>';
+    }
+    if (st === 'no_signal') h += '<dt>Running</dt><dd><code>npm test</code> for ' + d.mins + ' min, no new output</dd>';
+    if (st === 'in_meeting' && f.workflow) {
+      const running = f.workflow.agents.filter((a) => a.status === 'running').length;
+      h += '<dt>Meeting</dt><dd>Workflow <button class="linkbtn" data-room="' + f.id + '">' + esc(f.workflow.name) + '</button>, ' + running + ' of ' + f.workflow.agents.length + ' agents running</dd>';
+    }
+    if (st === 'done') h += '<dt>Finished</dt><dd>' + esc(d.lastAgo) + '</dd>';
+    if (st === 'idle' || st === 'dormant') h += '<dt>Idle for</dt><dd>' + esc(d.idleFor || d.lastAgo) + '</dd>';
+    if (d.step) h += '<dt>Current step</dt><dd>' + esc(d.step) + '</dd>';
+    h += '<dt>Last action</dt><dd>' + esc(d.last) + ' <span class="p-note">· ' + esc(d.lastAgo) + '</span></dd>';
+    h += '<dt>Feature</dt><dd>' + (f.kind === 'department' ? 'None (works on main)' : esc(f.name) + ' <span class="p-note">· from the branch name</span>') + '</dd>';
+    h += '<dt>Branch</dt><dd><code>' + esc(i.branch) + '</code></dd>';
+    h += '<dt>Folder</dt><dd><code>' + esc(i.cwd) + '</code></dd></dl>';
+    if (d.interns && d.interns.length) {
+      h += '<section><h3 class="p-h3">Subagents (' + d.interns.length + ')</h3><ul class="agents">' +
+        d.interns.map((a) => '<li class="sw-running"><span class="dot"></span><span>' + esc(a.task) + ' <span class="a-kind">' + esc(a.kind) + '</span></span><span class="a-state">running</span></li>').join('') + '</ul></section>';
+    }
+    h += '<section><h3 class="p-h3">Resume later</h3><code class="cmd" id="resume-cmd">' + esc(resumeCmd(i.cwd, d.id)) + '</code></section>';
+    h += '<div class="actions"><button class="btn primary" data-action="focus" data-pane="' + esc(d.pane) + '">Focus tmux pane ' + esc(d.pane) + '</button>';
+    if (st === 'done') h += '<button class="btn" data-action="seen" data-id="' + d.id + '">Mark as seen</button>';
+    h += '<button class="btn" data-action="copy">Copy resume command</button></div>';
+    return h;
+  }
+
+  function panelRoom(fid) {
+    const f = floorById(fid), wf = f.workflow;
+    const owner = findDesk(wf.owner).d;
+    let h = '<button class="linkbtn back" data-back="1">← Floor ' + floorNum(f) + ' · ' + esc(f.name) + '</button>';
+    h += '<div><p class="eyebrow">Meeting room · workflow</p><h2 class="p-title">' + esc(wf.name) + '</h2>' +
+      '<p class="p-sub">Started by <button class="linkbtn" data-goto-desk="' + owner.id + '">' + esc(owner.name) + '</button></p></div>';
+    h += '<section><h3 class="p-h3">Phases</h3><ol class="phases">' +
+      wf.phases.map((p) => '<li class="sw-' + (p.status === 'done' ? 'done' : p.status) + '"><span class="dot"></span><span>' + esc(p.title) + '</span><span class="a-state">' + p.status + '</span></li>').join('') + '</ol></section>';
+    h += '<section><h3 class="p-h3">Agents (' + wf.agents.length + ')</h3><ul class="agents">' +
+      wf.agents.map((a) => '<li class="sw-' + (a.status === 'done' ? 'done' : a.status) + '"><span class="dot"></span><span>' + esc(a.task) + ' <span class="a-kind">' + esc(a.kind) + '</span></span><span class="a-state">' + a.status + '</span></li>').join('') + '</ul></section>';
+    return h;
+  }
+
+  function panelArchive() {
+    const q = ui.query.trim().toLowerCase();
+    const recs = DATA.archive.filter((r) => !q || [r.title, r.repo, r.branch, r.feature || '', r.outcome].join(' ').toLowerCase().includes(q));
+    let h = '<button class="linkbtn back" data-back="1">← ' + (ui.view === 'building' ? 'Directory' : 'Floor') + '</button>';
+    h += '<div><p class="eyebrow">B1 · Basement</p><h2 class="p-title">Archive</h2><p class="p-sub">' + DATA.archivedTotal + ' finished sessions, each with a summary and a way back in.</p></div>';
+    h += '<label class="p-h3" for="archive-search">Search</label><input class="search" id="archive-search" type="search" placeholder="Title, repo, feature, outcome" value="' + esc(ui.query) + '">';
+    h += '<section><h3 class="p-h3">Ready to archive</h3><p class="p-note">2 sessions on docs-refresh have been dormant for 5 days.</p>' +
+      '<div class="actions" style="margin-top:8px"><button class="btn" data-action="archive-floor">Move 2 to the basement</button></div></section>';
+    h += '<ul class="records">' + (recs.length ? recs.map((r) =>
+      '<li><span class="rec-title">' + esc(r.title) + '</span><span class="rec-meta">' + esc(r.feature || 'no feature') + ' · ' + esc(r.repo) + ' · <code>' + esc(r.branch) + '</code> · ended ' + esc(r.ended) + (r.pr ? ' · PR ' + esc(r.pr) : '') + '</span>' +
+      '<span class="rec-meta">' + esc(r.outcome) + '</span><code class="cmd">' + esc(resumeCmd(r.cwd, r.title)) + '</code></li>').join('')
+      : '<li><span class="rec-meta">No archived session matches “' + esc(ui.query) + '”.</span></li>') + '</ul>';
+    h += '<p class="p-note">Showing ' + recs.length + ' of ' + DATA.archivedTotal + ' (sample).</p>';
+    return h;
+  }
+
+  // ---------- Attention strip, crumbs, tmux ----------
+  function attention() {
+    const all = DATA.floors.flatMap((f) => f.islands.flatMap((i) => i.desks.map((d) => ({ d, f, i }))));
+    const needs = all.filter((x) => stateOf(x.d) === 'needs_you').sort((a, b) => b.d.mins - a.d.mins);
+    const done = all.filter((x) => stateOf(x.d) === 'done').sort((a, b) => b.d.mins - a.d.mins);
+    return { needs, done };
+  }
+
+  function renderChrome() {
+    const { needs, done } = attention();
+    const chip = (x, kind) => {
+      const what = kind === 'needs' ? x.d.reason.kind + ': ' + (x.d.reason.code || x.d.reason.text) : x.d.task;
+      const where = x.f.kind === 'department' ? x.i.repo : x.i.repo + ' · ' + x.f.name;
+      return '<button class="chip ' + kind + '" data-goto-desk="' + x.d.id + '" title="' + esc(what) + '"><span class="dot"></span>' +
+        '<span class="who">' + esc(where) + '</span><span class="what">' + esc(what) + '</span><span class="time">' + fmtMins(x.d.mins) + '</span></button>';
+    };
+    $('attention').innerHTML =
+      '<div class="att-group"><span class="att-label">Needs you</span>' + (needs.length ? needs.map((x) => chip(x, 'needs')).join('') : '<span class="att-empty">Nobody is waiting for you.</span>') + '</div>' +
+      '<div class="att-group"><span class="att-label">Done, to review</span>' + (done.length ? done.map((x) => chip(x, 'done')).join('') : '<span class="att-empty">Nothing to review.</span>') + '</div>';
+    $('tmux').innerHTML = '<span class="k">tmux</span><span class="n">◉' + needs.length + '</span><span class="d">✓' + done.length + '</span>';
+    let c = '';
+    if (ui.view === 'building') c = '<span class="here">Building</span>';
+    else {
+      const f = floorById(ui.floor);
+      c = '<button class="linkbtn" data-back-building="1">Building</button><span class="sep">/</span><span class="here">' + floorNum(f) + ' · ' + esc(f.name) + '</span>';
+    }
+    $('crumbs').innerHTML = c;
+    $('hint').textContent = ui.view === 'building' ? 'Click a floor to go inside.' : 'Click a desk for details. Esc goes back.';
+  }
+
+  // ---------- Render ----------
+  let lastFocus = null;
+  function render(animate) {
+    const svg = $('scene');
+    if (ui.view === 'building') {
+      svg.innerHTML = renderBuilding();
+      setViewBox(svg, 24);
+      svg.setAttribute('aria-label', 'Office building');
+    } else {
+      const f = floorById(ui.floor);
+      svg.innerHTML = '<g class="' + (f.dormant ? 'floor-dormant' : '') + '">' + renderFloor(f) + '</g>';
+      setViewBox(svg, 24);
+      svg.setAttribute('aria-label', 'Floor ' + floorNum(f) + ', ' + f.name);
+    }
+    if (animate) { svg.classList.remove('scene-in'); void svg.getBoundingClientRect(); svg.classList.add('scene-in'); }
+    let p;
+    if (ui.panel && ui.panel.type === 'desk') p = panelDesk(ui.panel.id);
+    else if (ui.panel && ui.panel.type === 'room') p = panelRoom(ui.panel.id);
+    else if (ui.panel && ui.panel.type === 'archive') p = panelArchive();
+    else p = ui.view === 'building' ? panelBuilding() : panelFloor(floorById(ui.floor));
+    $('panel').innerHTML = p;
+    renderChrome();
+    if (lastFocus) {
+      const el = svg.querySelector(lastFocus);
+      if (el) el.focus({ preventScroll: true });
+      lastFocus = null;
+    }
+  }
+
+  // ---------- Navigation ----------
+  function goBuilding() { ui.view = 'building'; ui.floor = null; ui.sel = null; ui.panel = null; render(true); }
+  function goFloor(id) { ui.view = 'floor'; ui.floor = id; ui.sel = null; ui.panel = null; render(true); }
+  function goDesk(id) {
+    const x = findDesk(id);
+    const changed = ui.view !== 'floor' || ui.floor !== x.f.id;
+    ui.view = 'floor'; ui.floor = x.f.id; ui.sel = id; ui.panel = { type: 'desk', id };
+    render(changed);
+  }
+  function goRoom(fid) {
+    const changed = ui.view !== 'floor' || ui.floor !== fid;
+    ui.view = 'floor'; ui.floor = fid; ui.sel = null; ui.panel = { type: 'room', id: fid };
+    render(changed);
+  }
+  function goArchive() { ui.sel = null; ui.panel = { type: 'archive' }; render(false); }
+  function back() {
+    if (ui.panel) { ui.panel = null; ui.sel = null; render(false); return; }
+    if (ui.view === 'floor') goBuilding();
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+
+  function activate(el) {
+    if (!el) return false;
+    if (el.dataset.desk) { lastFocus = '[data-desk="' + el.dataset.desk + '"]'; goDesk(el.dataset.desk); return true; }
+    if (el.dataset.room) { lastFocus = '[data-room="' + el.dataset.room + '"]'; goRoom(el.dataset.room); return true; }
+    if (el.dataset.floor) { goFloor(el.dataset.floor); return true; }
+    if (el.dataset.archive) { goArchive(); return true; }
+    return false;
+  }
+
+  function onSceneEvent(target) {
+    // A window on the façade jumps straight to its desk; otherwise the nearest interactive group wins.
+    const win = target.closest('polygon[data-desk]');
+    if (win) return activate(win);
+    return activate(target.closest('[data-desk],[data-room],[data-floor],[data-archive]'));
+  }
+
+  $('scene').addEventListener('click', (e) => { onSceneEvent(e.target); });
+  $('scene').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (onSceneEvent(e.target)) e.preventDefault();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('#scene')) return;
+    const el = e.target.closest('[data-goto-floor],[data-goto-desk],[data-archive],[data-room],[data-back],[data-back-building],[data-action]');
+    if (!el) return;
+    if (el.dataset.gotoFloor) goFloor(el.dataset.gotoFloor);
+    else if (el.dataset.gotoDesk) goDesk(el.dataset.gotoDesk);
+    else if (el.dataset.archive) goArchive();
+    else if (el.dataset.room) goRoom(el.dataset.room);
+    else if (el.dataset.back) back();
+    else if (el.dataset.backBuilding) goBuilding();
+    else if (el.dataset.action === 'focus') toast('Would bring tmux pane ' + el.dataset.pane + ' to the front (not wired in this mockup).');
+    else if (el.dataset.action === 'seen') { ui.seen.add(el.dataset.id); render(false); toast('Marked as seen. It leaves the review queue.'); }
+    else if (el.dataset.action === 'archive-floor') toast('Would move these sessions to the basement (not wired in this mockup).');
+    else if (el.dataset.action === 'copy') {
+      const code = $('resume-cmd');
+      const text = code ? code.textContent : '';
+      const fallback = () => {
+        const range = document.createRange(); range.selectNodeContents(code);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        toast('Command selected. Press Cmd+C to copy it.');
+      };
+      try {
+        navigator.clipboard.writeText(text).then(() => toast('Resume command copied.'), fallback);
+      } catch (err) { fallback(); }
+    }
+  });
+
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'archive-search') {
+      ui.query = e.target.value;
+      const pos = e.target.selectionStart;
+      $('panel').innerHTML = panelArchive();
+      const input = $('archive-search');
+      input.focus(); try { input.setSelectionRange(pos, pos); } catch (err) { /* type=search may refuse */ }
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement && e.target.value)) back();
+  });
+
+  render(false);
+})();
+</script>
