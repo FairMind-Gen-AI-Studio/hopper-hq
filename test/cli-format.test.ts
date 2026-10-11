@@ -53,3 +53,28 @@ describe('formatBuilding', () => {
     expect(formatBuilding({ generatedAt: NOW, floors: [], attention: { needsYou: [], done: [] } })).toBe('No sessions yet.');
   });
 });
+
+describe('untrusted text', () => {
+  const UNSAFE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+
+  it('prints attention names, reasons and panes without control or bidi characters', () => {
+    const a: AttentionSummary = {
+      generatedAt: NOW, needsYou: 1, done: 0,
+      items: [{ id: 'S1', name: 'evil\u001b]0;owned\u0007', repo: 'r', feature: null, state: 'needs_you', since: NOW, reason: { kind: 'question', text: 'Which\u202E one?' }, title: null, tmuxPane: '%1\u001b[2J' }],
+    };
+    const out = formatAttentionText(a, NOW);
+    expect(out).not.toMatch(UNSAFE);
+    expect(out).toMatch(/^◉ evil\]0;owned\s+0s\s+Which one\?\s+\[%1\[2J\]$/);
+  });
+
+  it('prints floor names and repos without control characters', () => {
+    const v = toView({ ...newSession('S1', NOW - 60_000, { ...WS, repoName: 'api\u001b[1m' }), state: 'working', stateSince: NOW - 5000, lastEventAt: NOW - 5000 }, NOW);
+    const out = formatBuilding({
+      generatedAt: NOW,
+      floors: [{ key: 'feature:x', kind: 'feature', name: 'x\u0007y', repos: ['api\u001b[1m'], sessions: [v], counts: {}, openedAt: 0, dormant: false }],
+      attention: { needsYou: [], done: [] },
+    });
+    expect(out).not.toMatch(UNSAFE);
+    expect(out.split('\n')[0]).toBe('xy  (feature · api[1m)');
+  });
+});

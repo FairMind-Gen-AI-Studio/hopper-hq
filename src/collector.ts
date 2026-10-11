@@ -4,6 +4,7 @@ import { DEFAULT_FEATURE_RULES, type FeatureRules } from './core/feature.js';
 import { applyEvent, markSeen } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, toView, type Attention, type Floor, type SessionView } from './core/view.js';
+import { cleanOrNull, cleanText, taskTitle } from './scene/text.js';
 import type { Store } from './store/store.js';
 
 export interface Snapshot {
@@ -29,6 +30,11 @@ export interface AttentionSummary {
   needsYou: number;
   done: number;
   items: AttentionItem[];
+}
+
+function cleanReason(r: WaitReason): WaitReason {
+  const detail = cleanOrNull(r.detail);
+  return { kind: r.kind, text: cleanText(r.text), ...(detail ? { detail } : {}) };
 }
 
 export interface CollectorOptions {
@@ -146,15 +152,16 @@ export class Collector {
 
   attentionSummary(): AttentionSummary {
     const a = buildAttention(this.views());
+    // Feeds the band above every prompt and `status`: names, titles and reasons are cleaned like everything shown.
     const item = (v: SessionView, state: 'needs_you' | 'done'): AttentionItem => ({
       id: v.id,
-      name: v.name,
-      repo: v.workspace.repoName,
-      feature: v.feature,
+      name: cleanOrNull(v.name),
+      repo: cleanText(v.workspace.repoName),
+      feature: cleanOrNull(v.feature),
       state,
       since: v.effectiveSince,
-      reason: v.waitReason,
-      title: v.title ?? v.lastPrompt ?? v.firstPrompt,
+      reason: v.waitReason && cleanReason(v.waitReason),
+      title: taskTitle(v),
       tmuxPane: v.tmuxPane,
     });
     return {

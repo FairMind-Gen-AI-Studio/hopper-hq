@@ -1,10 +1,11 @@
+import { cleanText } from '../scene/text.js';
 import type { WaitReason } from './types.js';
 
 const MAX_LABEL = 80;
 
+/** Untrusted text as one clean line of at most `max` code points (see cleanText). */
 export function truncate(text: string, max = MAX_LABEL): string {
-  const oneLine = text.replace(/\s+/g, ' ').trim();
-  return oneLine.length <= max ? oneLine : oneLine.slice(0, max - 1) + '…';
+  return cleanText(text, max);
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');

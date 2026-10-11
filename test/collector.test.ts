@@ -74,6 +74,17 @@ describe('Collector', () => {
     });
   });
 
+  it('cleans names, titles and reasons in the attention summary', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'session.seen', workspace: { cwd: '/w/orders-api', repoRoot: '/w/orders-api', repoName: 'orders-api', worktree: false, branch: 'main' }, name: 'orders\u001b[31m-api\u0007' }));
+    await c.ingest(hook({ type: 'title', title: '\u202EFix\r\nthe build' }));
+    await c.ingest(hook({ type: 'waiting', reason: { kind: 'permission', text: 'Bash\u0000', detail: 'Bash: rm\u001b[2K -rf dist' }, agentId: null }));
+    expect(c.attentionSummary().items[0]).toEqual({
+      id: 'S1', name: 'orders[31m-api', repo: 'orders-api', feature: null, state: 'needs_you', since: NOW,
+      reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm[2K -rf dist' }, title: 'Fix the build', tmuxPane: null,
+    });
+  });
+
   it('notifies listeners until they unsubscribe', async () => {
     const c = collector();
     const fn = vi.fn();
