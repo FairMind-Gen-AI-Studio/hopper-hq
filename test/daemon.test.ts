@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdtemp, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readDaemonFile } from '../src/daemon-file.js';
 import { startDaemon } from '../src/daemon.js';
+import { CSP } from '../src/server/headers.js';
+import { bearer, call } from './helpers/http.js';
+import { isEvent, openSse } from './helpers/sse.js';
 
 const tmp = (p: string) => mkdtemp(join(tmpdir(), p));
 const quiet = () => {};
@@ -60,5 +63,37 @@ describe('startDaemon', () => {
     await expect(startDaemon({ port, dataDir: await tmp('shq-data-'), claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet }))
       .rejects.toMatchObject({ code: 'EADDRINUSE' });
     await new Promise<void>((r) => blocker.close(() => r()));
+  });
+});
+
+describe('startDaemon and the browser', () => {
+  it('serves the UI bundle from uiDir', async () => {
+    const uiDir = await tmp('shq-ui-');
+    await mkdir(join(uiDir, 'assets'));
+    await writeFile(join(uiDir, 'index.html'), '<!doctype html><title>scranton-hq</title>');
+    await writeFile(join(uiDir, 'assets', 'index-abc.js'), 'export {};\n');
+    const d = await startDaemon({ port: 0, dataDir: await tmp('shq-data-'), claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet, uiDir });
+    const index = await call(d.port, { path: '/ui/' });
+    expect(index.status).toBe(200);
+    expect(index.headers['content-security-policy']).toBe(CSP);
+    expect((await call(d.port, { path: '/ui/assets/index-abc.js' })).status).toBe(200);
+    await d.stop();
+  });
+
+  it('mints sign-in links itself', async () => {
+    const d = await startDaemon({ port: 0, dataDir: await tmp('shq-data-'), claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    const link = new URL(d.loginUrl());
+    expect(link.origin).toBe(`http://127.0.0.1:${d.port}`);
+    expect((await call(d.port, { path: link.pathname + link.search })).status).toBe(303);
+    await d.stop();
+  });
+
+  it('ends live views on stop', async () => {
+    const dataDir = await tmp('shq-data-');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    const stream = await openSse(d.port, '/api/events', bearer((await readDaemonFile(dataDir))!.token));
+    await stream.take(isEvent('scene'));
+    await d.stop();
+    await stream.ended;
   });
 });

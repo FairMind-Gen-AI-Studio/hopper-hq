@@ -3,13 +3,18 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
 import { startDemo } from './adapters/demo.js';
 import { createGitResolver } from './adapters/git.js';
 import { Collector } from './collector.js';
 import { DEFAULT_PORT, resolvePaths } from './config.js';
 import { removeDaemonFile, writeDaemonFile } from './daemon-file.js';
+import { loginUrl, UiAuth } from './server/auth.js';
+import { SceneHub } from './server/events.js';
+import { simulatedFocusDriver, tmuxFocusDriver } from './server/focus.js';
 import { createApiServer } from './server/http.js';
+import { loadUiBundle } from './server/static.js';
 import { Store } from './store/store.js';
 
 export interface DaemonOptions {
@@ -21,14 +26,21 @@ export interface DaemonOptions {
   log?: (line: string) => void;
   /** Serve scripted demo sessions from memory; ignore hooks and files. */
   demo?: boolean;
+  /** The built browser UI (default: dist/ui, next to this module once built). */
+  uiDir?: string;
 }
 
 export interface RunningDaemon {
   port: number;
   dataDir: string;
   collector: Collector;
+  /** A one-time sign-in link for the browser (default lifetime: one minute, ten in the demo). */
+  loginUrl(ttlMs?: number): string;
   stop(): Promise<void>;
 }
+
+/** Sign-in links of the demo last longer: its URL is printed once, at start. */
+export const DEMO_CODE_TTL_MS = 10 * 60 * 1000;
 
 /** node:sqlite prints an ExperimentalWarning on Node 22. Hide that one, keep the others. Call before opening the store. */
 export function silenceExperimentalWarnings(): void {
@@ -69,12 +81,17 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   const paths = resolvePaths(opts);
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
   const token = await loadOrCreateToken(paths.dataDir);
+  const ui = await loadUiBundle(opts.uiDir ?? fileURLToPath(new URL('./ui/', import.meta.url)));
 
   const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
   const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log });
-  const server = createApiServer({ collector, token });
+  const auth = new UiAuth({ token, codeTtlMs: opts.demo ? DEMO_CODE_TTL_MS : undefined });
+  const hub = new SceneHub({ source: collector });
+  // Demo panes (%4…%11) must never reach the user's real tmux.
+  const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
+  const server = createApiServer({ collector, token, auth, ui, hub, focus });
 
   let port: number;
   try {
@@ -96,9 +113,11 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
     port,
     dataDir: paths.dataDir,
     collector,
+    loginUrl: (ttlMs) => loginUrl(port, auth.issueCode(ttlMs).code),
     stop: async () => {
       fsAdapter?.stop();
       demo?.stop();
+      hub.close();
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
       try {

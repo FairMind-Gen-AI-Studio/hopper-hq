@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtemp } from 'node:fs/promises';
 import type { Server } from 'node:http';
-import { basename } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 
 // No test may run the real tmux: the module that would spawn it is replaced for this whole file.
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
@@ -8,6 +10,8 @@ vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 import { execFile } from 'node:child_process';
 import { Collector } from '../../src/collector.js';
 import type { RawEvent, Workspace } from '../../src/core/types.js';
+import { readDaemonFile } from '../../src/daemon-file.js';
+import { startDaemon } from '../../src/daemon.js';
 import { UiAuth } from '../../src/server/auth.js';
 import { simulatedFocusDriver, tmuxFocusDriver, type FocusDriver, type FocusOutcome, type TmuxRunner } from '../../src/server/focus.js';
 import { createApiServer } from '../../src/server/http.js';
@@ -215,5 +219,22 @@ describe('POST /api/focus', () => {
     expect((await focus('{"sessionId":"LOCAL"}', { cookie, origin: `http://127.0.0.1:${port}`, 'sec-fetch-site': 'same-origin' })).status).toBe(200);
     expect((await focus('{"sessionId":"LOCAL"}', {})).status).toBe(401);
     expect(panes).toEqual(['%7']);
+  });
+});
+
+describe('the demo daemon', () => {
+  it('only simulates tmux focus', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'shq-data-'));
+    const d = await startDaemon({ demo: true, port: 0, dataDir, log: () => {} });
+    for (let i = 0; i < 100 && !d.collector.view('demo-oa-c3'); i++) await new Promise((r) => setTimeout(r, 10));
+    const r = await call(d.port, {
+      method: 'POST',
+      path: '/api/focus',
+      headers: { ...bearer((await readDaemonFile(dataDir))!.token), 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'demo-oa-c3' }),
+    });
+    await d.stop();
+    expect(r).toMatchObject({ status: 200, json: { pane: '%7', simulated: true } });
+    expect(execFile).not.toHaveBeenCalled();
   });
 });

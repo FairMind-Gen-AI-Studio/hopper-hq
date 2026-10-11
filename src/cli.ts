@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -7,11 +8,33 @@ import { resolvePaths } from './config.js';
 export interface Io {
   out(line: string): void;
   err(line: string): void;
+  /** Opens a URL in the browser. Without it, `ui` only prints the link. */
+  open?(url: string): Promise<void>;
+  /** Resolves when a long-running command (start, demo) should stop. Default: SIGINT or SIGTERM. */
+  untilStopped?(): Promise<void>;
+}
+
+/** Opens a URL with the desktop's opener (macOS, Linux). Failures are ignored: the link is printed anyway. */
+function openInBrowser(url: string): Promise<void> {
+  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'linux' ? 'xdg-open' : null;
+  if (!opener) return Promise.resolve();
+  return new Promise((resolve) => {
+    execFile(opener, [url], { timeout: 10_000 }, () => resolve());
+  });
+}
+
+function untilSignal(): Promise<void> {
+  return new Promise((resolve) => {
+    process.once('SIGINT', () => resolve());
+    process.once('SIGTERM', () => resolve());
+  });
 }
 
 const stdio: Io = {
   out: (line) => void process.stdout.write(line + '\n'),
   err: (line) => void process.stderr.write(line + '\n'),
+  open: openInBrowser,
+  untilStopped: untilSignal,
 };
 
 export const HELP = `scranton-hq: watch your coding-agent sessions work
@@ -21,6 +44,7 @@ Usage:
   scranton-hq status [--format text|tmux|json] [--data-dir DIR]
   scranton-hq ls [--data-dir DIR]
   scranton-hq ack [SESSION_ID] [--data-dir DIR]
+  scranton-hq ui [--no-open] [--data-dir DIR]
   scranton-hq demo [--port N] [--data-dir DIR]
   scranton-hq --version`;
 
@@ -48,6 +72,8 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
         return await cmdAck(args, io);
       case 'demo':
         return await cmdDemo(args, io);
+      case 'ui':
+        return await cmdUi(args, io);
       case undefined:
       case 'help':
       case '--help':
@@ -91,10 +117,8 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
     }
     throw err;
   }
-  await new Promise<void>((resolve) => {
-    process.once('SIGINT', () => resolve());
-    process.once('SIGTERM', () => resolve());
-  });
+  io.err('Open the building in your browser with: scranton-hq ui');
+  await (io.untilStopped ?? untilSignal)();
   await daemon.stop();
   return 0;
 }
@@ -186,10 +210,28 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
     throw err;
   }
   io.err(`Demo running. In another terminal: scranton-hq ls --data-dir ${dataDir}`);
-  await new Promise<void>((resolve) => {
-    process.once('SIGINT', () => resolve());
-    process.once('SIGTERM', () => resolve());
-  });
+  io.err(`Open the building (this link works once, for 10 minutes): ${daemon.loginUrl()}`);
+  await (io.untilStopped ?? untilSignal)();
   await daemon.stop();
+  return 0;
+}
+
+async function cmdUi(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { 'no-open': { type: 'boolean', default: false }, ...dataDirOption } });
+  const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
+  const { callDaemon } = await import('./client.js');
+  const r = await callDaemon<{ url: string; expiresAt: number }>(dataDir, 'POST', '/api/ui/login-code');
+  if (!r) {
+    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    return 1;
+  }
+  if (!r.ok || !r.data) {
+    io.err(`The daemon answered with status ${r.status}.`);
+    return 1;
+  }
+  const minutes = Math.max(1, Math.round((r.data.expiresAt - Date.now()) / 60_000));
+  io.err(`This link signs your browser in. It works once, within ${minutes} minute${minutes === 1 ? '' : 's'}:`);
+  io.out(r.data.url);
+  if (!values['no-open'] && io.open) await io.open(r.data.url);
   return 0;
 }
