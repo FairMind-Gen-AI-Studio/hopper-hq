@@ -1,0 +1,8 @@
+{
+  "name": "scranton-hq",
+  "version": "0.1.0",
+  "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local scranton-hq daemon.",
+  "author": { "name": "scranton-hq contributors" },
+  "license": "Apache-2.0",
+  "types": "./types/index.d.ts"
+}

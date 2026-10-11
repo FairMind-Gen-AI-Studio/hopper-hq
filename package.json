@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:mod": "claude plugin validate mod && claude plugin validate . && claude plugin test mod",
     "test:watch": "vitest"
   },
   "devDependencies": {

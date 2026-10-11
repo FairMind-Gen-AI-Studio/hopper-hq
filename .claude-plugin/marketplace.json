@@ -1,0 +1,12 @@
+{
+  "name": "scranton-hq",
+  "description": "scranton-hq for Claude Code: see which of your sessions are waiting for you.",
+  "owner": { "name": "scranton-hq contributors" },
+  "plugins": [
+    {
+      "name": "scranton-hq",
+      "source": "./mod",
+      "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local scranton-hq daemon."
+    }
+  ]
+}
