@@ -43,6 +43,10 @@ describe('mapHookPayload with the mod fixtures', () => {
     expect(mapHookPayload(fx('SessionEnd'), NOW)).toEqual([{ ...base(1791660006000), type: 'session.ended', reason: 'other' }]);
   });
 
+  it('the end of a subagent turn does not end the session turn', () => {
+    expect(mapHookPayload(fx('Stop.subagent'), NOW)).toEqual([]);
+  });
+
   it('maps a whole batch, item by item, in order', () => {
     const batch = fx('batch') as unknown[];
     expect(batch.flatMap((p) => mapHookPayload(p, NOW)).map((e) => e.type)).toEqual(['prompt', 'tool.started', 'tool.finished', 'turn.finished']);

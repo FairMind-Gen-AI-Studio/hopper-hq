@@ -43,6 +43,23 @@ test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
   expect(typeof batch[0]?._scranton_ts).toBe('number')
 })
 
+test('tells the end of a subagent turn from the end of the session turn', async ($, on) => {
+  const posts: Post[] = []
+  daemon(on, posts)
+  const clock = mock.clock(on)
+  on('turn.complete', async ($, e) => ({ text: e.answer }))
+
+  await $.session.start(START)
+  await $.turn.complete({ reason: 'answer', answer: 'found 3 callers', durationMs: 900, isAborted: false, turnId: 't2', agentId: 'a58cb74ebedcc3070' })
+  await $.turn.complete({ reason: 'answer', answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't1' })
+  await clock.advance(600)
+
+  const batch = posts[0]?.body ?? []
+  expect(batch.map(b => b.hook_event_name)).toEqual(['Stop', 'Stop'])
+  expect(batch[0]).toMatchObject({ agent_id: 'a58cb74ebedcc3070', background_tasks: 0 })
+  expect('agent_id' in (batch[1] ?? {})).toBe(false)
+})
+
 test('reports a permission prompt and a failed tool', async ($, on) => {
   const posts: Post[] = []
   daemon(on, posts)

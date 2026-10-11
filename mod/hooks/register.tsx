@@ -149,7 +149,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
-    await enqueue($, { hook_event_name: 'Stop', background_tasks: 0 })
+    await enqueue($, { hook_event_name: 'Stop', background_tasks: 0, agent_id: e.agentId })
     return next(e)
   })
 
