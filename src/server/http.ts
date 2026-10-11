@@ -3,7 +3,8 @@ import { createRequire } from 'node:module';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
-import { API_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
+import { API_HEADERS, ASSET_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
+import type { UiBundle, UiFile } from './static.js';
 
 const VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
 
@@ -14,6 +15,8 @@ export interface ApiOptions {
   now?: () => number;
   /** Sign-in codes and cookies; share one with the daemon so it can mint codes itself. */
   auth?: UiAuth;
+  /** The built browser UI; null answers 503 at /ui/. */
+  ui?: UiBundle | null;
 }
 
 type Deps = Required<ApiOptions>;
@@ -25,6 +28,7 @@ function withDefaults(o: ApiOptions): Deps {
     maxBodyBytes: o.maxBodyBytes ?? 1_000_000,
     now: o.now ?? Date.now,
     auth: o.auth ?? new UiAuth({ token: o.token, now: o.now }),
+    ui: o.ui ?? null,
   };
 }
 
@@ -47,11 +51,15 @@ interface Route {
 }
 
 const GET = ['GET'];
+const GET_HEAD = ['GET', 'HEAD'];
 const POST = ['POST'];
 
 function routes(d: Deps): Route[] {
   return [
     { methods: GET, path: '/', auth: 'public', run: ({ res }) => redirect(res, 302, '/ui/') },
+    { methods: GET_HEAD, path: '/ui/', auth: 'public', run: ({ res }) => serveIndex(d, res) },
+    { methods: GET_HEAD, path: '/ui/index.html', auth: 'public', run: ({ res }) => serveIndex(d, res) },
+    { methods: GET_HEAD, path: /^\/ui\/assets\//, auth: 'public', run: ({ res, url }) => serveAsset(d, res, url.pathname) },
     { methods: GET, path: '/ui/login', auth: 'public', run: (c) => login(d, c) },
     { methods: GET, path: '/api/health', auth: 'bearer', run: ({ res }) => send(res, 200, { ok: true, version: VERSION }) },
     { methods: GET, path: '/api/building', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.snapshot()) },
@@ -181,4 +189,26 @@ const EXPIRED_PAGE = `<!doctype html>
 function login(d: Deps, { res, url, port }: Ctx): void {
   if (!d.auth.redeemCode(url.searchParams.get('code') ?? '')) return sendHtml(res, 401, EXPIRED_PAGE);
   redirect(res, 303, '/ui/', { 'set-cookie': d.auth.cookie(port) });
+}
+
+function sendFile(res: ServerResponse, file: UiFile, headers: Readonly<Record<string, string>>): void {
+  res.writeHead(200, { ...headers, 'content-type': file.type, 'content-length': String(file.body.length) }).end(file.body);
+}
+
+function serveIndex(d: Deps, res: ServerResponse): void {
+  const index = d.ui?.get('/ui/index.html');
+  if (index) return sendFile(res, index, HTML_HEADERS);
+  res.writeHead(503, { ...API_HEADERS, 'content-type': 'text/plain; charset=utf-8' }).end('The UI is not built. Run: npm run build\n');
+}
+
+function serveAsset(d: Deps, res: ServerResponse, pathname: string): void {
+  let path: string;
+  try {
+    path = decodeURIComponent(pathname);
+  } catch {
+    return send(res, 404, { error: 'Not found' });
+  }
+  const file = d.ui?.get(path);
+  if (!file) return send(res, 404, { error: 'Not found' });
+  sendFile(res, file, ASSET_HEADERS);
 }
