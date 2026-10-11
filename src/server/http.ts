@@ -1,9 +1,9 @@
-import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
-import { API_HEADERS, setBaseHeaders } from './headers.js';
+import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
+import { API_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
 
 const VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
 
@@ -12,6 +12,8 @@ export interface ApiOptions {
   token: string;
   maxBodyBytes?: number;
   now?: () => number;
+  /** Sign-in codes and cookies; share one with the daemon so it can mint codes itself. */
+  auth?: UiAuth;
 }
 
 type Deps = Required<ApiOptions>;
@@ -22,11 +24,9 @@ function withDefaults(o: ApiOptions): Deps {
     token: o.token,
     maxBodyBytes: o.maxBodyBytes ?? 1_000_000,
     now: o.now ?? Date.now,
+    auth: o.auth ?? new UiAuth({ token: o.token, now: o.now }),
   };
 }
-
-/** Who may call a route. */
-export type AuthLevel = 'public' | 'bearer' | 'read' | 'write';
 
 interface Ctx {
   req: IncomingMessage;
@@ -51,10 +51,13 @@ const POST = ['POST'];
 
 function routes(d: Deps): Route[] {
   return [
+    { methods: GET, path: '/', auth: 'public', run: ({ res }) => redirect(res, 302, '/ui/') },
+    { methods: GET, path: '/ui/login', auth: 'public', run: (c) => login(d, c) },
     { methods: GET, path: '/api/health', auth: 'bearer', run: ({ res }) => send(res, 200, { ok: true, version: VERSION }) },
     { methods: GET, path: '/api/building', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.snapshot()) },
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
     { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c) },
+    { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
     { methods: POST, path: '/api/seen', auth: 'write', run: ({ res }) => send(res, 200, { marked: d.collector.markAllSeen() }) },
     {
       methods: POST,
@@ -105,11 +108,12 @@ export function allowedOrigin(origin: string | undefined, port: number): boolean
   return origin === undefined || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
 }
 
-function tokenMatches(header: string | undefined, token: string): boolean {
-  if (!header || !header.startsWith('Bearer ')) return false;
-  const given = Buffer.from(header.slice('Bearer '.length));
-  const expected = Buffer.from(token);
-  return given.length === expected.length && timingSafeEqual(given, expected);
+function redirect(res: ServerResponse, status: 302 | 303, location: string, headers: Record<string, string> = {}): void {
+  res.writeHead(status, { ...API_HEADERS, ...headers, location }).end();
+}
+
+function sendHtml(res: ServerResponse, status: number, html: string): void {
+  res.writeHead(status, { ...HTML_HEADERS, 'content-type': 'text/html; charset=utf-8' }).end(html);
 }
 
 /** Resolves the body as text, or null when it exceeds `limit` bytes. */
@@ -141,7 +145,8 @@ async function handle(d: Deps, table: Route[], req: IncomingMessage, res: Server
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
   const found = findRoute(table, req.method ?? 'GET', url.pathname);
   if (!found) return send(res, 404, { error: 'Not found' });
-  if (found.route.auth !== 'public' && !tokenMatches(req.headers.authorization, d.token)) return send(res, 401, { error: 'Missing or wrong token' });
+  const denied = authorize(found.route.auth, req, port, d.token, d.auth);
+  if (denied) return send(res, denied.status, { error: denied.error });
   await found.route.run({ req, res, url, port, params: found.params });
 }
 
@@ -158,4 +163,22 @@ async function postHooks(d: Deps, { req, res }: Ctx): Promise<void> {
   const items = Array.isArray(payload) ? payload : [payload];
   for (const item of items) for (const e of mapHookPayload(item, now)) void d.collector.ingest(e);
   return send(res, 204);
+}
+
+function postLoginCode(d: Deps, { res, port }: Ctx): void {
+  const { code, expiresAt } = d.auth.issueCode();
+  send(res, 200, { url: loginUrl(port, code), expiresAt });
+}
+
+const EXPIRED_PAGE = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>scranton-hq</title></head>
+<body><p>This sign-in link has expired or was already used. Run <code>scranton-hq ui</code> again.</p></body>
+</html>
+`;
+
+/** Spends a one-time code and signs the browser in. The redirect takes the code out of the address bar. */
+function login(d: Deps, { res, url, port }: Ctx): void {
+  if (!d.auth.redeemCode(url.searchParams.get('code') ?? '')) return sendHtml(res, 401, EXPIRED_PAGE);
+  redirect(res, 303, '/ui/', { 'set-cookie': d.auth.cookie(port) });
 }
