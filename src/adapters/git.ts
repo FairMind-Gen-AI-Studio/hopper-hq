@@ -28,17 +28,19 @@ async function real(p: string): Promise<string> {
 
 export async function resolveWorkspace(cwd: string, run: GitRunner = runGit): Promise<Workspace> {
   const out = await run(cwd, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir']);
-  if (!out) return { cwd, repoRoot: null, repoName: basename(cwd) || cwd, worktree: false, branch: null };
+  if (!out) return { cwd, repoRoot: null, repoName: basename(cwd) || cwd, worktree: false, branch: null, root: null };
   const [toplevel = cwd, common = ''] = out.split('\n');
   const commonDir = await real(common || resolve(toplevel, '.git'));
   const mainRoot = basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+  const root = await real(toplevel);
   const branch = await run(cwd, ['symbolic-ref', '--short', '-q', 'HEAD']);
   return {
     cwd,
     repoRoot: mainRoot,
     repoName: basename(mainRoot),
-    worktree: (await real(toplevel)) !== mainRoot,
+    worktree: root !== mainRoot,
     branch: branch || 'HEAD',
+    root,
   };
 }
 

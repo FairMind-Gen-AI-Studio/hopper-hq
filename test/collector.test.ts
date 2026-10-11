@@ -18,7 +18,7 @@ describe('Collector', () => {
     const c = collector();
     await c.ingest(hook({ type: 'prompt', text: 'go' }));
     const snap = c.snapshot();
-    expect(snap.floors.map((f) => [f.key, f.kind])).toEqual([['repo:orders-api', 'department']]);
+    expect(snap.floors.map((f) => [f.key, f.kind])).toEqual([['repo:/w/orders-api', 'department']]);
     expect(snap.floors[0]!.sessions[0]).toMatchObject({ id: 'S1', effectiveState: 'working', lastPrompt: 'go' });
   });
 

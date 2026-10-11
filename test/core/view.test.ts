@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_THRESHOLDS as T } from '../../src/config.js';
 import { newSession } from '../../src/core/reducer.js';
 import type { Session, SessionState } from '../../src/core/types.js';
-import { buildAttention, buildFloors, effectiveState, toView } from '../../src/core/view.js';
+import { buildAttention, buildFloors, effectiveState, floorKeyOf, islandKeyOf, toView } from '../../src/core/view.js';
 import { WS } from '../helpers/events.js';
 
 const H = 60 * 60 * 1000;
@@ -50,7 +50,7 @@ describe('buildFloors', () => {
       v('d', 'orders-api', 'main', 'ended', 400),
     ]);
     expect(floors.map((f) => [f.key, f.kind, f.name, f.repos])).toEqual([
-      ['repo:orders-api', 'department', 'orders-api', ['orders-api']],
+      ['repo:/home/dev/shop/orders-api', 'department', 'orders-api', ['orders-api']],
       ['feature:checkout-v2', 'feature', 'checkout-v2', ['orders-api', 'storefront-web']],
     ]);
     expect(floors[1]!.counts).toEqual({ working: 1, needs_you: 1 });
@@ -62,6 +62,39 @@ describe('buildFloors', () => {
     const fresh = toView({ ...sess('y', 'working', 4 * 24 * H), workspace: { ...WS, branch: 'feat/docs' } }, 4 * 24 * H);
     expect(buildFloors([old])[0]!.dormant).toBe(true);
     expect(buildFloors([old, fresh])[0]!.dormant).toBe(false);
+  });
+});
+
+describe('floor and island keys', () => {
+  const now = 10 * H;
+  const at = (id: string, cwd: string, branch: string | null, extra: Partial<Session['workspace']> = {}) =>
+    toView({ ...sess(id, 'working', now - 1), workspace: { cwd, repoRoot: cwd, repoName: cwd.split('/').pop()!, worktree: false, branch, root: cwd, ...extra } }, now);
+
+  it('keys department floors by repository root, so two repos with one name get two floors', () => {
+    const floors = buildFloors([at('a', '/home/dev/work/api', 'main'), at('b', '/home/dev/oss/api', 'main'), at('c', '/home/dev/web', 'main')]);
+    expect(floors.map((f) => [f.key, f.name]).sort()).toEqual([
+      ['repo:/home/dev/oss/api', 'api (oss)'],
+      ['repo:/home/dev/web', 'web'],
+      ['repo:/home/dev/work/api', 'api (work)'],
+    ]);
+  });
+
+  it('keys feature floors by feature, and a directory outside git by its path', () => {
+    expect(floorKeyOf(at('a', '/home/dev/web', 'feat/checkout-v2'))).toBe('feature:checkout-v2');
+    expect(floorKeyOf(at('b', '/tmp/scratch', null, { repoRoot: null, root: null }))).toBe('repo:/tmp/scratch');
+  });
+
+  it('keys islands by worktree root, falling back to cwd for rows saved without one', () => {
+    expect(islandKeyOf(at('a', '/home/dev/api/src', 'main', { repoRoot: '/home/dev/api', root: '/home/dev/api' }))).toBe('/home/dev/api');
+    expect(islandKeyOf(at('b', '/home/dev/api-wt', 'feat/x', { repoRoot: '/home/dev/api', worktree: true }))).toBe('/home/dev/api-wt');
+    const old = at('c', '/home/dev/api/src', 'main', { repoRoot: '/home/dev/api' });
+    delete old.workspace.root;
+    expect(islandKeyOf(old)).toBe('/home/dev/api/src');
+  });
+
+  it('cleans keys and caps them at KEY_MAX', () => {
+    expect(islandKeyOf(at('a', '/home/dev/a\u0007pi', 'main'))).toBe('/home/dev/api');
+    expect(floorKeyOf(at('b', '/' + 'x'.repeat(600), 'main'))).toHaveLength(256);
   });
 });
 

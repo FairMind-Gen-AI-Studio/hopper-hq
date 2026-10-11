@@ -1,4 +1,6 @@
+import { basename, dirname } from 'node:path';
 import { DEFAULT_THRESHOLDS, type Thresholds } from '../config.js';
+import { cleanText, KEY_MAX } from '../scene/text.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './feature.js';
 import type { Session, SessionState } from './types.js';
 
@@ -41,6 +43,16 @@ export function toView(s: Session, now: number, t: Thresholds = DEFAULT_THRESHOL
   return { ...s, effectiveState: eff.state, effectiveSince: eff.since, feature: deriveFeature(s.workspace.branch, s.workspace.repoName, rules) };
 }
 
+/** The floor a session works on: its feature, else its repository's department, keyed by repo root (cwd outside git). */
+export function floorKeyOf(v: Pick<SessionView, 'feature' | 'workspace'>): string {
+  return cleanText(v.feature ? `feature:${v.feature}` : `repo:${v.workspace.repoRoot ?? v.workspace.cwd}`, KEY_MAX);
+}
+
+/** The island a session sits at: one per checkout, keyed by worktree root (cwd outside git, or when saved without a root). */
+export function islandKeyOf(v: Pick<SessionView, 'workspace'>): string {
+  return cleanText(v.workspace.root ?? v.workspace.cwd, KEY_MAX);
+}
+
 export interface Floor {
   key: string;
   kind: 'feature' | 'department';
@@ -53,15 +65,17 @@ export interface Floor {
   dormant: boolean;
 }
 
-export function buildFloors(views: SessionView[]): Floor[] {
+export function buildFloors(views: readonly SessionView[]): Floor[] {
   const map = new Map<string, Floor>();
+  const dirs = new Map<string, string>();
   for (const v of views) {
     if (v.effectiveState === 'ended') continue;
-    const key = v.feature ? `feature:${v.feature}` : `repo:${v.workspace.repoName}`;
+    const key = floorKeyOf(v);
     let f = map.get(key);
     if (!f) {
       f = { key, kind: v.feature ? 'feature' : 'department', name: v.feature ?? v.workspace.repoName, repos: [], sessions: [], counts: {}, openedAt: v.startedAt, dormant: true };
       map.set(key, f);
+      dirs.set(key, v.workspace.repoRoot ?? v.workspace.cwd);
     }
     f.sessions.push(v);
     if (!f.repos.includes(v.workspace.repoName)) f.repos.push(v.workspace.repoName);
@@ -70,6 +84,14 @@ export function buildFloors(views: SessionView[]): Floor[] {
     if (v.effectiveState !== 'dormant') f.dormant = false;
   }
   const floors = [...map.values()];
+  // Departments sharing a repo name are told apart by the directory their repos sit in: 'api (work)', 'api (oss)'.
+  const named = new Map<string, number>();
+  for (const f of floors) if (f.kind === 'department') named.set(f.name, (named.get(f.name) ?? 0) + 1);
+  for (const f of floors) {
+    if (f.kind !== 'department' || (named.get(f.name) ?? 0) < 2) continue;
+    const parent = dirname(dirs.get(f.key) ?? '');
+    f.name = `${f.name} (${basename(parent) || parent})`;
+  }
   for (const f of floors) {
     f.repos.sort();
     f.sessions.sort((a, b) => a.workspace.repoName.localeCompare(b.workspace.repoName) || a.startedAt - b.startedAt);

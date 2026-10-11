@@ -27,26 +27,26 @@ describe('resolveWorkspace', () => {
   it('describes a directory outside git', async () => {
     const plain = join(base, 'plain');
     await mkdir(plain);
-    expect(await resolveWorkspace(plain)).toEqual({ cwd: plain, repoRoot: null, repoName: 'plain', worktree: false, branch: null });
+    expect(await resolveWorkspace(plain)).toEqual({ cwd: plain, repoRoot: null, repoName: 'plain', worktree: false, branch: null, root: null });
   });
 
   it('describes the main checkout and its subdirectories', async () => {
-    expect(await resolveWorkspace(repo)).toEqual({ cwd: repo, repoRoot: repo, repoName: 'orders-api', worktree: false, branch: 'feat/checkout-v2' });
-    expect(await resolveWorkspace(join(repo, 'src'))).toMatchObject({ repoRoot: repo, repoName: 'orders-api', worktree: false });
+    expect(await resolveWorkspace(repo)).toEqual({ cwd: repo, repoRoot: repo, repoName: 'orders-api', worktree: false, branch: 'feat/checkout-v2', root: repo });
+    expect(await resolveWorkspace(join(repo, 'src'))).toMatchObject({ repoRoot: repo, repoName: 'orders-api', worktree: false, root: repo });
   });
 
   it('maps a linked worktree to its main repository', async () => {
     const wt = join(base, 'wt-other');
-    expect(await resolveWorkspace(wt)).toEqual({ cwd: wt, repoRoot: repo, repoName: 'orders-api', worktree: true, branch: 'feat/other' });
+    expect(await resolveWorkspace(wt)).toEqual({ cwd: wt, repoRoot: repo, repoName: 'orders-api', worktree: true, branch: 'feat/other', root: wt });
   });
 
   it('reports a detached HEAD', async () => {
-    expect((await resolveWorkspace(join(base, 'wt-detached'))).branch).toBe('HEAD');
+    expect(await resolveWorkspace(join(base, 'wt-detached'))).toMatchObject({ branch: 'HEAD', worktree: true, root: join(base, 'wt-detached') });
   });
 
   it('falls back to the directory name when git is unavailable', async () => {
     const failing: GitRunner = async () => null;
-    expect(await resolveWorkspace('/x/y/storefront', failing)).toEqual({ cwd: '/x/y/storefront', repoRoot: null, repoName: 'storefront', worktree: false, branch: null });
+    expect(await resolveWorkspace('/x/y/storefront', failing)).toEqual({ cwd: '/x/y/storefront', repoRoot: null, repoName: 'storefront', worktree: false, branch: null, root: null });
   });
 });
 

@@ -29,6 +29,11 @@ export interface Workspace {
   worktree: boolean;
   /** Current branch; 'HEAD' when detached; null when unknown. */
   branch: string | null;
+  /**
+   * Top level of the working tree: a linked worktree's own root, or the main checkout's root. Null outside git.
+   * Absent in sessions saved before it existed: read `root ?? cwd`.
+   */
+  root?: string | null;
 }
 
 export interface ChildAgent {
