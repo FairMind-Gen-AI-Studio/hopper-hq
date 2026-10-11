@@ -141,6 +141,18 @@ describe('applyEvent', () => {
     expect(s.children.map((c) => [c.id, c.running])).toEqual([['a1', false]]);
   });
 
+  it("a subagent's finish inferred from its quiet transcript does not end its wait, even a newer one", () => {
+    const wait = (finish: 'fs' | 'hook') => run(seen(), ev('prompt', 1100, { text: 'x' }),
+      ev('agent.started', 1150, { agentId: 'a1', agentType: 'general-purpose', description: null }),
+      ev('turn.finished', 1200, { backgroundTasks: 0 }),
+      ev('waiting', 1300, { reason: { kind: 'permission', text: 'Bash', detail: 'Bash: npm test' }, agentId: 'a1' }),
+      ev('agent.finished', 1400, { agentId: 'a1', source: finish }));
+    const quiet = wait('fs');
+    expect(quiet).toMatchObject({ state: 'needs_you', waitReason: { kind: 'permission', text: 'Bash', detail: 'Bash: npm test' }, waitAgentId: 'a1' });
+    expect(quiet.children.map((c) => [c.id, c.running])).toEqual([['a1', false]]);
+    expect(wait('hook')).toMatchObject({ state: 'done', waitReason: null, waitAgentId: null });
+  });
+
   it('a wait raised over another one is ended only by the session itself', () => {
     let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
       ev('waiting', 1200, { reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' }),

@@ -121,8 +121,11 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     case 'agent.started':
       return withChild(s, e.agentId, { type: e.agentType, description: e.description, running: true, updatedAt: e.ts });
     case 'agent.finished':
-      // A finish can be inferred from a transcript gone quiet, as one is while its subagent waits: only a newer one ends the wait.
-      return settleMeeting(endAgentWait(withChild(s, e.agentId, { running: false, updatedAt: e.ts }), e, e.agentId), e.ts);
+      // A finish inferred from a transcript gone quiet (fs) proves nothing about a wait, as the subagent is quiet while it waits: only a hook's ends it.
+      {
+        const finished = withChild(s, e.agentId, { running: false, updatedAt: e.ts });
+        return settleMeeting(e.source === 'fs' ? finished : endAgentWait(finished, e, e.agentId), e.ts);
+      }
     case 'tool.started':
       if (e.agentId) return endAgentWait(withChild(s, e.agentId, { lastAction: e.label, running: true, updatedAt: e.ts }), e, e.agentId);
       break;
