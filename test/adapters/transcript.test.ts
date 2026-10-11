@@ -59,7 +59,7 @@ describe('parseTranscriptLine', () => {
     ] } }), S);
     expect(r.events).toEqual([
       { sessionId: S, ts: TS, source: 'fs', type: 'tool.started', toolId: 't1', tool: 'Edit', label: 'Edit src/a.ts', agentId: null },
-      { sessionId: S, ts: TS, source: 'fs', type: 'waiting', reason: { kind: 'question', text: 'Redis or Postgres?' } },
+      { sessionId: S, ts: TS, source: 'fs', type: 'waiting', reason: { kind: 'question', text: 'Redis or Postgres?' }, agentId: null },
     ]);
   });
 

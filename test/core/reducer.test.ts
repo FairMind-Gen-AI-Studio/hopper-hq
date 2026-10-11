@@ -103,12 +103,79 @@ describe('applyEvent', () => {
     expect(s.children).toEqual([{ id: 'a1', type: 'agent', description: null, running: true, lastAction: 'Grep useCart', updatedAt: 1300 }]);
   });
 
+  it("a subagent's wait ends with that subagent's next step, not with another one's", () => {
+    let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
+      ev('tool.started', 1200, { toolId: 'm1', tool: 'Agent', label: 'Agent: Review', agentId: null }),
+      ev('tool.started', 1300, { toolId: 'c1', tool: 'Write', label: 'Write a.ts', agentId: 'a1' }),
+      ev('waiting', 1350, { reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' }));
+    expect(s).toMatchObject({ state: 'needs_you', waitAgentId: 'a1' });
+    s = applyEvent(s, ev('tool.finished', 1400, { toolId: 'c9', ok: true, agentId: 'a2' }))!;
+    expect(s).toMatchObject({ state: 'needs_you', waitAgentId: 'a1' });
+    s = applyEvent(s, ev('tool.started', 1340, { toolId: 'c0', tool: 'Read', label: 'Read b.ts', agentId: 'a1' }))!;
+    expect(s).toMatchObject({ state: 'needs_you', waitAgentId: 'a1' });
+    s = applyEvent(s, ev('tool.finished', 1500, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    expect(s).toMatchObject({ state: 'working', stateSince: 1500, waitReason: null, waitAgentId: null, openTool: { id: 'm1' }, lastEventAt: 1500 });
+  });
+
+  it("a background subagent's wait returns the session to its meeting, and the subagent's end makes it done", () => {
+    let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
+      ev('agent.started', 1150, { agentId: 'a1', agentType: 'general-purpose', description: null }),
+      ev('turn.finished', 1200, { backgroundTasks: 0 }),
+      ev('waiting', 1300, { reason: { kind: 'permission', text: 'Bash', detail: 'Bash: npm test' }, agentId: 'a1' }));
+    expect(s).toMatchObject({ state: 'needs_you', waitAgentId: 'a1' });
+    s = applyEvent(s, ev('tool.started', 1400, { toolId: 'c1', tool: 'Bash', label: 'Bash: npm test', agentId: 'a1' }))!;
+    expect(s).toMatchObject({ state: 'in_meeting', stateSince: 1400, waitReason: null, waitAgentId: null });
+    s = applyEvent(s, ev('waiting', 1500, { reason: { kind: 'permission', text: 'Bash', detail: 'Bash: git push' }, agentId: 'a1' }))!;
+    s = applyEvent(s, ev('agent.finished', 1600, { agentId: 'a1' }))!;
+    expect(s).toMatchObject({ state: 'done', stateSince: 1600, waitReason: null, waitAgentId: null });
+  });
+
+  it("a subagent's finish older than its wait does not end it", () => {
+    // The filesystem reports a subagent finished once its transcript goes quiet, as it does while the subagent waits for you.
+    const s = run(seen(), ev('prompt', 1100, { text: 'x' }),
+      ev('agent.started', 1150, { agentId: 'a1', agentType: 'general-purpose', description: null }),
+      ev('turn.finished', 1200, { backgroundTasks: 0 }),
+      ev('waiting', 1300, { reason: { kind: 'permission', text: 'Bash' }, agentId: 'a1' }),
+      ev('agent.finished', 1250, { agentId: 'a1', source: 'fs' }));
+    expect(s).toMatchObject({ state: 'needs_you', waitAgentId: 'a1' });
+    expect(s.children.map((c) => [c.id, c.running])).toEqual([['a1', false]]);
+  });
+
+  it('a wait raised over another one is ended only by the session itself', () => {
+    let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
+      ev('waiting', 1200, { reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' }),
+      ev('waiting', 1300, { reason: { kind: 'permission', text: 'Bash', detail: 'Bash: ls' }, agentId: 'a2' }));
+    expect(s).toMatchObject({ state: 'needs_you', waitAgentId: null });
+    s = applyEvent(s, ev('tool.finished', 1400, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    expect(s.state).toBe('needs_you');
+    s = applyEvent(s, ev('tool.started', 1500, { toolId: 't1', tool: 'Bash', label: 'Bash: ls', agentId: null }))!;
+    expect(s).toMatchObject({ state: 'working', waitAgentId: null });
+    const own = run(seen(), ev('waiting', 1100, { reason: { kind: 'question', text: 'Redis or Postgres?' }, agentId: null }),
+      ev('waiting', 1200, { reason: { kind: 'permission', text: 'Bash' }, agentId: 'a1' }));
+    expect(own).toMatchObject({ state: 'needs_you', waitAgentId: null });
+  });
+
+  it('a vaguer follow-up keeps whose wait it is', () => {
+    const s = run(seen(), ev('waiting', 1100, { reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' }),
+      ev('waiting', 1101, { reason: { kind: 'permission', text: 'Claude needs your permission to use Write' }, agentId: null }));
+    expect(s).toMatchObject({ waitReason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, waitAgentId: 'a1' });
+  });
+
+  it("the session's own activity ends a subagent's wait too", () => {
+    const w = run(seen(), ev('prompt', 1100, { text: 'x' }), ev('waiting', 1200, { reason: { kind: 'permission', text: 'Bash' }, agentId: 'a1' }));
+    expect(applyEvent(w, ev('prompt', 1300, { text: 'go on' }))).toMatchObject({ state: 'working', waitReason: null, waitAgentId: null });
+    expect(applyEvent(w, ev('tool.started', 1300, { toolId: 't1', tool: 'Read', label: 'Read a.ts', agentId: null }))).toMatchObject({ state: 'working', waitAgentId: null });
+    expect(applyEvent(w, ev('turn.finished', 1300, { backgroundTasks: 0 }))).toMatchObject({ state: 'done', waitAgentId: null });
+    expect(applyEvent(w, ev('session.status', 1300, { status: 'busy', waitingFor: null, source: 'fs' }))).toMatchObject({ state: 'working', waitAgentId: null });
+    expect(applyEvent(w, ev('session.ended', 1300, { reason: 'other' }))).toMatchObject({ state: 'ended', waitAgentId: null });
+  });
+
   it('applies the filesystem status fallback', () => {
     // busy -> working
     expect(run(seen(), ev('session.status', 1100, { status: 'busy', waitingFor: null, source: 'fs' })).state).toBe('working');
     // waiting without a hook reason
-    expect(run(seen(), ev('session.status', 1100, { status: 'waiting', waitingFor: 'input needed', source: 'fs' })).waitReason)
-      .toEqual({ kind: 'input', text: 'input needed' });
+    expect(run(seen(), ev('session.status', 1100, { status: 'waiting', waitingFor: 'input needed', source: 'fs' })))
+      .toMatchObject({ waitReason: { kind: 'input', text: 'input needed' }, waitAgentId: null });
     // waiting keeps the richer hook reason
     expect(run(seen(), ev('waiting', 1100, { reason: { kind: 'permission', text: 'Bash' } }),
       ev('session.status', 1101, { status: 'waiting', waitingFor: 'input needed', source: 'fs' })).waitReason)

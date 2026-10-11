@@ -58,7 +58,9 @@ export class Store {
     const out: Session[] = [];
     for (const r of rows) {
       try {
-        out.push(JSON.parse(r.json) as Session);
+        const s = JSON.parse(r.json) as Session;
+        // A row written by an older version has no waitAgentId: its wait is the session's own.
+        out.push({ ...s, waitAgentId: s.waitAgentId ?? null });
       } catch {
         // skip a corrupt row
       }

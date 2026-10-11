@@ -74,7 +74,7 @@ export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: s
     for (const b of content as Block[]) {
       if (!b || b.type !== 'tool_use' || typeof b.name !== 'string') continue;
       const wait = waitingFromTool(b.name, b.input);
-      if (wait) out.events.push({ ...base, type: 'waiting', reason: wait });
+      if (wait) out.events.push({ ...base, type: 'waiting', reason: wait, agentId: null });
       else out.events.push({ ...base, type: 'tool.started', toolId: typeof b.id === 'string' ? b.id : null, tool: b.name, label: toolLabel(b.name, b.input, out.cwd ?? cwdHint), agentId: null });
     }
   }

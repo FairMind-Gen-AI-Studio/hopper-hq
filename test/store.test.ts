@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { newSession } from '../src/core/reducer.js';
+import type { Session } from '../src/core/types.js';
 import { Store } from '../src/store/store.js';
 import { ev, WS } from './helpers/events.js';
 
@@ -16,6 +17,17 @@ describe('Store', () => {
     expect(store.loadSessions()).toEqual([s]);
     store.saveSessions([{ ...s, title: 'Fix checkout' }], 6);
     expect(store.loadSessions()).toEqual([{ ...s, title: 'Fix checkout' }]);
+    store.close();
+  });
+
+  it('keeps whose wait it is, and loads a session saved without it as its own wait', async () => {
+    const store = await Store.open(':memory:');
+    const older: Partial<Session> = newSession('S1', 1000, WS);
+    delete older.waitAgentId;
+    store.saveSessions([older as Session], 5);
+    expect(store.loadSessions()).toEqual([{ ...older, waitAgentId: null }]);
+    store.saveSessions([{ ...newSession('S2', 1000, WS), state: 'needs_you', waitAgentId: 'a1' }], 6);
+    expect(store.loadSessions().map((s) => s.waitAgentId)).toEqual([null, 'a1']);
     store.close();
   });
 

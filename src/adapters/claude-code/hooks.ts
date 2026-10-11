@@ -51,7 +51,7 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
     case 'PreToolUse': {
       if (!toolName) return [];
       const wait = agentId ? null : waitingFromTool(toolName, p.tool_input);
-      if (wait) return [{ ...base, type: 'waiting', reason: wait }];
+      if (wait) return [{ ...base, type: 'waiting', reason: wait, agentId: null }];
       return [{ ...base, type: 'tool.started', toolId, tool: toolName, label: toolLabel(toolName, p.tool_input, cwd || undefined), agentId }];
     }
     case 'PostToolUse':
@@ -62,12 +62,13 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
         ...base,
         type: 'waiting',
         reason: { kind: 'permission', text: toolName || 'Permission', ...(toolName ? { detail: toolLabel(toolName, p.tool_input, cwd || undefined) } : {}) },
+        agentId,
       }];
     case 'Notification': {
       const type = str(p.notification_type);
       const message = str(p.message);
-      if (type === 'permission_prompt') return [{ ...base, type: 'waiting', reason: { kind: 'permission', text: truncate(message || 'Permission needed', 120) } }];
-      if (QUESTION_NOTIFICATIONS.has(type)) return [{ ...base, type: 'waiting', reason: { kind: 'question', text: truncate(message || 'Input needed', 120) } }];
+      if (type === 'permission_prompt') return [{ ...base, type: 'waiting', reason: { kind: 'permission', text: truncate(message || 'Permission needed', 120) }, agentId }];
+      if (QUESTION_NOTIFICATIONS.has(type)) return [{ ...base, type: 'waiting', reason: { kind: 'question', text: truncate(message || 'Input needed', 120) }, agentId }];
       return [];
     }
     case 'Stop':

@@ -15,6 +15,7 @@ export function newSession(id: string, ts: number, workspace: Workspace): Sessio
     state: 'idle',
     stateSince: ts,
     waitReason: null,
+    waitAgentId: null,
     title: null,
     firstPrompt: null,
     lastPrompt: null,
@@ -61,6 +62,15 @@ function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { update
   return { ...s, children };
 }
 
+/**
+ * A subagent's step or end after the wait it raised ends that wait, as an ordered event: back to the session's open tool
+ * (the Agent call it runs in), else to the meeting. Another subagent's event, or an older one, leaves the wait.
+ */
+function endAgentWait(s: Session, e: CollectorEvent, agentId: string): Session {
+  if (s.state !== 'needs_you' || s.waitAgentId !== agentId || !isNewer(s, e)) return s;
+  return { ...setState(s, s.openTool ? 'working' : 'in_meeting', e.ts), waitReason: null, waitAgentId: null, lastEventAt: e.ts, lastSeq: e.seq };
+}
+
 /** After a child finishes during a meeting: count it off; with nothing left running, the meeting is done. */
 function settleMeeting(s: Session, ts: number): Session {
   if (s.state !== 'in_meeting') return s;
@@ -73,14 +83,14 @@ function applyStatus(s: Session, e: EventOf<'session.status'>): Session {
   switch (e.status) {
     case 'busy':
       if (s.state === 'working' || s.state === 'no_signal') return s;
-      return { ...setState(s, 'working', e.ts), waitReason: null, seenAt: null };
+      return { ...setState(s, 'working', e.ts), waitReason: null, waitAgentId: null, seenAt: null };
     case 'waiting':
       if (s.state === 'needs_you') return s;
-      return { ...setState(s, 'needs_you', e.ts), waitReason: { kind: 'input', text: e.waitingFor ?? 'Waiting for you' } };
+      return { ...setState(s, 'needs_you', e.ts), waitReason: { kind: 'input', text: e.waitingFor ?? 'Waiting for you' }, waitAgentId: null };
     case 'idle': {
       if (!['working', 'no_signal', 'needs_you', 'in_meeting'].includes(s.state)) return s;
       const meeting = s.children.some((c) => c.running);
-      return { ...setState(s, meeting ? 'in_meeting' : 'done', e.ts), waitReason: null, openTool: null, seenAt: null };
+      return { ...setState(s, meeting ? 'in_meeting' : 'done', e.ts), waitReason: null, waitAgentId: null, openTool: null, seenAt: null };
     }
   }
 }
@@ -111,12 +121,13 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     case 'agent.started':
       return withChild(s, e.agentId, { type: e.agentType, description: e.description, running: true, updatedAt: e.ts });
     case 'agent.finished':
-      return settleMeeting(withChild(s, e.agentId, { running: false, updatedAt: e.ts }), e.ts);
+      // A finish can be inferred from a transcript gone quiet, as one is while its subagent waits: only a newer one ends the wait.
+      return settleMeeting(endAgentWait(withChild(s, e.agentId, { running: false, updatedAt: e.ts }), e, e.agentId), e.ts);
     case 'tool.started':
-      if (e.agentId) return withChild(s, e.agentId, { lastAction: e.label, running: true, updatedAt: e.ts });
+      if (e.agentId) return endAgentWait(withChild(s, e.agentId, { lastAction: e.label, running: true, updatedAt: e.ts }), e, e.agentId);
       break;
     case 'tool.finished':
-      if (e.agentId) return withChild(s, e.agentId, { updatedAt: e.ts });
+      if (e.agentId) return endAgentWait(withChild(s, e.agentId, { updatedAt: e.ts }), e, e.agentId);
       break;
   }
 
@@ -128,11 +139,12 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
 
   switch (e.type) {
     case 'session.started':
-      return { ...setState(s, 'idle', e.ts), waitReason: null, openTool: null };
+      return { ...setState(s, 'idle', e.ts), waitReason: null, waitAgentId: null, openTool: null };
     case 'prompt':
       return {
         ...setState(s, 'working', e.ts),
         waitReason: null,
+        waitAgentId: null,
         seenAt: null,
         lastPrompt: e.text ?? s.lastPrompt,
         firstPrompt: s.firstPrompt ?? e.text,
@@ -141,17 +153,21 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
       return {
         ...setState(s, 'working', e.ts),
         waitReason: null,
+        waitAgentId: null,
         openTool: { id: e.toolId, label: e.label, startedAt: e.ts },
         lastAction: e.label,
         lastActionAt: e.ts,
       };
     case 'tool.finished': {
       const closes = s.openTool && (e.toolId === null || s.openTool.id === e.toolId);
-      return { ...setState(s, s.state === 'ended' ? 'ended' : 'working', e.ts), waitReason: null, openTool: closes ? null : s.openTool };
+      return { ...setState(s, s.state === 'ended' ? 'ended' : 'working', e.ts), waitReason: null, waitAgentId: null, openTool: closes ? null : s.openTool };
     }
     case 'waiting': {
-      const keep = s.state === 'needs_you' && s.waitReason?.kind === e.reason.kind && s.waitReason.detail && !e.reason.detail;
-      return { ...setState(s, 'needs_you', e.ts), waitReason: keep ? s.waitReason : e.reason };
+      const pending = s.state === 'needs_you';
+      const keep = pending && s.waitReason?.kind === e.reason.kind && s.waitReason.detail && !e.reason.detail;
+      // One wait is tracked: a wait raised over someone else's is nobody's in particular, so no single subagent's step ends it.
+      const waitAgentId = keep ? s.waitAgentId : pending && s.waitAgentId !== e.agentId ? null : e.agentId;
+      return { ...setState(s, 'needs_you', e.ts), waitReason: keep ? s.waitReason : e.reason, waitAgentId };
     }
     case 'turn.finished': {
       const meeting = e.backgroundTasks > 0 || s.children.some((c) => c.running);
@@ -159,6 +175,7 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
         ...setState(s, meeting ? 'in_meeting' : 'done', e.ts),
         backgroundTasks: e.backgroundTasks,
         waitReason: null,
+        waitAgentId: null,
         openTool: null,
         seenAt: null,
       };
@@ -166,7 +183,7 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     case 'session.status':
       return applyStatus(s, e);
     case 'session.ended':
-      return { ...setState(s, 'ended', e.ts), waitReason: null, openTool: null };
+      return { ...setState(s, 'ended', e.ts), waitReason: null, waitAgentId: null, openTool: null };
   }
   return s;
 }

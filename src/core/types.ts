@@ -58,6 +58,8 @@ export interface Session {
   state: SessionState;
   stateSince: number;
   waitReason: WaitReason | null;
+  /** The subagent whose wait waitReason is; null when it is the session's own, or nobody's in particular. */
+  waitAgentId: string | null;
   title: string | null;
   firstPrompt: string | null;
   lastPrompt: string | null;
@@ -106,7 +108,7 @@ export type CollectorEvent = EventBase &
     | { type: 'prompt'; text: string | null }
     | { type: 'tool.started'; toolId: string | null; tool: string; label: string; agentId: string | null }
     | { type: 'tool.finished'; toolId: string | null; ok: boolean; agentId: string | null }
-    | { type: 'waiting'; reason: WaitReason }
+    | { type: 'waiting'; reason: WaitReason; agentId: string | null }
     | { type: 'turn.finished'; backgroundTasks: number }
     | { type: 'agent.started'; agentId: string; agentType: string; description: string | null }
     | { type: 'agent.finished'; agentId: string }

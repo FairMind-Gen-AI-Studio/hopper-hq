@@ -30,11 +30,11 @@ describe('mapHookPayload with the mod fixtures', () => {
   });
 
   it('AskUserQuestion waits for an answer', () => {
-    expect(mapHookPayload(fx('PreToolUse.AskUserQuestion'), NOW)).toEqual([{ ...base(1791660002800), type: 'waiting', reason: { kind: 'question', text: 'Should the retry queue use Redis or Postgres?' } }]);
+    expect(mapHookPayload(fx('PreToolUse.AskUserQuestion'), NOW)).toEqual([{ ...base(1791660002800), type: 'waiting', reason: { kind: 'question', text: 'Should the retry queue use Redis or Postgres?' }, agentId: null }]);
   });
 
   it('PermissionRequest waits with the command as detail', () => {
-    expect(mapHookPayload(fx('PermissionRequest'), NOW)).toEqual([{ ...base(1791660003000), type: 'waiting', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist && npm run build' } }]);
+    expect(mapHookPayload(fx('PermissionRequest'), NOW)).toEqual([{ ...base(1791660003000), type: 'waiting', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist && npm run build' }, agentId: null }]);
   });
 
   it('SubagentStart, Stop and SessionEnd', () => {
@@ -76,9 +76,11 @@ describe('mapHookPayload edge cases', () => {
     expect(mapHookPayload({ ...p, hook_event_name: 'PreCompact' }, NOW)).toEqual([]);
   });
 
-  it('a permission request inside a subagent still needs the user', () => {
+  it('a permission request inside a subagent still needs the user, and says whose it is', () => {
     expect(mapHookPayload({ ...p, hook_event_name: 'PermissionRequest', agent_id: 'a1', tool_name: 'Write', tool_input: { file_path: '/w/shop/a.ts' } }, NOW))
-      .toEqual([expect.objectContaining({ type: 'waiting', reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' } })]);
+      .toEqual([expect.objectContaining({ type: 'waiting', reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' })]);
+    expect(mapHookPayload({ ...p, hook_event_name: 'Notification', agent_id: 'a1', notification_type: 'permission_prompt', message: 'Claude needs your permission to use Write' }, NOW))
+      .toEqual([expect.objectContaining({ type: 'waiting', agentId: 'a1' })]);
   });
 
   it('rejects payloads without a session or event name', () => {

@@ -18,7 +18,7 @@ function capture() {
 beforeAll(async () => {
   dataDir = await mkdtemp(join(tmpdir(), 'shq-cli-'));
   d = await startDaemon({ port: 0, dataDir, claudeDir: await mkdtemp(join(tmpdir(), 'shq-claude-')), watchFiles: false, log: () => {} });
-  await d.collector.ingest({ type: 'waiting', sessionId: 'S1', ts: Date.now(), source: 'hook', cwd: '/w/orders-api', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' } });
+  await d.collector.ingest({ type: 'waiting', sessionId: 'S1', ts: Date.now(), source: 'hook', cwd: '/w/orders-api', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' }, agentId: null });
   await d.collector.idle();
 });
 afterAll(() => d.stop());
