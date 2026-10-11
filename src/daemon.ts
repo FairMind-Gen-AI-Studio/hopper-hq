@@ -4,6 +4,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
+import { startDemo } from './adapters/demo.js';
 import { createGitResolver } from './adapters/git.js';
 import { Collector } from './collector.js';
 import { DEFAULT_PORT, resolvePaths } from './config.js';
@@ -18,6 +19,8 @@ export interface DaemonOptions {
   /** Watch ~/.claude on disk (default true). The mod works either way. */
   watchFiles?: boolean;
   log?: (line: string) => void;
+  /** Serve scripted demo sessions from memory; ignore hooks and files. */
+  demo?: boolean;
 }
 
 export interface RunningDaemon {
@@ -67,10 +70,10 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
   const token = await loadOrCreateToken(paths.dataDir);
 
-  const store = await Store.open(join(paths.dataDir, 'scranton.db'));
+  const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
-  const collector = new Collector({ resolveWorkspace, store, acceptSources: ['hook', 'fs'] });
+  const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'] });
   const server = createApiServer({ collector, token });
 
   let port: number;
@@ -82,10 +85,11 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   }
   await writeDaemonFile(paths.dataDir, { port, token, pid: process.pid, startedAt: Date.now() });
 
-  const fsAdapter = opts.watchFiles === false
+  const fsAdapter = opts.demo || opts.watchFiles === false
     ? null
     : new FsAdapter({ claudeDir: paths.claudeDir, emit: (e) => void collector.ingest(e), resolveWorkspace });
   fsAdapter?.start();
+  const demo = opts.demo ? startDemo((e) => void collector.ingest(e)) : null;
   log(`scranton-hq is listening on http://127.0.0.1:${port}`);
 
   return {
@@ -94,6 +98,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
     collector,
     stop: async () => {
       fsAdapter?.stop();
+      demo?.stop();
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
       await collector.close();

@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { AttentionSummary, Snapshot } from './collector.js';
 import { resolvePaths } from './config.js';
@@ -20,6 +21,7 @@ Usage:
   scranton-hq status [--format text|tmux|json] [--data-dir DIR]
   scranton-hq ls [--data-dir DIR]
   scranton-hq ack [SESSION_ID] [--data-dir DIR]
+  scranton-hq demo [--port N] [--data-dir DIR]
   scranton-hq --version`;
 
 class UsageError extends Error {}
@@ -44,6 +46,8 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
         return await cmdLs(args, io);
       case 'ack':
         return await cmdAck(args, io);
+      case 'demo':
+        return await cmdDemo(args, io);
       case undefined:
       case 'help':
       case '--help':
@@ -162,5 +166,30 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   }
   const n = r.data.marked;
   io.out(`Marked ${n} session${n === 1 ? '' : 's'} as seen.`);
+  return 0;
+}
+
+async function cmdDemo(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { port: { type: 'string', default: '7338' }, ...dataDirOption } });
+  const port = Number(values.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError(`Invalid port: ${values.port}`);
+  const dataDir = values['data-dir'] ?? join(resolvePaths().dataDir, 'demo');
+  const { startDaemon } = await import('./daemon.js');
+  let daemon;
+  try {
+    daemon = await startDaemon({ demo: true, port, dataDir, log: io.err });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+      io.err(`Port ${port} is already in use. Pick another with --port.`);
+      return 1;
+    }
+    throw err;
+  }
+  io.err(`Demo running. In another terminal: scranton-hq ls --data-dir ${dataDir}`);
+  await new Promise<void>((resolve) => {
+    process.once('SIGINT', () => resolve());
+    process.once('SIGTERM', () => resolve());
+  });
+  await daemon.stop();
   return 0;
 }
