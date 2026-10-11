@@ -1,5 +1,16 @@
 import { defineConfig } from 'vitest/config';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
-  test: { include: ['test/**/*.test.ts'], environment: 'node', testTimeout: 15000 },
+  test: {
+    projects: [
+      { test: { name: 'node', include: ['test/**/*.test.ts'], environment: 'node', testTimeout: 15000 } },
+      {
+        plugins: [svelte({ configFile: 'ui/svelte.config.js' })],
+        // Svelte's package exports a server build by default: UI tests need the browser one.
+        resolve: { conditions: ['browser'] },
+        test: { name: 'ui', include: ['ui/test/**/*.test.ts'], environment: 'happy-dom', testTimeout: 15000 },
+      },
+    ],
+  },
 });

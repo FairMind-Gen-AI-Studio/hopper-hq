@@ -8,15 +8,28 @@
   "files": ["dist", "README.md", "LICENSE"],
   "engines": { "node": ">=22.13" },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npm run build:server && npm run build:ui",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:ui": "vite build",
+    "dev:ui": "vite",
+    "typecheck": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./ui/tsconfig.json --fail-on-warnings",
     "test": "vitest run",
     "test:mod": "claude plugin validate mod && claude plugin validate . && claude plugin test mod",
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
     "@types/node": "^22.10.0",
+    "@types/three": "0.186.0",
+    "happy-dom": "20.14.5",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6",
+    "three": "0.186.1",
     "typescript": "~5.8.3",
+    "vite": "7.3.6",
     "vitest": "~3.2.4"
   }
 }
