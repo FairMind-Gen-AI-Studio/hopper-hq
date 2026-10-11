@@ -20,6 +20,9 @@ type Payload = Record<string, unknown>
 const queue: Payload[] = []
 let daemon: Daemon | null = null
 let sessionCwd = ''
+// One request of each kind at a time: a daemon that accepts and never answers holds one, not one per tick.
+let flushing = false
+let polling = false
 
 function slim(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') return value.length > MAX_STRING ? value.slice(0, MAX_STRING) : value
@@ -65,25 +68,42 @@ async function call($: EngineInterface, method: string, path: string, body?: str
   }
 }
 
-async function flush($: EngineInterface) {
+async function send($: EngineInterface) {
   if (queue.length === 0) return
   const batch = queue.splice(0, queue.length)
   const r = await call($, 'POST', '/api/hooks', JSON.stringify(batch))
   // Retry only what can succeed later: no daemon, a stale token, a server error. A refused batch is dropped.
-  if (!r || r.status === 401 || r.status >= 500) queue.unshift(...batch.slice(-(MAX_QUEUE - queue.length)))
+  const room = MAX_QUEUE - queue.length
+  if ((!r || r.status === 401 || r.status >= 500) && room > 0) queue.unshift(...batch.slice(-room))
+}
+
+async function flush($: EngineInterface) {
+  if (flushing) return
+  flushing = true
+  try {
+    await send($)
+  } finally {
+    flushing = false
+  }
 }
 
 async function poll($: EngineInterface) {
-  const r = await call($, 'GET', '/api/attention')
-  let next: Attention | null = null
-  if (r?.ok) {
-    try {
-      next = JSON.parse(r.text) as Attention
-    } catch {
-      next = null
+  if (polling) return
+  polling = true
+  try {
+    const r = await call($, 'GET', '/api/attention')
+    let next: Attention | null = null
+    if (r?.ok) {
+      try {
+        next = JSON.parse(r.text) as Attention
+      } catch {
+        next = null
+      }
     }
+    await update($, attention, () => next)
+  } finally {
+    polling = false
   }
-  await update($, attention, () => next)
 }
 
 async function jump($: EngineInterface, pane: string) {
@@ -135,7 +155,8 @@ export const register: Register = on => {
 
   on('session.end', async ($, e, next) => {
     await enqueue($, { hook_event_name: 'SessionEnd', reason: e.reason })
-    await flush($)
+    // Not behind a batch still in flight: the exit's time is short, and the daemon orders events by their own time.
+    await send($)
     return next(e)
   })
 

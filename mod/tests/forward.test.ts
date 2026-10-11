@@ -106,3 +106,93 @@ test('drops a batch the daemon refuses instead of resending it forever', async (
   await clock.advance(2000)
   expect(posts).toBe(1)
 })
+
+test('keeps one request of each kind in flight while the daemon does not answer', async ($, on) => {
+  mock.env(on, { HOME: '/home/dev' })
+  const clock = mock.clock(on)
+  const open: Record<string, number> = {}
+  const most: Record<string, number> = {}
+  const held: (() => void)[] = []
+  const prompts: unknown[][] = []
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async ($, e) => {
+    const path = e.url.slice(e.url.indexOf('/api/'))
+    if (e.init?.method === 'POST') prompts.push(JSON.parse(e.init.body ?? '[]').map((b: Record<string, unknown>) => b.prompt))
+    open[path] = (open[path] ?? 0) + 1
+    most[path] = Math.max(most[path] ?? 0, open[path] ?? 0)
+    await new Promise<void>(resolve => held.push(resolve))
+    open[path] = (open[path] ?? 1) - 1
+    return { value: { status: e.init?.method === 'POST' ? 204 : 200, ok: true, headers: {}, text: '{"needsYou":0,"done":0,"items":[]}' } }
+  })
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+
+  await $.session.start(START)
+  for (let i = 1; i <= 30; i++) {
+    await $.prompt.submit({ text: `p${i}`, wait: false, origin: { kind: 'composer' } })
+    await clock.advance(1000)
+  }
+  expect(most).toEqual({ '/api/hooks': 1, '/api/attention': 1 })
+  expect(prompts).toEqual([['p1']])
+
+  for (const release of held.splice(0)) release()
+  await clock.advance(600)
+  expect(prompts).toEqual([['p1'], Array.from({ length: 29 }, (_, i) => `p${i + 2}`)])
+  for (const release of held.splice(0)) release()
+})
+
+test('sends the rest at session end without waiting for a batch still in flight', async ($, on) => {
+  mock.env(on, { HOME: '/home/dev' })
+  const clock = mock.clock(on)
+  const held: (() => void)[] = []
+  const posted: unknown[][] = []
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async ($, e) => {
+    if (e.init?.method === 'POST') {
+      posted.push(JSON.parse(e.init.body ?? '[]').map((b: Record<string, unknown>) => b.hook_event_name))
+      if (posted.length === 1) await new Promise<void>(resolve => held.push(resolve))
+    }
+    return { value: { status: e.init?.method === 'POST' ? 204 : 200, ok: true, headers: {}, text: '{"needsYou":0,"done":0,"items":[]}' } }
+  })
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+  on('session.end', async ($, e) => ({ sessionId: e.sessionId }))
+
+  await $.session.start(START)
+  await $.prompt.submit({ text: 'one', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(600)
+  await $.prompt.submit({ text: 'two', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(600)
+  await $.session.end({ reason: 'other', sessionId: 'S-OWN', resume: { id: 'S-OWN' } })
+
+  expect(posted).toEqual([['UserPromptSubmit'], ['UserPromptSubmit', 'SessionEnd']])
+  for (const release of held.splice(0)) release()
+})
+
+test('keeps the queue bounded when a batch fails after a long wait', async ($, on) => {
+  mock.env(on, { HOME: '/home/dev' })
+  const clock = mock.clock(on)
+  const held: (() => void)[] = []
+  const sizes: number[] = []
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async ($, e) => {
+    if (e.init?.method !== 'POST') return { value: { status: 200, ok: true, headers: {}, text: '{"needsYou":0,"done":0,"items":[]}' } }
+    sizes.push(JSON.parse(e.init.body ?? '[]').length)
+    if (sizes.length === 1) await new Promise<void>(resolve => held.push(resolve))
+    return { value: { status: 503, ok: false, headers: {}, text: '' } }
+  })
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+
+  await $.session.start(START)
+  await $.prompt.submit({ text: 'first', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(600)
+  for (let i = 0; i < 500; i++) await $.prompt.submit({ text: `p${i}`, wait: false, origin: { kind: 'composer' } })
+  for (const release of held.splice(0)) release()
+  await clock.advance(600)
+
+  expect(sizes).toEqual([1, 500])
+})
