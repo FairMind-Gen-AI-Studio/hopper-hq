@@ -65,7 +65,8 @@ describe('end to end', () => {
     const dataDir = join(base, 'data');
     const d = await startDaemon({ port: 0, claudeDir, dataDir, log: () => {} });
     try {
-      const floor = await waitFor(() => d.collector.snapshot().floors.find((f) => f.name === 'e2e-flow'));
+      // The session is announced before its transcript is read: wait until the title from the transcript is in too.
+      const floor = await waitFor(() => d.collector.snapshot().floors.find((f) => f.name === 'e2e-flow' && f.sessions[0]?.title));
       expect(floor.kind).toBe('feature');
       expect(floor.sessions[0]).toMatchObject({ id: 'E2E', title: 'End-to-end flow', effectiveState: 'working', tmuxPane: '%9' });
 
