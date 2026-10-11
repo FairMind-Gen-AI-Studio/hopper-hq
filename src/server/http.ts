@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
+import { SceneHub } from './events.js';
 import { API_HEADERS, ASSET_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
 import type { UiBundle, UiFile } from './static.js';
 
@@ -17,6 +18,8 @@ export interface ApiOptions {
   auth?: UiAuth;
   /** The built browser UI; null answers 503 at /ui/. */
   ui?: UiBundle | null;
+  /** Live views; the daemon passes its own so that it can close them on stop. */
+  hub?: SceneHub;
 }
 
 type Deps = Required<ApiOptions>;
@@ -29,6 +32,7 @@ function withDefaults(o: ApiOptions): Deps {
     now: o.now ?? Date.now,
     auth: o.auth ?? new UiAuth({ token: o.token, now: o.now }),
     ui: o.ui ?? null,
+    hub: o.hub ?? new SceneHub({ source: o.collector }),
   };
 }
 
@@ -68,6 +72,7 @@ function routes(d: Deps): Route[] {
     { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
     { methods: GET, path: '/api/scene', auth: 'read', run: ({ res }) => send(res, 200, d.collector.scene()) },
     { methods: GET, path: '/api/floor', auth: 'read', run: (c) => getFloor(d, c) },
+    { methods: GET, path: '/api/events', auth: 'read', run: (c) => getEvents(d, c) },
     { methods: POST, path: '/api/seen', auth: 'write', run: ({ res }) => send(res, 200, { marked: d.collector.markAllSeen() }) },
     {
       methods: POST,
@@ -184,6 +189,11 @@ function getFloor(d: Deps, { res, url }: Ctx): void {
   const floor = d.collector.floor(key);
   if (!floor) return send(res, 404, { error: 'No such floor' });
   send(res, 200, floor);
+}
+
+/** Opens a live view: the scene, plus the floor named by `?floor=` (null while there is no such floor). Changing floor means opening a new stream. */
+function getEvents(d: Deps, { res, url }: Ctx): void {
+  if (!d.hub.attach(res, url.searchParams.get('floor') || null)) send(res, 503, { error: 'Too many live views' });
 }
 
 function postLoginCode(d: Deps, { res, port }: Ctx): void {
