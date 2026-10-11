@@ -66,6 +66,8 @@ function routes(d: Deps): Route[] {
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
     { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c) },
     { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
+    { methods: GET, path: '/api/scene', auth: 'read', run: ({ res }) => send(res, 200, d.collector.scene()) },
+    { methods: GET, path: '/api/floor', auth: 'read', run: (c) => getFloor(d, c) },
     { methods: POST, path: '/api/seen', auth: 'write', run: ({ res }) => send(res, 200, { marked: d.collector.markAllSeen() }) },
     {
       methods: POST,
@@ -171,6 +173,17 @@ async function postHooks(d: Deps, { req, res }: Ctx): Promise<void> {
   const items = Array.isArray(payload) ? payload : [payload];
   for (const item of items) for (const e of mapHookPayload(item, now)) void d.collector.ingest(e);
   return send(res, 204);
+}
+
+/** Floor keys are 'feature:' or 'repo:' plus a name or a path; nothing longer is one. */
+const MAX_KEY = 512;
+
+function getFloor(d: Deps, { res, url }: Ctx): void {
+  const key = url.searchParams.get('key');
+  if (!key || key.length > MAX_KEY) return send(res, 400, { error: `Give a floor key of 1 to ${MAX_KEY} characters: /api/floor?key=...` });
+  const floor = d.collector.floor(key);
+  if (!floor) return send(res, 404, { error: 'No such floor' });
+  send(res, 200, floor);
 }
 
 function postLoginCode(d: Deps, { res, port }: Ctx): void {
