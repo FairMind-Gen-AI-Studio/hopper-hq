@@ -101,9 +101,12 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
       demo?.stop();
       server.closeAllConnections();
       await new Promise<void>((r) => server.close(() => r()));
-      await collector.close();
-      store.close();
-      await removeDaemonFile(paths.dataDir, process.pid);
+      try {
+        await collector.close();
+      } finally {
+        store.close();
+        await removeDaemonFile(paths.dataDir, process.pid);
+      }
     },
   };
 }

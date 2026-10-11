@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdtemp, stat } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -30,6 +30,15 @@ describe('startDaemon', () => {
     expect((await stat(join(dataDir, 'token'))).mode & 0o077).toBe(0);
     expect(await health(d.port, info!.token)).toBe(200);
     await d.stop();
+    expect(await readDaemonFile(dataDir)).toBeNull();
+  });
+
+  it('removes the daemon file even when the last save fails', async () => {
+    const dataDir = await tmp('shq-data-');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    expect(await readDaemonFile(dataDir)).not.toBeNull();
+    vi.spyOn(d.collector, 'close').mockRejectedValue(new Error('database is locked'));
+    await expect(d.stop()).rejects.toThrow('database is locked');
     expect(await readDaemonFile(dataDir)).toBeNull();
   });
 
