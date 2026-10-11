@@ -26,6 +26,8 @@ export class Store {
   private readonly insertEvent: StatementSync;
 
   private constructor(private readonly db: DatabaseSync) {
+    // Another process may hold the write lock for a moment (a second `start` on the same data dir): wait for it instead of failing.
+    db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA journal_mode = WAL');
     db.exec(SCHEMA);
     this.upsertSession = db.prepare(

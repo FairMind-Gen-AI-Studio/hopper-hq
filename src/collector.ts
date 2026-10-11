@@ -40,6 +40,7 @@ export interface CollectorOptions {
   /** When set, events from other sources are ignored. */
   acceptSources?: EventSourceKind[];
   saveDelayMs?: number;
+  log?: (line: string) => void;
 }
 
 export class Collector {
@@ -47,6 +48,7 @@ export class Collector {
   private readonly listeners = new Set<() => void>();
   private readonly dirty = new Set<string>();
   private readonly now: () => number;
+  private readonly log: (line: string) => void;
   private seq = 0;
   private queue: Promise<void> = Promise.resolve();
   private saveTimer: NodeJS.Timeout | null = null;
@@ -54,6 +56,7 @@ export class Collector {
 
   constructor(private readonly o: CollectorOptions) {
     this.now = o.now ?? Date.now;
+    this.log = o.log ?? ((line) => process.stderr.write(line + '\n'));
     for (const s of o.store?.loadSessions() ?? []) {
       this.sessions.set(s.id, s);
       this.seq = Math.max(this.seq, s.lastSeq + 1);
@@ -100,8 +103,17 @@ export class Collector {
 
   private changed(id: string): void {
     this.dirty.add(id);
-    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.flush(), this.o.saveDelayMs ?? 500);
+    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.save(), this.o.saveDelayMs ?? 500);
     for (const fn of this.listeners) fn();
+  }
+
+  /** The timer's save. A store error must not take the daemon down: the sessions stay changed and go with the next save. */
+  private save(): void {
+    try {
+      this.flush();
+    } catch (err) {
+      this.log(`scranton-hq could not save sessions: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** Writes changed sessions to the store now. */
@@ -109,8 +121,8 @@ export class Collector {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     const list = [...this.dirty].map((id) => this.sessions.get(id)).filter((s): s is Session => s !== undefined);
-    this.dirty.clear();
     if (list.length) this.o.store?.saveSessions(list, this.now());
+    this.dirty.clear();
   }
 
   onChange(fn: () => void): () => void {

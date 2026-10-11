@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { once } from 'node:events';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { newSession } from '../src/core/reducer.js';
 import { Store } from '../src/store/store.js';
 import { ev, WS } from './helpers/events.js';
@@ -25,6 +27,28 @@ describe('Store', () => {
     expect(store.recentEvents('S1', 2).map((e) => e.ts)).toEqual([2, 3]);
     expect(store.prune(3)).toBe(2);
     expect(store.recentEvents('S1').map((e) => e.ts)).toEqual([3]);
+    store.close();
+  });
+
+  it('waits for another connection to finish writing instead of failing', async () => {
+    const path = join(await mkdtemp(join(tmpdir(), 'shq-store-')), 'test.db');
+    const store = await Store.open(path);
+    // node:sqlite is synchronous: the lock is held by another thread, which releases it while this one waits.
+    const holder = new Worker(
+      `const { DatabaseSync } = require('node:sqlite');
+      const { parentPort, workerData } = require('node:worker_threads');
+      const db = new DatabaseSync(workerData);
+      db.exec('BEGIN IMMEDIATE');
+      parentPort.postMessage('locked');
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+      db.exec('COMMIT');
+      db.close();`,
+      { eval: true, workerData: path, stderr: true },
+    );
+    await once(holder, 'message');
+    store.saveSessions([newSession('S1', 1000, WS)], 5);
+    await once(holder, 'exit');
+    expect(store.loadSessions().map((s) => s.id)).toEqual(['S1']);
     store.close();
   });
 

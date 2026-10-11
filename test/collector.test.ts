@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { basename } from 'node:path';
 import type { WorkspaceResolver } from '../src/adapters/git.js';
 import { Collector } from '../src/collector.js';
-import type { RawEvent } from '../src/core/types.js';
+import type { RawEvent, Session } from '../src/core/types.js';
 import { Store } from '../src/store/store.js';
 
 const resolver: WorkspaceResolver = async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
@@ -84,6 +84,36 @@ describe('Collector', () => {
     fn.mockClear();
     await c.ingest(hook({ type: 'prompt', text: 'again', ts: NOW + 5 }));
     expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('keeps sessions it could not save and saves them with the next change', async () => {
+    vi.useFakeTimers();
+    try {
+      const saved: string[][] = [];
+      let fail = true;
+      const store = {
+        loadSessions: () => [],
+        appendEvent: () => {},
+        saveSessions: (list: Session[]) => {
+          if (fail) {
+            fail = false;
+            throw new Error('database is locked');
+          }
+          saved.push(list.map((s) => s.id));
+        },
+      } as unknown as Store;
+      const log = vi.fn();
+      const c = collector({ store, log, saveDelayMs: 10 });
+      await c.ingest(hook({ type: 'prompt', text: 'go' }));
+      vi.advanceTimersByTime(10);
+      expect(log).toHaveBeenCalledWith('scranton-hq could not save sessions: database is locked');
+      expect(saved).toEqual([]);
+      await c.ingest(hook({ type: 'prompt', text: 'go', sessionId: 'S2' }));
+      vi.advanceTimersByTime(10);
+      expect(saved).toEqual([['S1', 'S2']]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('restores sessions from the store and keeps ordering after a restart', async () => {
