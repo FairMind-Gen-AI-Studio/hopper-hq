@@ -4,6 +4,7 @@ import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
 import { SceneHub } from './events.js';
+import { simulatedFocusDriver, type FocusDriver } from './focus.js';
 import { API_HEADERS, ASSET_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
 import type { UiBundle, UiFile } from './static.js';
 
@@ -20,6 +21,8 @@ export interface ApiOptions {
   ui?: UiBundle | null;
   /** Live views; the daemon passes its own so that it can close them on stop. */
   hub?: SceneHub;
+  /** Switches tmux to a session's pane. Defaults to the simulated driver: nothing reaches tmux unless the daemon wires the real one. */
+  focus?: FocusDriver;
 }
 
 type Deps = Required<ApiOptions>;
@@ -33,6 +36,7 @@ function withDefaults(o: ApiOptions): Deps {
     auth: o.auth ?? new UiAuth({ token: o.token, now: o.now }),
     ui: o.ui ?? null,
     hub: o.hub ?? new SceneHub({ source: o.collector }),
+    focus: o.focus ?? simulatedFocusDriver,
   };
 }
 
@@ -73,6 +77,7 @@ function routes(d: Deps): Route[] {
     { methods: GET, path: '/api/scene', auth: 'read', run: ({ res }) => send(res, 200, d.collector.scene()) },
     { methods: GET, path: '/api/floor', auth: 'read', run: (c) => getFloor(d, c) },
     { methods: GET, path: '/api/events', auth: 'read', run: (c) => getEvents(d, c) },
+    { methods: POST, path: '/api/focus', auth: 'write', run: (c) => postFocus(d, c) },
     { methods: POST, path: '/api/seen', auth: 'write', run: ({ res }) => send(res, 200, { marked: d.collector.markAllSeen() }) },
     {
       methods: POST,
@@ -194,6 +199,28 @@ function getFloor(d: Deps, { res, url }: Ctx): void {
 /** Opens a live view: the scene, plus the floor named by `?floor=` (null while there is no such floor). Changing floor means opening a new stream. */
 function getEvents(d: Deps, { res, url }: Ctx): void {
   if (!d.hub.attach(res, url.searchParams.get('floor') || null)) send(res, 503, { error: 'Too many live views' });
+}
+
+/** Switches the user's tmux client to a session's pane. The pane is looked up from the session, never taken from the request. */
+async function postFocus(d: Deps, { req, res }: Ctx): Promise<void> {
+  if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) return send(res, 415, { error: 'Send JSON' });
+  const raw = await readBody(req, 1024);
+  let sessionId: unknown;
+  try {
+    sessionId = (JSON.parse(raw ?? '') as { sessionId?: unknown } | null)?.sessionId;
+  } catch {
+    sessionId = undefined;
+  }
+  if (typeof sessionId !== 'string' || sessionId === '') return send(res, 400, { error: 'Send {"sessionId": "<id>"}, at most 1 KB' });
+  const v = d.collector.view(sessionId);
+  if (!v) return send(res, 404, { error: 'No such session' });
+  if (v.effectiveState === 'ended') return send(res, 409, { error: 'The session has ended' });
+  if (v.location !== 'local') return send(res, 409, { error: 'The session does not run on this machine' });
+  if (!v.tmuxPane) return send(res, 409, { error: 'The session is not in a tmux pane' });
+  const outcome = await d.focus.focus(v.tmuxPane);
+  if (outcome.ok) return send(res, 200, { pane: v.tmuxPane, simulated: d.focus.simulated });
+  if (outcome.reason === 'tmux_failed') return send(res, 502, { error: 'tmux could not switch to the pane' });
+  send(res, 409, { error: outcome.reason === 'no_client' ? 'No tmux client is attached' : 'The session is not in a tmux pane' });
 }
 
 function postLoginCode(d: Deps, { res, port }: Ctx): void {
