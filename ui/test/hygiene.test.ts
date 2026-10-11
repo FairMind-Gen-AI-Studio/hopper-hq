@@ -21,6 +21,14 @@ function normalize(path: string): string {
   return out.join('/');
 }
 
+/** Code without its comments, which may name what the code avoids: HTML and block comments, and `//` comments (not `://`). */
+function uncommented(source: string): string {
+  return source
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+}
+
 /** Untrusted text must reach the page as text, and the CSP allows no inline code or style (outline §2.5). */
 const BANNED: Array<[string, RegExp]> = [
   ['{@html}', /\{@html\b/],
@@ -30,16 +38,23 @@ const BANNED: Array<[string, RegExp]> = [
   ['document.write', /\bdocument\.write/],
   ['new Function', /\bnew\s+Function\s*\(/],
   ['eval', /(?:^|[^.\w$])eval\s*\(/],
-  ['a static style attribute', /\sstyle\s*=\s*["']/],
   ['setAttribute("style")', /setAttribute\(\s*["']style["']/],
 ];
+/** Markup only (.svelte, .html): a style attribute written into a tag. */
+const STATIC_STYLE: [string, RegExp] = ['a static style attribute', /<[a-zA-Z][^<>]*\sstyle\s*=\s*["']/];
+
+function textViolations(file: string, source: string): string[] {
+  const code = uncommented(source);
+  const rules = /\.(?:svelte|html)$/.test(file) ? [...BANNED, STATIC_STYLE] : BANNED;
+  return rules.filter(([, re]) => re.test(code)).map(([name]) => name);
+}
 
 /** What `ui/` may import from `src/`: the browser-safe scene modules, and the core types as types only (outline §2.1). */
 const SHARED = new Set(['../src/scene/types', '../src/scene/palette', '../src/scene/text', '../src/scene/layout']);
 const PACKAGES = /^(?:svelte|three)(?:\/|$)/;
 
 function importViolations(file: string, source: string): string[] {
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const code = uncommented(source);
   const out: string[] = [];
   const dir = file.split('/').slice(0, -1).join('/');
   const specs = [
@@ -85,26 +100,27 @@ describe('UI source hygiene', () => {
       "import TopBar from './TopBar.svelte';",
       "import { parseHash } from '../lib/route';",
       "import './styles/base.css';",
+      "// import { toView } from '../../src/core/view';",
     ].join('\n');
     expect(importViolations('components/A.svelte', allowed)).toEqual([]);
     expect(importViolations('test/a.test.ts', "import { describe } from 'vitest';")).toEqual([]);
   });
 
-  it('flags what the text rules forbid', () => {
-    const hits = (s: string) => BANNED.filter(([, re]) => re.test(s)).map(([name]) => name);
-    expect(hits('{@html title}')).toEqual(['{@html}']);
-    expect(hits('el.innerHTML = s')).toEqual(['innerHTML']);
-    expect(hits('<div style="color: red">')).toEqual(['a static style attribute']);
-    expect(hits("el.setAttribute('style', s)")).toEqual(['setAttribute("style")']);
-    expect(hits('const v = eval(s)')).toEqual(['eval']);
-    expect(hits('<div class="x" style:--sw={c}>')).toEqual([]);
-    expect(hits('el.style.setProperty("--x", v); retrieval(x); el.textContent = s')).toEqual([]);
+  it('flags what the text rules forbid and allows the rest', () => {
+    expect(textViolations('components/A.svelte', '{@html title}')).toEqual(['{@html}']);
+    expect(textViolations('lib/a.ts', 'el.innerHTML = s;')).toEqual(['innerHTML']);
+    expect(textViolations('components/A.svelte', '<div class="x"\n  style="color: red">')).toEqual(['a static style attribute']);
+    expect(textViolations('lib/a.ts', "el.setAttribute('style', s);")).toEqual(['setAttribute("style")']);
+    expect(textViolations('lib/a.ts', 'const v = eval(s);')).toEqual(['eval']);
+    expect(textViolations('lib/a.ts', "fetch('http://x/y'); el.innerHTML = s;")).toEqual(['innerHTML']);
+    expect(textViolations('components/A.svelte', '<div class="x" style:--sw={c}>')).toEqual([]);
+    expect(textViolations('lib/a.ts', "const style = 'night'; el.style.setProperty('--x', v); retrieval(x);")).toEqual([]);
+    expect(textViolations('lib/a.ts', '/** Labels use textContent, never innerHTML. */\n// no eval(), no {@html}\nlabel.textContent = s; // not innerHTML')).toEqual([]);
+    expect(textViolations('index.html', '<!-- no style="" here -->\n<p>ok</p>')).toEqual([]);
   });
 
   it('renders untrusted text as text and keeps code and style out of the markup', () => {
-    for (const [file, source] of Object.entries(SOURCES)) {
-      for (const [name, re] of BANNED) expect(re.test(source), `${file} uses ${name}`).toBe(false);
-    }
+    for (const [file, source] of Object.entries(SOURCES)) expect(textViolations(file, source), file).toEqual([]);
   });
 
   it('imports only browser-safe modules and UI packages', () => {
