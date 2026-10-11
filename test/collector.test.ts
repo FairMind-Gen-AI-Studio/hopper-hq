@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { basename } from 'node:path';
 import type { WorkspaceResolver } from '../src/adapters/git.js';
 import { Collector } from '../src/collector.js';
+import { newSession } from '../src/core/reducer.js';
 import type { RawEvent, Session } from '../src/core/types.js';
 import { Store } from '../src/store/store.js';
 
@@ -104,6 +105,8 @@ describe('Collector', () => {
       let fail = true;
       const store = {
         loadSessions: () => [],
+        loadFloors: () => new Map(),
+        recordFloors: () => {},
         appendEvent: () => {},
         saveSessions: (list: Session[]) => {
           if (fail) {
@@ -137,6 +140,51 @@ describe('Collector', () => {
     await b.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, ts: NOW }));
     expect(b.attentionSummary().done).toBe(1);
     await b.close();
+    store.close();
+  });
+});
+
+describe('floor order', () => {
+  it('keeps floors in place across a restart, even when a floor\'s oldest session ends', async () => {
+    const store = await Store.open(':memory:');
+    const a = collector({ store });
+    await a.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A1', cwd: '/w/alpha', ts: NOW }));
+    await a.ingest(hook({ type: 'prompt', text: 'b', sessionId: 'B1', cwd: '/w/beta', ts: NOW + 10 }));
+    await a.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A2', cwd: '/w/alpha', ts: NOW + 20 }));
+    await a.ingest(hook({ type: 'session.ended', reason: 'exit', sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 30 }));
+    expect(a.snapshot().floors.map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/beta', NOW + 10], ['repo:/w/alpha', NOW]]);
+    await a.close();
+
+    const b = collector({ store });
+    expect(b.snapshot().floors.map((f) => f.key)).toEqual(['repo:/w/beta', 'repo:/w/alpha']);
+    await b.ingest(hook({ type: 'prompt', text: 'c', sessionId: 'C1', cwd: '/w/gamma', ts: NOW + 40 }));
+    expect(b.snapshot().floors.map((f) => f.key)).toEqual(['repo:/w/gamma', 'repo:/w/beta', 'repo:/w/alpha']);
+    await b.close();
+    store.close();
+  });
+
+  it('opens the floor of a session that moves to a new feature branch when it moved, on top', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A1', cwd: '/w/alpha', ts: NOW }));
+    await c.ingest(hook({ type: 'prompt', text: 'b', sessionId: 'B1', cwd: '/w/beta', ts: NOW + 10 }));
+    await c.ingest(hook({ type: 'branch', branch: 'feat/late-idea', sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 50 }));
+    expect(c.snapshot().floors.map((f) => [f.key, f.openedAt])).toEqual([['feature:late-idea', NOW + 50], ['repo:/w/beta', NOW + 10]]);
+  });
+
+  it('opens each floor at its earliest live start over sessions saved before floors were recorded', async () => {
+    const store = await Store.open(':memory:');
+    const ws = (cwd: string) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
+    store.saveSessions([
+      newSession('A1', 100, ws('/w/alpha')),
+      newSession('A2', 50, ws('/w/alpha')),
+      newSession('B1', 70, ws('/w/beta')),
+      { ...newSession('A0', 10, ws('/w/alpha')), state: 'ended' },
+      { ...newSession('G1', 5, ws('/w/gamma')), state: 'ended' },
+    ], 1);
+    const c = collector({ store });
+    expect(c.snapshot().floors.map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/beta', 70], ['repo:/w/alpha', 50]]);
+    await c.close();
+    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', 50], ['repo:/w/beta', 70]]));
     store.close();
   });
 });

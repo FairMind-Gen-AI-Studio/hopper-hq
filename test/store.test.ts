@@ -31,6 +31,16 @@ describe('Store', () => {
     store.close();
   });
 
+  it('remembers when each floor was first seen, keeping the first time recorded', async () => {
+    const store = await Store.open(':memory:');
+    expect(store.loadFloors()).toEqual(new Map());
+    store.recordFloors([['feature:checkout-v2', 100], ['repo:/w/orders-api', 200]]);
+    store.recordFloors([['feature:checkout-v2', 50], ['repo:/w/search-svc', 300]]);
+    store.recordFloors([]);
+    expect(store.loadFloors()).toEqual(new Map([['feature:checkout-v2', 100], ['repo:/w/orders-api', 200], ['repo:/w/search-svc', 300]]));
+    store.close();
+  });
+
   it('keeps an ordered event log and prunes old events', async () => {
     const store = await Store.open(':memory:');
     store.appendEvent(ev('prompt', 1, { text: 'a' }));

@@ -40,6 +40,14 @@ describe('demoScript', () => {
   });
 });
 
+describe('demo floors', () => {
+  it('announces each session when it started, oldest first', () => {
+    const b = 1_000_000_000;
+    const seen = demoScript()[0]!.events(b).flatMap((e) => (e.type === 'session.seen' ? [[e.sessionId, e.ts, e.startedAt]] : []));
+    expect(seen).toEqual(DEMO_SESSIONS.map((s, i) => [s.id, b - (i + 1) * 600_000, b - (i + 1) * 600_000]).reverse());
+  });
+});
+
 describe('startDemo', () => {
   it('replays the script on a loop until stopped', async () => {
     vi.useFakeTimers();

@@ -43,8 +43,9 @@ export function demoScript(): DemoStep[] {
     {
       at: 0,
       events: (b) => [
-        ...DEMO_SESSIONS.flatMap((s, i) => [
-          at(s.id, b + i, { type: 'session.seen', workspace: s.workspace, pid: null, name: s.name, tmuxPane: s.pane, startedAt: b - (i + 1) * 600_000 }),
+        // Oldest first, each seen when it started, as the filesystem adapter reports them: floors open in that order.
+        ...DEMO_SESSIONS.map((s, i) => ({ s, i, startedAt: b - (i + 1) * 600_000 })).reverse().flatMap(({ s, i, startedAt }) => [
+          at(s.id, startedAt, { type: 'session.seen', workspace: s.workspace, pid: null, name: s.name, tmuxPane: s.pane, startedAt }),
           at(s.id, b + i, { type: 'title', title: s.title }),
           at(s.id, b + i, { type: 'prompt', text: s.prompt }),
         ]),

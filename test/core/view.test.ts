@@ -98,6 +98,31 @@ describe('floor and island keys', () => {
   });
 });
 
+describe('floor order', () => {
+  const now = 10 * H;
+  const at = (id: string, cwd: string, startedAt: number, state: SessionState = 'working') =>
+    toView({ ...sess(id, state, now - 1), startedAt, workspace: { cwd, repoRoot: cwd, repoName: cwd.split('/').pop()!, worktree: false, branch: 'main', root: cwd } }, now);
+
+  it('keeps floors where they were first seen when their oldest session ends', () => {
+    const before = [at('a1', '/w/alpha', 100), at('b1', '/w/beta', 200), at('a2', '/w/alpha', 400)];
+    const after = [at('a1', '/w/alpha', 100, 'ended'), before[1]!, before[2]!];
+    expect(buildFloors(before).map((f) => f.key)).toEqual(['repo:/w/beta', 'repo:/w/alpha']);
+    // By earliest live start alone, alpha now opened at 400 and jumps to the top.
+    expect(buildFloors(after).map((f) => f.key)).toEqual(['repo:/w/alpha', 'repo:/w/beta']);
+    const firstSeen = new Map([['repo:/w/alpha', 100], ['repo:/w/beta', 200]]);
+    expect(buildFloors(after, firstSeen).map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/beta', 200], ['repo:/w/alpha', 100]]);
+  });
+
+  it('falls back to the earliest start for a floor with no first-seen time', () => {
+    const floors = buildFloors([at('a', '/w/alpha', 100), at('c', '/w/gamma', 300)], new Map([['repo:/w/alpha', 500]]));
+    expect(floors.map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/alpha', 500], ['repo:/w/gamma', 300]]);
+  });
+
+  it('orders floors opened at the same time by key, comparing code units', () => {
+    expect(buildFloors([at('a', '/w/alpha', 100), at('z', '/w/Zeta', 100)]).map((f) => f.key)).toEqual(['repo:/w/Zeta', 'repo:/w/alpha']);
+  });
+});
+
 describe('buildAttention', () => {
   it('lists needs_you and done, longest wait first', () => {
     const now = 10 * H;

@@ -60,12 +60,18 @@ export interface Floor {
   repos: string[];
   sessions: SessionView[];
   counts: Partial<Record<SessionState, number>>;
-  /** Earliest session start on the floor; floors are ordered newest first by this. */
+  /** When the floor key was first seen, else its earliest session start; floors are ordered newest first by this. */
   openedAt: number;
   dormant: boolean;
 }
 
-export function buildFloors(views: readonly SessionView[]): Floor[] {
+/** Plain UTF-16 code-unit order: the same on every machine, whatever its locale. */
+export function byCodeUnit(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Floors, newest first. `firstSeen` holds each floor key's first-seen time, which keeps floors in place as sessions come and go. */
+export function buildFloors(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>): Floor[] {
   const map = new Map<string, Floor>();
   const dirs = new Map<string, string>();
   for (const v of views) {
@@ -93,10 +99,11 @@ export function buildFloors(views: readonly SessionView[]): Floor[] {
     f.name = `${f.name} (${basename(parent) || parent})`;
   }
   for (const f of floors) {
+    f.openedAt = firstSeen?.get(f.key) ?? f.openedAt;
     f.repos.sort();
     f.sessions.sort((a, b) => a.workspace.repoName.localeCompare(b.workspace.repoName) || a.startedAt - b.startedAt);
   }
-  return floors.sort((a, b) => b.openedAt - a.openedAt || a.key.localeCompare(b.key));
+  return floors.sort((a, b) => b.openedAt - a.openedAt || byCodeUnit(a.key, b.key));
 }
 
 export interface Attention {
