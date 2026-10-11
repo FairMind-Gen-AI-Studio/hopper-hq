@@ -4,7 +4,9 @@ import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './core/
 import { applyEvent, markSeen } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
+import { buildFloorDetail, buildScene } from './scene/build.js';
 import { cleanOrNull, cleanText, taskTitle } from './scene/text.js';
+import type { BuildingScene, FloorDetail } from './scene/types.js';
 import type { Store } from './store/store.js';
 
 export interface Snapshot {
@@ -169,20 +171,39 @@ export class Collector {
     };
   }
 
-  views(): SessionView[] {
+  /** Views of the sessions still in the building. Ended sessions are skipped before any view is derived for them. */
+  liveViews(): SessionView[] {
     const now = this.now();
     const t = this.o.thresholds ?? DEFAULT_THRESHOLDS;
     const rules = this.o.featureRules ?? DEFAULT_FEATURE_RULES;
-    return [...this.sessions.values()].map((s) => toView(s, now, t, rules));
+    const out: SessionView[] = [];
+    for (const s of this.sessions.values()) if (s.state !== 'ended') out.push(toView(s, now, t, rules));
+    return out;
+  }
+
+  /** One session's view, ended or not; null when the session is unknown. */
+  view(id: string): SessionView | null {
+    const s = this.sessions.get(id);
+    return s ? toView(s, this.now(), this.o.thresholds ?? DEFAULT_THRESHOLDS, this.o.featureRules ?? DEFAULT_FEATURE_RULES) : null;
+  }
+
+  /** The building every browser sees: façade, floor directory and attention. */
+  scene(): BuildingScene {
+    return buildScene(this.liveViews(), this.firstSeen);
+  }
+
+  /** One floor in detail, or null when no live session is on it. */
+  floor(key: string): FloorDetail | null {
+    return buildFloorDetail(this.liveViews(), key, this.firstSeen);
   }
 
   snapshot(): Snapshot {
-    const views = this.views();
+    const views = this.liveViews();
     return { generatedAt: this.now(), floors: buildFloors(views, this.firstSeen), attention: buildAttention(views) };
   }
 
   attentionSummary(): AttentionSummary {
-    const a = buildAttention(this.views());
+    const a = buildAttention(this.liveViews());
     // Feeds the band above every prompt and `status`: names, titles and reasons are cleaned like everything shown.
     const item = (v: SessionView, state: 'needs_you' | 'done'): AttentionItem => ({
       id: v.id,
@@ -206,9 +227,7 @@ export class Collector {
   /** Marks a finished session as seen. False when the session is unknown or not 'done'. */
   markSeen(id: string): boolean {
     const s = this.sessions.get(id);
-    if (!s) return false;
-    const view = toView(s, this.now(), this.o.thresholds ?? DEFAULT_THRESHOLDS, this.o.featureRules ?? DEFAULT_FEATURE_RULES);
-    if (view.effectiveState !== 'done') return false;
+    if (!s || this.view(id)?.effectiveState !== 'done') return false;
     this.sessions.set(id, markSeen(s, this.now()));
     this.changed(id);
     return true;

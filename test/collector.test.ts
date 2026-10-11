@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { basename } from 'node:path';
+import { demoScript } from '../src/adapters/demo.js';
 import type { WorkspaceResolver } from '../src/adapters/git.js';
 import { Collector } from '../src/collector.js';
 import { newSession } from '../src/core/reducer.js';
@@ -186,5 +187,55 @@ describe('floor order', () => {
     await c.close();
     expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', 50], ['repo:/w/beta', 70]]));
     store.close();
+  });
+});
+
+describe('scene', () => {
+  it('draws the demo building from ingested events, and keeps its floors in place as the demo plays', async () => {
+    const base = 1_000_000_000;
+    let now = base;
+    const c = new Collector({ resolveWorkspace: async () => { throw new Error('demo events carry their workspace'); }, now: () => now, acceptSources: ['demo'], saveDelayMs: 0 });
+    const steps = demoScript();
+    for (const e of steps[0]!.events(base)) await c.ingest(e);
+    now = base + 100;
+
+    const scene = c.scene();
+    expect(scene.floors.map((f) => [f.number, f.key, f.windows.length])).toEqual([
+      [3, 'feature:checkout-v2', 4],
+      [2, 'feature:search-ranking', 1],
+      [1, 'repo:/demo/orders-api', 2],
+    ]);
+    expect(scene.attention.needsYou.map((e) => [e.sessionId, e.floorKey, e.focusable])).toEqual([
+      ['demo-oa-c3', 'feature:checkout-v2', true],
+      ['demo-oa-g7', 'repo:/demo/orders-api', true],
+    ]);
+    expect(c.floor('feature:checkout-v2')!.islands.map((i) => [i.repo, i.desks.map((d) => d.sessionId)])).toEqual([
+      ['orders-api', ['demo-oa-c3']],
+      ['payments-svc', ['demo-ps-d4']],
+      ['storefront-web', ['demo-sw-b2', 'demo-sw-a1']],
+    ]);
+    expect(c.floor('feature:nope')).toBeNull();
+
+    const opened = scene.floors.map((f) => f.openedAt);
+    for (const step of steps.slice(1)) {
+      now = base + step.at;
+      for (const e of step.events(now)) await c.ingest(e);
+    }
+    now = base + 59_000;
+    expect(c.scene().floors.map((f) => f.openedAt)).toEqual(opened);
+    expect(c.scene().attention.needsYou.map((e) => e.sessionId)).toEqual(['demo-sw-a1']);
+  });
+
+  it('reports an ended session by id, and leaves it out of the building', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'prompt', text: 'go' }));
+    await c.ingest(hook({ type: 'prompt', text: 'go', sessionId: 'S2', cwd: '/w/search-svc' }));
+    await c.ingest(hook({ type: 'session.ended', reason: 'exit', ts: NOW + 1 }));
+    expect(c.view('S1')).toMatchObject({ id: 'S1', effectiveState: 'ended' });
+    expect(c.view('nope')).toBeNull();
+    expect(c.liveViews().map((v) => v.id)).toEqual(['S2']);
+    expect(c.scene().floors.map((f) => f.key)).toEqual(['repo:/w/search-svc']);
+    expect(c.floor('repo:/w/orders-api')).toBeNull();
+    expect(c.floor('repo:/w/search-svc')!.islands[0]!.desks.map((d) => d.sessionId)).toEqual(['S2']);
   });
 });
