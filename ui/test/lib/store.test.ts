@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { browserStoreDeps, createClientStore, type ClientState, type EventSourceLike } from '../../lib/store';
+import {
+  HIDDEN_GRACE_MS,
+  browserStoreDeps,
+  createClientStore,
+  type ClientState,
+  type EventSourceLike,
+  type PageVisibility,
+} from '../../lib/store';
 import { CHECKOUT, ORDERS, makeFloor, makeScene } from '../helpers/fixtures';
 
 /** An EventSource the test drives: open it, send it events, fail it. */
@@ -29,8 +36,28 @@ class FakeStream implements EventSourceLike {
   }
 }
 
+/** The page's visibility, as the test sets it. */
+function page(hidden = false) {
+  const listeners = new Set<() => void>();
+  const visibility: PageVisibility = {
+    hidden: () => hidden,
+    onChange(fn) {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
+  };
+  return {
+    visibility,
+    listeners,
+    set(next: boolean) {
+      hidden = next;
+      for (const fn of [...listeners]) fn();
+    },
+  };
+}
+
 /** The probe answers this status, fails with this error, or answers when the test says. */
-function setup(probeStatus: number | Error | (() => Promise<number>) = 200) {
+function setup(probeStatus: number | Error | (() => Promise<number>) = 200, visibility?: PageVisibility) {
   const streams: FakeStream[] = [];
   /** How many streams were still open each time a new one was asked for. */
   const openAtOpen: number[] = [];
@@ -45,6 +72,7 @@ function setup(probeStatus: number | Error | (() => Promise<number>) = 200) {
       return s;
     },
     probe,
+    visibility,
   });
   const states: ClientState[] = [];
   const last = () => streams[streams.length - 1]!;
@@ -284,6 +312,122 @@ describe('client store', () => {
   });
 });
 
+describe('client store on a hidden page', () => {
+  it('frees its stream once the page has been hidden for 15 seconds, and reopens it on the same floor when shown', () => {
+    const view = page();
+    const { store, streams, watch, last } = setup(200, view.visibility);
+    store.watchFloor(CHECKOUT);
+    watch();
+    last().open();
+    const scene = makeScene();
+    last().send('scene', scene);
+    view.set(true);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS - 1);
+    expect(last().readyState).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(last().readyState).toBe(2);
+    // Nobody sees the page meanwhile: it keeps what it has, with no notice to flash when it is shown again.
+    expect(store.get()).toMatchObject({ connection: 'live', scene, floorKey: CHECKOUT });
+    vi.advanceTimersByTime(60_000);
+    expect(streams).toHaveLength(1);
+    view.set(false);
+    expect(streams.map((s) => s.url)).toEqual(['/api/events?floor=feature%3Acheckout-v2', '/api/events?floor=feature%3Acheckout-v2']);
+    last().open();
+    expect(store.get().connection).toBe('live');
+  });
+
+  it('keeps its stream through a short look away', () => {
+    const view = page();
+    const { streams, watch, last } = setup(200, view.visibility);
+    watch();
+    last().open();
+    view.set(true);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS - 1000);
+    view.set(false);
+    vi.advanceTimersByTime(60_000);
+    expect(streams).toHaveLength(1);
+    expect(last().readyState).toBe(1);
+  });
+
+  it('starts counting at once on a page opened in the background', () => {
+    const view = page(true);
+    const { streams, watch, last } = setup(200, view.visibility);
+    watch();
+    expect(streams).toHaveLength(1);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS);
+    expect(last().readyState).toBe(2);
+    view.set(false);
+    expect(streams).toHaveLength(2);
+  });
+
+  it('does not retry while hidden, and tries again at once when shown', async () => {
+    const view = page();
+    const { store, streams, watch, last } = setup(503, view.visibility);
+    watch();
+    view.set(true);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS - 1000);
+    last().fail(2);
+    await settle();
+    expect(store.get().connection).toBe('retrying');
+    vi.advanceTimersByTime(60_000);
+    expect(streams).toHaveLength(1);
+    view.set(false);
+    expect(streams).toHaveLength(2);
+  });
+
+  it('lets a probe that answers while the page is hidden wait for the page to be shown', async () => {
+    let answer!: (status: number) => void;
+    const view = page();
+    const { streams, watch, last } = setup(() => new Promise((r) => (answer = r)), view.visibility);
+    watch();
+    last().fail(2);
+    view.set(true);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS);
+    answer(503);
+    await settle();
+    vi.advanceTimersByTime(60_000);
+    expect(streams).toHaveLength(1);
+    view.set(false);
+    expect(streams).toHaveLength(2);
+  });
+
+  it('opens on the floor watched while hidden only once shown', () => {
+    const view = page();
+    const { store, streams, watch } = setup(200, view.visibility);
+    watch();
+    view.set(true);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS);
+    store.watchFloor(ORDERS);
+    expect(streams).toHaveLength(1);
+    expect(store.get()).toMatchObject({ floorKey: ORDERS, floor: undefined });
+    view.set(false);
+    expect(streams.map((s) => s.url)).toEqual(['/api/events', '/api/events?floor=repo%3A%2FUsers%2Fdev%2Fcode%2Forders-api']);
+  });
+
+  it('stays signed out when shown again', async () => {
+    const view = page();
+    const { store, streams, watch, last } = setup(401, view.visibility);
+    watch();
+    last().fail(2);
+    await settle();
+    view.set(true);
+    vi.advanceTimersByTime(HIDDEN_GRACE_MS);
+    view.set(false);
+    expect(store.get().connection).toBe('signed_out');
+    expect(streams).toHaveLength(1);
+  });
+
+  it('stops listening to the page when closed', () => {
+    const view = page();
+    const { store, watch } = setup(200, view.visibility);
+    watch();
+    view.set(true);
+    store.close();
+    expect(view.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe('browser wiring', () => {
   it('wraps a real EventSource and probes GET /api/scene with the cookie', async () => {
     class StubSource extends EventTarget {
@@ -321,5 +465,21 @@ describe('browser wiring', () => {
     expect(source.closed).toBe(true);
     expect(await deps.probe()).toBe(401);
     expect(fetch).toHaveBeenCalledWith('/api/scene', { credentials: 'same-origin' });
+  });
+
+  it('reads whether the page is hidden from the document, and hears it change', () => {
+    const visibility = browserStoreDeps().visibility!;
+    const seen: boolean[] = [];
+    const stop = visibility.onChange(() => seen.push(visibility.hidden()));
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      stop();
+      document.dispatchEvent(new Event('visibilitychange'));
+    } finally {
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    }
+    expect(seen).toEqual([true]);
+    expect(visibility.hidden()).toBe(false);
   });
 });

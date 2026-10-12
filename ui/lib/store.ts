@@ -11,6 +11,10 @@
  *   retries by itself. GET /api/scene tells why: 401 means signed out, and the store stops; anything else means
  *   retrying, and the stream reopens after RETRY_MS, doubling on each failure up to RETRY_MAX_MS, and back to
  *   RETRY_MS once a stream opens.
+ *
+ * Every tab of the browser shares those six connections, and `scranton-hq ui` opens a new tab each time. So a page
+ * hidden for HIDDEN_GRACE_MS (another tab in front, the window minimised) closes its stream and stops retrying, and
+ * opens the stream again as soon as it is shown. The daemon sends the scene on connect, so the page is current at once.
  */
 import { SCENE_VERSION, type BuildingScene, type FloorDetail } from '../../src/scene/types';
 
@@ -32,10 +36,19 @@ export interface EventSourceLike {
   onopen: (() => void) | null;
 }
 
+/** Whether the page is hidden, and news of each change. */
+export interface PageVisibility {
+  hidden(): boolean;
+  /** Calls `fn` each time the page is hidden or shown; the answer stops it. */
+  onChange(fn: () => void): () => void;
+}
+
 export interface StoreDeps {
   openStream(url: string): EventSourceLike;
   /** Status of GET /api/scene. */
   probe(): Promise<number>;
+  /** Without it, the page counts as always shown. */
+  visibility?: PageVisibility;
 }
 
 export interface ClientStore {
@@ -48,6 +61,11 @@ export interface ClientStore {
 
 export const RETRY_MS = 3000;
 export const RETRY_MAX_MS = 30_000;
+/**
+ * How long a hidden page keeps its stream. A look at the terminal keeps it; a tab left behind frees its connection well
+ * within the minute a sign-in link lasts, so a new tab's sign-in never waits for one.
+ */
+export const HIDDEN_GRACE_MS = 15_000;
 const CLOSED = 2;
 
 function parse(data: string): unknown {
@@ -78,6 +96,9 @@ export function createClientStore(deps: StoreDeps): ClientStore {
   let closed = false;
   /** Failed attempts in a row: the next retry waits RETRY_MS * 2^failures, at most RETRY_MAX_MS. */
   let failures = 0;
+  /** The page has been hidden long enough: no stream and no retry until it is shown. */
+  let paused = false;
+  let hiding: ReturnType<typeof setTimeout> | null = null;
 
   function set(patch: Partial<ClientState>): void {
     const next = { ...state, ...patch };
@@ -97,6 +118,7 @@ export function createClientStore(deps: StoreDeps): ClientStore {
     stream?.close();
     stream = null;
     started = true;
+    if (paused) return;
     const key = state.floorKey;
     const es = deps.openStream('/api/events' + (key === null ? '' : '?floor=' + encodeURIComponent(key)));
     stream = es;
@@ -124,7 +146,7 @@ export function createClientStore(deps: StoreDeps): ClientStore {
       }
       es.close();
       stream = null;
-      const gaveUp = () => !closed && stream === null && retry === null;
+      const gaveUp = () => !closed && !paused && stream === null && retry === null;
       deps.probe().then(
         (status) => {
           if (!gaveUp()) return;
@@ -148,6 +170,32 @@ export function createClientStore(deps: StoreDeps): ClientStore {
     }, delay);
   }
 
+  /** The page has stayed hidden: free its connection until it is shown. What it shows stays as it is. */
+  function pause(): void {
+    hiding = null;
+    paused = true;
+    stopRetry();
+    stream?.close();
+    stream = null;
+  }
+
+  function onVisibility(): void {
+    if (closed) return;
+    if (deps.visibility!.hidden()) {
+      if (!paused && hiding === null) hiding = setTimeout(pause, HIDDEN_GRACE_MS);
+      return;
+    }
+    if (hiding !== null) clearTimeout(hiding);
+    hiding = null;
+    if (!paused) return;
+    paused = false;
+    // Signed out stays signed out: only a new sign-in link helps.
+    if (started && state.connection !== 'signed_out') open();
+  }
+
+  const stopWatching = deps.visibility?.onChange(onVisibility);
+  if (deps.visibility) onVisibility();
+
   return {
     subscribe(run) {
       subscribers.add(run);
@@ -164,6 +212,9 @@ export function createClientStore(deps: StoreDeps): ClientStore {
     close() {
       closed = true;
       stopRetry();
+      if (hiding !== null) clearTimeout(hiding);
+      hiding = null;
+      stopWatching?.();
       stream?.close();
       stream = null;
       subscribers.clear();
@@ -196,10 +247,17 @@ class BrowserStream implements EventSourceLike {
   }
 }
 
-/** The real browser: an EventSource, and a probe of GET /api/scene. */
+/** The real browser: an EventSource, a probe of GET /api/scene, and the document's visibility. */
 export function browserStoreDeps(): StoreDeps {
   return {
     openStream: (url) => new BrowserStream(url),
     probe: () => fetch('/api/scene', { credentials: 'same-origin' }).then((r) => r.status),
+    visibility: {
+      hidden: () => document.visibilityState === 'hidden',
+      onChange(fn) {
+        document.addEventListener('visibilitychange', fn);
+        return () => document.removeEventListener('visibilitychange', fn);
+      },
+    },
   };
 }
