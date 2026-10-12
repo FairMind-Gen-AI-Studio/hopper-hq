@@ -135,6 +135,26 @@ function importViolations(file: string, source: string): string[] {
   return out;
 }
 
+/**
+ * The 3D renderer, three.js included, is most of the UI's code, and loads only when a floor opens (lib/renderer.ts).
+ * Outside renderer/, a file the page ships may name it as a type, which leaves no import behind; only lib/renderer.ts
+ * loads it, with a dynamic import. Tests are not shipped.
+ */
+function splitViolations(file: string, source: string): string[] {
+  if (file.startsWith('renderer/') || file.startsWith('test/')) return [];
+  const { code } = read(file, source);
+  const dir = file.split('/').slice(0, -1).join('/');
+  const intoRenderer = (spec: string) => spec.startsWith('.') && normalize(dir + '/' + spec).startsWith('renderer/');
+  const out: string[] = [];
+  for (const m of code.matchAll(/\b(?:import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s*)?['"]([^'"]+)['"]/g)) {
+    if (!m[1] && intoRenderer(m[2]!)) out.push(`${m[2]}: loads the renderer with the page; name it as a type, or load it through lib/renderer.ts`);
+  }
+  for (const m of code.matchAll(/\bimport\s*\(\s*['"`]([^'"`]+)['"`]/g)) {
+    if (intoRenderer(m[1]!) && file !== 'lib/renderer.ts') out.push(`${m[1]}: only lib/renderer.ts loads the renderer`);
+  }
+  return out;
+}
+
 /** A component with this script and markup. */
 const svelte = (markup: string, script = '') => `<script lang="ts">\n${script}\n</script>\n\n${markup}\n`;
 
@@ -215,6 +235,28 @@ describe('UI source hygiene', () => {
     for (const [file, source] of Object.entries(SOURCES)) {
       if (/\.(?:ts|js|svelte)$/.test(file)) expect(importViolations(file, source), file).toEqual([]);
     }
+  });
+
+  it('flags what the renderer split forbids and allows the rest', () => {
+    expect(splitViolations('components/A.svelte', svelte('<p>x</p>', "import { WebGLUnavailableError } from '../renderer/index';"))).toHaveLength(1);
+    expect(splitViolations('lib/a.ts', "import { mountFloorView } from '../renderer/index';")).toHaveLength(1);
+    expect(splitViolations('lib/a.ts', "export * from '../renderer/view';")).toHaveLength(1);
+    expect(splitViolations('lib/a.ts', "import { type FloorView } from '../renderer/index';")).toHaveLength(1);
+    expect(splitViolations('main.ts', "import './renderer/labels.css';")).toHaveLength(1);
+    expect(splitViolations('lib/a.ts', "const r = await import('../renderer/index');")).toHaveLength(1);
+    expect(splitViolations('components/A.svelte', svelte('<p>x</p>', 'const load = () => import(`../renderer/index`);'))).toHaveLength(1);
+    // Allowed: a type, the loader, the renderer's own files, and tests.
+    expect(splitViolations('lib/renderer.ts', "import type * as R from '../renderer/index';\nexport const load = () => import('../renderer/index');")).toEqual([]);
+    expect(splitViolations('components/A.svelte', svelte('<p>x</p>', "import type { FloorView } from '../renderer/index';\nimport { cleanText } from '../../src/scene/text';"))).toEqual([]);
+    expect(splitViolations('renderer/view.ts', "import { LabelLayer } from './labels';")).toEqual([]);
+    expect(splitViolations('test/a.test.ts', "import { WebGLUnavailableError } from '../renderer/index';")).toEqual([]);
+  });
+
+  it('loads the 3D renderer only when a floor opens: a type elsewhere, and imported by lib/renderer.ts alone', () => {
+    for (const [file, source] of Object.entries(SOURCES)) {
+      if (/\.(?:ts|js|svelte)$/.test(file)) expect(splitViolations(file, source), file).toEqual([]);
+    }
+    expect(read('lib/renderer.ts', SOURCES['lib/renderer.ts']!).code).toMatch(/\bimport\(\s*['"]\.\.\/renderer\/index['"]\s*\)/);
   });
 
   it('loads every script of the page from a file', () => {
