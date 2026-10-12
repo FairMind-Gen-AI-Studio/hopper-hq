@@ -120,17 +120,34 @@
     saveTheme(storage, theme);
   }
 
-  /** Switches tmux to the session's pane. The demo only says what it would do. */
-  async function focus(sessionId: string): Promise<void> {
-    const result = await api.focusSession(sessionId);
-    if (result.ok) toasts.show(result.simulated ? `Demo: would switch tmux to ${result.pane}` : `Switched tmux to ${result.pane}`);
-    else toasts.show(result.error, 'error');
+  /** Go and Mark as seen requests still out, by action and session: a second click meanwhile sends nothing. */
+  const pending = new Set<string>();
+
+  async function once(key: string, request: () => Promise<void>): Promise<void> {
+    if (pending.has(key)) return;
+    pending.add(key);
+    try {
+      await request();
+    } finally {
+      pending.delete(key);
+    }
   }
 
-  async function seen(sessionId: string): Promise<void> {
-    let signedOut = false;
-    if (await api.markSeen(sessionId, undefined, () => (signedOut = true))) toasts.show('Marked as seen.');
-    else toasts.show(signedOut ? SIGNED_OUT : 'It is no longer waiting for review.', 'error');
+  /** Switches tmux to the session's pane. The demo only says what it would do. */
+  function focus(sessionId: string): Promise<void> {
+    return once(`focus ${sessionId}`, async () => {
+      const result = await api.focusSession(sessionId);
+      if (result.ok) toasts.show(result.simulated ? `Demo: would switch tmux to ${result.pane}` : `Switched tmux to ${result.pane}`);
+      else toasts.show(result.error, 'error');
+    });
+  }
+
+  function seen(sessionId: string): Promise<void> {
+    return once(`seen ${sessionId}`, async () => {
+      let signedOut = false;
+      if (await api.markSeen(sessionId, undefined, () => (signedOut = true))) toasts.show('Marked as seen.');
+      else toasts.show(signedOut ? SIGNED_OUT : 'It is no longer waiting for review.', 'error');
+    });
   }
 
   function openEntry(entry: AttentionEntry): void {

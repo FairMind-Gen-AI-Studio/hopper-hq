@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import App from '../App.svelte';
+import type { FocusResult } from '../lib/api';
 import { THEME_KEY } from '../lib/theme';
 import { toHash, type Route } from '../lib/route';
 import { WebGLUnavailableError } from '../renderer/index';
@@ -297,6 +298,25 @@ describe('App shell', () => {
     const toasts = [...target.querySelectorAll('.toast')];
     expect(toasts.map((t) => text(t.querySelector('span')))).toEqual(['Signed out: run scranton-hq ui again', 'Signed out: run scranton-hq ui again']);
     expect(toasts.every((t) => t.classList.contains('error'))).toBe(true);
+  });
+
+  it('sends one Go and one Mark as seen per session while the first is still out', async () => {
+    const answers: Array<() => void> = [];
+    const focusSession = vi.fn((_id: string) => new Promise<FocusResult>((r) => answers.push(() => r({ ok: true, pane: '%5', simulated: true }))));
+    const markSeen = vi.fn((_id: string) => new Promise<boolean>((r) => answers.push(() => r(true))));
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target } = app(undefined, { api: { focusSession, markSeen } });
+    const go = target.querySelector('aside .actions button.primary');
+    const seen = [...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen');
+    for (const button of [go, go, seen, seen, target.querySelector('.attention button.go')]) click(button);
+    expect(focusSession.mock.calls.map(([id]) => id)).toEqual(['sw-b2', 'oa-c3']);
+    expect(markSeen).toHaveBeenCalledTimes(1);
+    for (const answer of answers.splice(0)) answer();
+    await settle();
+    click(go);
+    click(seen);
+    expect(focusSession).toHaveBeenCalledTimes(3);
+    expect(markSeen).toHaveBeenCalledTimes(2);
   });
 
   it('switches tmux from the desk panel', async () => {
