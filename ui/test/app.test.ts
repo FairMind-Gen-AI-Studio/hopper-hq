@@ -155,6 +155,20 @@ describe('App shell', () => {
     expect(store.closed).toBe(true);
   });
 
+  it('lets go of its stream when the page is hidden, and starts afresh when it comes back from the cache', () => {
+    const { store } = app();
+    const reload = vi.spyOn(location, 'reload').mockImplementation(() => {});
+    // happy-dom's PageTransitionEvent is a plain Event: give it `persisted` by hand.
+    const page = (type: string, persisted: boolean) => Object.defineProperty(new Event(type), 'persisted', { value: persisted });
+    window.dispatchEvent(page('pagehide', true));
+    expect(store.closed).toBe(true);
+    window.dispatchEvent(page('pageshow', false));
+    expect(reload).not.toHaveBeenCalled();
+    window.dispatchEvent(page('pageshow', true));
+    expect(reload).toHaveBeenCalledTimes(1);
+    reload.mockRestore();
+  });
+
   it('opens the desk of an attention chip', () => {
     const { target, store, crumbs } = app();
     click([...target.querySelectorAll('.attention button.open')].find((b) => b.querySelector('.who')?.textContent === 'orders-api-g7'));

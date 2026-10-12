@@ -31,9 +31,12 @@ class FakeStream implements EventSourceLike {
 
 function setup(probeStatus: number | Error = 200) {
   const streams: FakeStream[] = [];
+  /** How many streams were still open each time a new one was asked for. */
+  const openAtOpen: number[] = [];
   const probe = vi.fn(() => (probeStatus instanceof Error ? Promise.reject(probeStatus) : Promise.resolve(probeStatus)));
   const store = createClientStore({
     openStream: (url) => {
+      openAtOpen.push(streams.filter((s) => s.readyState !== 2).length);
       const s = new FakeStream(url);
       streams.push(s);
       return s;
@@ -42,7 +45,7 @@ function setup(probeStatus: number | Error = 200) {
   });
   const states: ClientState[] = [];
   const last = () => streams[streams.length - 1]!;
-  return { store, streams, probe, states, last, watch: () => store.subscribe((s) => states.push(s)) };
+  return { store, streams, probe, states, last, openAtOpen, watch: () => store.subscribe((s) => states.push(s)) };
 }
 
 /** Lets the probe's answer arrive, without moving the clock. */
@@ -178,6 +181,51 @@ describe('client store', () => {
     expect(streams[0]!.readyState).toBe(2);
     last().open();
     expect(store.get().connection).toBe('live');
+  });
+
+  it('backs off from 3 to 30 seconds while the daemon keeps refusing, and starts again from 3 once a stream opens', async () => {
+    const { store, streams, watch, last } = setup(503);
+    watch();
+    const waits: number[] = [];
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const before = streams.length;
+      last().fail(2);
+      await settle();
+      expect(store.get().connection).toBe('retrying');
+      let waited = 0;
+      while (streams.length === before) {
+        vi.advanceTimersByTime(1000);
+        waited += 1000;
+      }
+      waits.push(waited);
+    }
+    expect(waits).toEqual([3000, 6000, 12000, 24000, 30000, 30000]);
+    last().open();
+    expect(store.get().connection).toBe('live');
+    last().fail(2);
+    await settle();
+    vi.advanceTimersByTime(2999);
+    expect(streams).toHaveLength(7);
+    vi.advanceTimersByTime(1);
+    expect(streams).toHaveLength(8);
+  });
+
+  it('never holds two streams open at once, whatever the page does', async () => {
+    const { store, streams, watch, last, openAtOpen } = setup(503);
+    watch();
+    last().open();
+    store.watchFloor(CHECKOUT);
+    store.watchFloor(ORDERS);
+    last().fail(2);
+    await settle();
+    store.watchFloor(null);
+    vi.advanceTimersByTime(60_000);
+    last().fail(0);
+    store.watchFloor(CHECKOUT);
+    expect(streams).toHaveLength(5);
+    expect(openAtOpen).toEqual([0, 0, 0, 0, 0]);
+    store.close();
+    expect(streams.every((s) => s.readyState === 2)).toBe(true);
   });
 
   it('retries when the daemon cannot even be probed', async () => {

@@ -96,6 +96,15 @@
     else if (route.floor !== null) navigate({ floor: null, desk: null });
   }
 
+  /** Leaving the page frees its connection at once. A page the browser brings back from its back-forward cache starts afresh. */
+  function onPageHide(): void {
+    store.close();
+  }
+
+  function onPageShow(e: PageTransitionEvent): void {
+    if (e.persisted) location.reload();
+  }
+
   function toggleTheme(): void {
     theme = nextTheme(theme);
     saveTheme(storage, theme);
@@ -113,7 +122,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} />
+<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} />
 
 <div class="app">
   <TopBar

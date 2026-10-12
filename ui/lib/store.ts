@@ -3,11 +3,14 @@
  * GET /api/events. Implements the Svelte store contract without importing Svelte (outline §2.12).
  *
  * The stream opens on the first subscriber or the first watched floor, whichever comes first, and reopens with
- * ?floor= when the watched floor changes. When it fails:
+ * ?floor= when the watched floor changes. A page holds one stream at most: the old one is closed before a new one
+ * opens (a browser allows about six connections per host, and each EventSource keeps one). When the stream fails:
  * - while the browser reconnects by itself (readyState CONNECTING: the daemon stopped or restarted), the page shows
  *   retrying until the stream opens again;
- * - when the browser gives up (CLOSED), GET /api/scene tells why: 401 means signed out, and the store stops; anything
- *   else means retrying, and the stream reopens after RETRY_MS.
+ * - when the browser gives up (CLOSED: an answer other than 200, such as 401 or 503 at the client limit), it never
+ *   retries by itself. GET /api/scene tells why: 401 means signed out, and the store stops; anything else means
+ *   retrying, and the stream reopens after RETRY_MS, doubling on each failure up to RETRY_MAX_MS, and back to
+ *   RETRY_MS once a stream opens.
  */
 import { SCENE_VERSION, type BuildingScene, type FloorDetail } from '../../src/scene/types';
 
@@ -44,6 +47,7 @@ export interface ClientStore {
 }
 
 export const RETRY_MS = 3000;
+export const RETRY_MAX_MS = 30_000;
 const CLOSED = 2;
 
 function parse(data: string): unknown {
@@ -72,6 +76,8 @@ export function createClientStore(deps: StoreDeps): ClientStore {
   let retry: ReturnType<typeof setTimeout> | null = null;
   let started = false;
   let closed = false;
+  /** Failed attempts in a row: the next retry waits RETRY_MS * 2^failures, at most RETRY_MAX_MS. */
+  let failures = 0;
 
   function set(patch: Partial<ClientState>): void {
     const next = { ...state, ...patch };
@@ -87,14 +93,18 @@ export function createClientStore(deps: StoreDeps): ClientStore {
 
   function open(): void {
     stopRetry();
+    // Close first: two streams must never hold two of the browser's connections at once.
     stream?.close();
+    stream = null;
     started = true;
     const key = state.floorKey;
     const es = deps.openStream('/api/events' + (key === null ? '' : '?floor=' + encodeURIComponent(key)));
     stream = es;
     const current = () => !closed && stream === es;
     es.onopen = () => {
-      if (current()) set({ connection: 'live' });
+      if (!current()) return;
+      failures = 0;
+      set({ connection: 'live' });
     };
     es.addEventListener('scene', (e) => {
       const scene = parse(e.data);
@@ -130,10 +140,12 @@ export function createClientStore(deps: StoreDeps): ClientStore {
 
   function scheduleRetry(): void {
     set({ connection: 'retrying' });
+    const delay = Math.min(RETRY_MAX_MS, RETRY_MS * 2 ** failures);
+    failures++;
     retry = setTimeout(() => {
       retry = null;
       if (!closed) open();
-    }, RETRY_MS);
+    }, delay);
   }
 
   return {
