@@ -79,10 +79,11 @@ export function reasonOf(v: SessionView): SceneReason | null {
   };
 }
 
-/** The tool still running, else the last action. */
+/** The tool still running, else the last action. A session that needs you has not run its open tool yet: it waits for you. */
 function activityOf(v: SessionView): DeskActivity | null {
-  const running = v.openTool && cleanOrNull(v.openTool.label);
-  if (v.openTool && running) return { label: running, since: v.openTool.startedAt, running: true };
+  const open = v.effectiveState === 'working' || v.effectiveState === 'no_signal' ? v.openTool : null;
+  const running = open && cleanOrNull(open.label);
+  if (open && running) return { label: running, since: open.startedAt, running: true };
   const last = cleanOrNull(v.lastAction);
   return last ? { label: last, since: v.lastActionAt ?? v.stateSince, running: false } : null;
 }

@@ -156,6 +156,18 @@ describe('desks', () => {
     ]);
   });
 
+  it('reports the tool a desk waits on as its last action, not as running', () => {
+    const pending = { openTool: { id: 't1', label: 'Bash: rm -rf dist', startedAt: NOW - 2 * MIN }, lastAction: 'Bash: rm -rf dist', lastActionAt: NOW - 2 * MIN };
+    const desks = buildFloorDetail([
+      view('a', ws('/w/api', 'main'), 'needs_you', { ...pending, waitReason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' } }),
+      view('b', ws('/w/api', 'main'), 'working', pending),
+    ], 'repo:/w/api')!.islands[0]!.desks;
+    expect(desks.map((d) => [d.sessionId, d.activity])).toEqual([
+      ['a', { label: 'Bash: rm -rf dist', since: NOW - 2 * MIN, running: false }],
+      ['b', { label: 'Bash: rm -rf dist', since: NOW - 2 * MIN, running: true }],
+    ]);
+  });
+
   it('names a desk after its session, else after its repo and the start of its id', () => {
     const entry = buildScene([view('7f3a9c2e-0001', ws('/w/api', 'main'), 'done', { name: null, lastPrompt: 'Fix the login', firstPrompt: 'Start' })]).attention.done[0]!;
     expect(entry).toMatchObject({ name: 'api-7f3a', repo: 'api', title: 'Fix the login' });
@@ -228,6 +240,7 @@ describe('untrusted text', () => {
       waitAgentId: 'ag\u0007',
       children: [child('ag\u0007', 'Ex\u0000plore')],
       openTool: { id: 't', label: 'Bash: \u001b[31mls', startedAt: NOW - MIN },
+      lastAction: 'Bash: \u001b[31mls',
     });
     const out = render([hostile]);
     for (const s of strings(out)) expect(s).not.toMatch(UNSAFE);

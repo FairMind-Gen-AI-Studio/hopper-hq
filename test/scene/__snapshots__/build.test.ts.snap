@@ -24,7 +24,7 @@ exports[`the demo building > matches the snapshot 1`] = `
             {
               "activity": {
                 "label": "Bash: rm -rf dist && npm run build",
-                "running": true,
+                "running": false,
                 "since": 1791709200023,
               },
               "agentsRunning": 0,
