@@ -100,11 +100,17 @@ export class FloorScene {
     this.placeRing();
   }
 
-  /** Cuts away the walls that face a camera at this azimuth. */
-  setAzimuth(azimuth: number): void {
+  /** Cuts away the walls that face a camera at this azimuth. Returns true when a wall came or went. */
+  setAzimuth(azimuth: number): boolean {
     this.azimuth = azimuth;
     const shown = visibleWalls(azimuth);
-    for (const wall of this.shellPart?.walls ?? []) wall.group.visible = shown[wall.side];
+    let changed = false;
+    for (const wall of this.shellPart?.walls ?? []) {
+      if (wall.group.visible === shown[wall.side]) continue;
+      wall.group.visible = shown[wall.side];
+      changed = true;
+    }
+    return changed;
   }
 
   /** Where the camera looks when it pans to a desk: its robot, or the chair of an empty desk. */

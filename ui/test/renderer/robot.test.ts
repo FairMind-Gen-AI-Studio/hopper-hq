@@ -40,6 +40,16 @@ describe('robots', () => {
     expect([obj.body, obj.tie, plain.tie]).toEqual([5, 3, null]);
   });
 
+  it('lets only its larger parts cast shadows: legs, torso, arms, head and the paper', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'holding', badge: 'done', body: 2, tie: 3 }, geo, mats);
+    const casters = obj.pickables.filter((m) => m.castShadow);
+    expect(casters).toHaveLength(7);
+    expect(casters.filter((m) => m.material === mats.body(2))).toHaveLength(1);
+    expect(casters).toContain(obj.rig.paper);
+    for (const m of casters) expect([mats.joint(2), mats.surface.visor, mats.surface.monitor, mats.tie(3)]).not.toContain(m.material);
+  });
+
   it('can be picked by any of its parts', () => {
     const { geo, mats } = kit();
     const obj = buildRobot('s1', { pose: 'waving', badge: 'needs', body: 0, tie: null }, geo, mats);

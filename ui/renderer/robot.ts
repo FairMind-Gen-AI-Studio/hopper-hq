@@ -68,8 +68,13 @@ export interface RobotObject {
   readonly pickables: readonly Mesh[];
 }
 
+/**
+ * Only the legs, the torso, the arms, the head and the paper cast shadows: joints, face, visor and tie would cost a
+ * draw each for a texel or two of shadow.
+ */
 export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mats: Materials): RobotObject {
   const s = mats.surface;
+  const small = { cast: false };
   const body = mats.body(robot.body);
   const joint = mats.joint(robot.body);
   const tie = mats.tie(robot.tie);
@@ -90,23 +95,23 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
 
   for (const leg of [legL, legR]) {
     part(leg, geo.rod(0.04, 0.04, BOT.hip), s.shell, 0, -BOT.hip / 2, 0);
-    part(leg, geo.rbox(0.12, 0.07, 0.18, 0.03), joint, 0, -BOT.hip + 0.035, 0.03);
+    part(leg, geo.rbox(0.12, 0.07, 0.18, 0.03), joint, 0, -BOT.hip + 0.035, 0.03, small);
   }
   part(waist, geo.rbox(0.36, BOT.torso, 0.24, 0.05), body, 0, BOT.torso / 2, 0);
   for (const arm of [armL, armR]) {
-    part(arm, geo.ball(0.055), s.shell, 0, 0, 0);
+    part(arm, geo.ball(0.055), s.shell, 0, 0, 0, small);
     part(arm, geo.rod(0.032, 0.032, BOT.arm), s.shell, 0, -BOT.arm / 2, 0);
-    part(arm, geo.ball(0.05), joint, 0, -BOT.arm, 0);
+    part(arm, geo.ball(0.05), joint, 0, -BOT.arm, 0, small);
   }
   // Monitor head: shell, dark face, glowing visor bar.
-  part(neck, geo.rod(0.04, 0.04, 0.07), s.shell, 0, 0.03, 0);
+  part(neck, geo.rod(0.04, 0.04, 0.07), s.shell, 0, 0.03, 0, small);
   part(neck, geo.rbox(0.38, 0.28, 0.26, 0.04), s.shell, 0, 0.2, 0);
-  part(neck, geo.rbox(0.31, 0.2, 0.02, 0.008), s.monitor, 0, 0.2, 0.125);
-  part(neck, geo.box(0.18, 0.035, 0.012), s.visor, 0, 0.21, 0.137);
+  part(neck, geo.rbox(0.31, 0.2, 0.02, 0.008), s.monitor, 0, 0.2, 0.125, small);
+  part(neck, geo.box(0.18, 0.035, 0.012), s.visor, 0, 0.21, 0.137, small);
   // The tie: a knot and a tapered blade, in the feature colour.
   const knotY = BOT.torso - 0.05;
-  part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125);
-  part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08 });
+  part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
+  part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08, cast: false });
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
 
   const pickables: Mesh[] = [];

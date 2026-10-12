@@ -12,8 +12,10 @@ const H = 500;
 
 /** A renderer that records what it is asked to do. */
 class FakeRenderer implements RendererLike {
-  shadowMap = { enabled: false, type: 0 as RendererLike['shadowMap']['type'] };
+  shadowMap = { enabled: false, type: 0 as RendererLike['shadowMap']['type'], autoUpdate: true, needsUpdate: false };
   renders = 0;
+  /** Frames that drew the shadow map too, as three decides it. */
+  shadowDraws = 0;
   sizes: Array<[number, number]> = [];
   disposed = 0;
   contextLost = 0;
@@ -25,6 +27,8 @@ class FakeRenderer implements RendererLike {
   }
   setClearColor(): void {}
   render(scene: Object3D, camera: Camera): void {
+    if (this.shadowMap.enabled && (this.shadowMap.autoUpdate || this.shadowMap.needsUpdate)) this.shadowDraws++;
+    this.shadowMap.needsUpdate = false;
     this.renders++;
     this.scene = scene;
     this.camera = camera;
@@ -506,6 +510,27 @@ describe('the floor view', () => {
     expect(turned.azimuth).not.toBeCloseTo(panned.azimuth, 2);
     expect(turned.target.x).toBeCloseTo(panned.target.x, 6);
     expect(turned.target.z).toBeCloseTo(panned.target.z, 6);
+  });
+
+  it('draws the shadows again only when they can change: a floor, a theme, a wall that comes or goes', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    env.flush();
+    expect(renderer.shadowMap.autoUpdate).toBe(false);
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(renderer.shadowDraws).toBe(1);
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true, cancelable: true }));
+    drag(canvas, 80, 40, 2);
+    view.select('oa-c3', { pan: true });
+    env.flush();
+    expect(renderer.renders).toBeGreaterThan(3);
+    expect(renderer.shadowDraws).toBe(1);
+    view.setTheme(dayTheme(true));
+    env.flush();
+    expect(renderer.shadowDraws).toBe(2);
+    view.rotate(1);
+    env.flush();
+    expect(renderer.shadowDraws).toBe(3);
   });
 
   it('draws nothing while the page is hidden, and draws once when it shows again', () => {

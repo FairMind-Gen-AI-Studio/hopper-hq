@@ -223,24 +223,28 @@ export interface DeskObject {
   readonly pickables: readonly Mesh[];
 }
 
-/** One desk: top, legs, monitor and screen, keyboard and chair. The monitor faces the chair, to the south. */
+/**
+ * One desk: top, legs, monitor and screen, keyboard and chair. The monitor faces the chair, to the south. Only the
+ * top, the monitor and the chair cast shadows: the thin parts would cost a draw each for a texel or two of shadow.
+ */
 export function buildDesk(desk: Desk, geo: Geometries, mats: Materials): DeskObject {
   const s = mats.surface;
+  const thin = { cast: false };
   const group = new Group();
   group.name = `desk ${desk.sessionId}`;
   const top = part(group, geo.rbox(1.6, 0.07, 0.8, 0.02), s.desk, 0, 0.74, 0);
   for (const [lx, lz] of [[-0.74, -0.34], [0.74, -0.34], [-0.74, 0.34], [0.74, 0.34]] as const) {
-    part(group, geo.box(0.05, 0.72, 0.05), s.leg, lx, 0.36, lz);
+    part(group, geo.box(0.05, 0.72, 0.05), s.leg, lx, 0.36, lz, thin);
   }
-  part(group, geo.box(0.25, 0.02, 0.16), s.leg, 0, 0.785, -0.22);
-  part(group, geo.box(0.05, 0.28, 0.05), s.leg, 0, 0.92, -0.24);
+  part(group, geo.box(0.25, 0.02, 0.16), s.leg, 0, 0.785, -0.22, thin);
+  part(group, geo.box(0.05, 0.28, 0.05), s.leg, 0, 0.92, -0.24, thin);
   const monitor = part(group, geo.rbox(0.74, 0.46, 0.05, 0.02), s.monitor, 0, 1.15, -0.24);
-  const screen = part(group, geo.plane(0.66, 0.38), mats.screen(desk.state), 0, 1.15, -0.212, { cast: false });
-  part(group, geo.box(0.46, 0.02, 0.15), s.key, 0, 0.785, 0.26, { cast: false });
+  const screen = part(group, geo.plane(0.66, 0.38), mats.screen(desk.state), 0, 1.15, -0.212, thin);
+  part(group, geo.box(0.46, 0.02, 0.15), s.key, 0, 0.785, 0.26, thin);
   const seat = part(group, geo.rbox(0.5, 0.08, 0.5, 0.03), s.chair, 0, 0.45, 0.78);
   const back = part(group, geo.rbox(0.5, 0.5, 0.07, 0.03), s.chair, 0, 0.75, 1.03);
-  part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, 0.78);
-  part(group, geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, 0.78);
+  part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, 0.78, thin);
+  part(group, geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, 0.78, thin);
   const pickables = [top, monitor, screen, seat, back];
   const pick: PickData = { sessionId: desk.sessionId };
   for (const m of pickables) m.userData.pick = pick;

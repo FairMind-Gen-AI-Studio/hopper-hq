@@ -135,7 +135,8 @@ describe('the floor scene', () => {
     const fs = sceneOf();
     const shown = () => Object.fromEntries(fs.shell!.walls.map((w) => [w.side, w.group.visible]));
     expect(shown()).toEqual({ north: true, east: false, south: false, west: true });
-    fs.setAzimuth(HOME_AZIMUTH + Math.PI);
+    expect(fs.setAzimuth(HOME_AZIMUTH + 0.2)).toBe(false);
+    expect(fs.setAzimuth(HOME_AZIMUTH + Math.PI)).toBe(true);
     expect(shown()).toEqual({ north: false, east: true, south: true, west: false });
     const grown = checkoutIslands();
     grown[0]!.desks.push({ id: 'sw-z1', state: 'idle' });

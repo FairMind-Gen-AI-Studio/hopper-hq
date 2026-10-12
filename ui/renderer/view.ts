@@ -4,7 +4,8 @@
  * drive it with stand-ins; mountFloorView passes the real WebGLRenderer.
  *
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
- * and while the controls settle or a tween runs. Nothing is drawn while the page is hidden.
+ * and while the controls settle or a tween runs. Nothing is drawn while the page is hidden. The shadow map is drawn
+ * only when the shadows can change: a new floor, a new theme, or a wall that comes or goes as the camera turns.
  */
 import { OrthographicCamera, PCFShadowMap, type Camera, type Object3D, type ShadowMapType } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -20,7 +21,8 @@ import { POLAR, azimuthOf, cameraOffset, frustumFor, type Point } from './world'
 
 /** What the view needs of a three.js WebGLRenderer. */
 export interface RendererLike {
-  shadowMap: { enabled: boolean; type: ShadowMapType };
+  /** The view draws the shadow map only when the shadows can change: needsUpdate, with autoUpdate off. */
+  shadowMap: { enabled: boolean; type: ShadowMapType; autoUpdate: boolean; needsUpdate: boolean };
   setPixelRatio(ratio: number): void;
   setSize(width: number, height: number, updateStyle?: boolean): void;
   setClearColor(color: number, alpha?: number): void;
@@ -94,6 +96,7 @@ export function createFloorView(
   controls.enableDamping = !theme.reducedMotion;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = PCFShadowMap;
+  renderer.shadowMap.autoUpdate = false;
   renderer.setClearColor(0x000000, 0);
 
   const listeners = { select: new Set<Listener>(), activate: new Set<Listener>() };
@@ -201,7 +204,7 @@ export function createFloorView(
       else again = true;
     }
     if (controls.update()) again = true;
-    world.setAzimuth(pose().azimuth);
+    if (world.setAzimuth(pose().azimuth)) renderer.shadowMap.needsUpdate = true;
     renderer.render(world.scene, camera);
     labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
     labels.position(camera, width, height);
@@ -380,6 +383,7 @@ export function createFloorView(
       labels.sync(floor);
       world.setSelected(selected);
       labels.setSelected(selected);
+      renderer.shadowMap.needsUpdate = true;
       const spot = panPending === null ? null : world.focusPoint(panPending);
       if (spot) {
         panPending = null;
@@ -391,6 +395,7 @@ export function createFloorView(
       reduced = next.reducedMotion;
       controls.enableDamping = !reduced;
       world.setTheme(next);
+      renderer.shadowMap.needsUpdate = true;
       request();
     },
     select(sessionId: string | null, opts?: { pan?: boolean }) {

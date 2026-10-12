@@ -168,6 +168,14 @@ describe('desks', () => {
     expect(obj.top.material).toBe(mats.surface.deskOff);
   });
 
+  it('lets only the top, the monitor and the chair cast shadows', () => {
+    const { geo, mats } = kit();
+    const obj = buildDesk(desksOf(checkoutFloor())[0]!, geo, mats);
+    const casters = meshes(obj.group).filter((m) => m.castShadow);
+    expect(casters).toHaveLength(4);
+    for (const m of casters) expect(obj.pickables.includes(m) && m !== obj.screen).toBe(true);
+  });
+
   it('shares geometries between desks', () => {
     const { geo, mats } = kit();
     const [a, b] = desksOf(checkoutFloor());
