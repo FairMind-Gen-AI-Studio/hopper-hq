@@ -44,6 +44,17 @@ describe('security headers', () => {
     }
   });
 
+  it('come with the answers of the browser routes', async () => {
+    const replies = [
+      await call(port, { path: '/ui/' }),
+      await call(port, { path: '/ui/assets/index-abc.js' }),
+      await call(port, { path: '/ui/login?code=nope' }),
+      await call(port, { path: '/' }),
+    ];
+    expect(replies.map((r) => r.status)).toEqual([503, 404, 401, 302]);
+    for (const r of replies) expectSecurityHeaders(r.headers);
+  });
+
   it('come with the answer of a failing handler', async () => {
     const spy = vi.spyOn(collector, 'snapshot').mockImplementation(() => {
       throw new Error('boom');

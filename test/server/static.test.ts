@@ -24,6 +24,9 @@ async function fixture(): Promise<string> {
   await writeFile(join(dir, 'assets', 'stray.html'), '<!doctype html><script src="/ui/assets/index-abc.js"></script>');
   await writeFile(join(dir, 'secret.txt'), 'outside assets\n');
   await symlink(join(dir, 'secret.txt'), join(dir, 'assets', 'linked.txt'));
+  await mkdir(join(dir, 'outside'));
+  await writeFile(join(dir, 'outside', 'evil.js'), 'alert(1);\n');
+  await symlink(join(dir, 'outside'), join(dir, 'assets', 'linked-dir'));
   return dir;
 }
 
@@ -116,6 +119,7 @@ describe('serving the UI', () => {
       '/ui/assets/notes.md',
       '/ui/assets/stray.html',
       '/ui/assets/linked.txt',
+      '/ui/assets/linked-dir/evil.js',
       '/ui/assets/missing.js',
       '/ui/assets/%E0%A4%A',
       '/ui/secret.txt',

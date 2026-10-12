@@ -48,6 +48,13 @@ describe('browser sign-in', () => {
     expect(again.headers['set-cookie']).toBeUndefined();
   });
 
+  it('lets no HEAD request spend a code', async () => {
+    const minted = await call(port, { method: 'POST', path: '/api/ui/login-code', headers: bearer(TOKEN) });
+    const url = new URL(minted.json.url as string);
+    expect((await call(port, { method: 'HEAD', path: url.pathname + url.search })).status).toBe(404);
+    expect((await call(port, { path: url.pathname + url.search })).status).toBe(303);
+  });
+
   it('answers the expired page for a missing or malformed code, without echoing it', async () => {
     for (const path of ['/ui/login', '/ui/login?code=', '/ui/login?code=%3Cscript%3E']) {
       const r = await call(port, { path });
