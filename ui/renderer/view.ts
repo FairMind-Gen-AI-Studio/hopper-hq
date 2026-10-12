@@ -18,7 +18,7 @@ import type { FloorView } from './index';
 import { LabelLayer } from './labels';
 import { pickSession, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
-import { POLAR, azimuthOf, cameraOffset, frustumFor, type Point } from './world';
+import { POLAR, azimuthOf, cameraOffset, floorCenter, frustumFor, type Point } from './world';
 
 /** What the view needs of a three.js WebGLRenderer. */
 export interface RendererLike {
@@ -402,8 +402,12 @@ export function createFloorView(
     setFloor(floor: FloorDetail) {
       if (disposed) return;
       if (world.apply(floor)) {
+        const centre = floorCenter(size);
         size = { ...floor.size };
         fit();
+        // A camera still on the floor's centre stays on it as the floor grows or shrinks; one moved elsewhere stays put.
+        const t = controls.target;
+        if (Math.hypot(t.x - centre.x, t.z - centre.z) < 1e-6) applyPose({ ...pose(), target: floorCenter(size) });
       }
       if (!hasFloor) {
         hasFloor = true;

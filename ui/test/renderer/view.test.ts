@@ -4,8 +4,8 @@ import { PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
-import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter } from '../../renderer/world';
-import { checkoutFloor, desksOf } from './fixtures';
+import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor } from '../../renderer/world';
+import { checkoutFloor, checkoutIslands, desksOf, makeFloor } from './fixtures';
 
 const W = 800;
 const H = 500;
@@ -438,6 +438,38 @@ describe('the floor view', () => {
     view.select(null);
     env.flush();
     expect(ring.visible).toBe(false);
+  });
+
+  it('follows the centre of a floor that grows while the camera is on it, and stays on a desk it panned to', () => {
+    const { renderer, env, view } = setup(dayTheme(true));
+    const islands = checkoutIslands();
+    for (let i = 0; i < 6; i++) {
+      const desks = Array.from({ length: 8 }, (_, k) => ({ id: `m${i}-${k}`, state: 'working' as const }));
+      islands.push({ key: `/demo/more-${i}`, repo: `more-${i}`, color: i, tie: 4, desks });
+    }
+    const grown = makeFloor(islands);
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.rotate(1);
+    env.flush();
+    view.setFloor(grown);
+    env.flush();
+    const pose = cameraPose(renderer);
+    expect(pose.target.x).toBeCloseTo(floorCenter(grown.size).x, 6);
+    expect(pose.target.z).toBeCloseTo(floorCenter(grown.size).z, 6);
+    expect(pose.azimuth).toBeCloseTo(HOME_AZIMUTH + QUARTER, 6);
+    for (const desk of desksOf(grown)) {
+      const a = labelAnchor(desk);
+      const p = new Vector3(a.x, a.y, a.z).project(renderer.camera!);
+      expect([desk.sessionId, Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1]).toEqual([desk.sessionId, true]);
+    }
+    view.select('oa-c3', { pan: true });
+    env.flush();
+    const atDesk = cameraPose(renderer).target;
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(cameraPose(renderer).target.x).toBeCloseTo(atDesk.x, 6);
+    expect(cameraPose(renderer).target.z).toBeCloseTo(atDesk.z, 6);
   });
 
   it('pans to a desk asked for before the floor arrived, once it arrives', () => {
