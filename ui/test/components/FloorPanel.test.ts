@@ -52,11 +52,9 @@ describe('FloorPanel', () => {
     expect(onDesk).toHaveBeenCalledWith('sw-b2');
   });
 
-  it('marks the desk the route points at', () => {
+  it('marks no row for a desk the route points at on this floor: that desk has a panel of its own', () => {
     const { target } = panel(CHECKOUT, makeFloor(CHECKOUT), 'ps-d4');
-    const current = target.querySelector('[aria-current="true"]')!;
-    expect(text(current.querySelector('.r-name'))).toBe('payments-svc-d4');
-    expect(current.classList.contains('sel')).toBe(true);
+    expect(target.querySelector('[aria-current], .sel')).toBeNull();
     expect(target.querySelector('.gone')).toBeNull();
   });
 

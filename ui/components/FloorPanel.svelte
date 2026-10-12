@@ -11,7 +11,7 @@
     summary: FloorSummary | undefined;
     /** undefined while loading, null when the floor is gone. */
     floor: FloorDetail | null | undefined;
-    /** The desk the route points at. */
+    /** The desk the route points at. The page shows a desk on the floor in its own panel, so here it can only have left. */
     selected: string | null;
     onDesk: (sessionId: string) => void;
     onBack: () => void;
@@ -60,13 +60,7 @@
       <ul class="rows">
         {#each island.desks as desk (desk.sessionId)}
           <li>
-            <button
-              type="button"
-              class="row-btn sw-{desk.state}"
-              class:sel={desk.sessionId === selected}
-              aria-current={desk.sessionId === selected ? 'true' : undefined}
-              onclick={() => onDesk(desk.sessionId)}
-            >
+            <button type="button" class="row-btn sw-{desk.state}" onclick={() => onDesk(desk.sessionId)}>
               <span class="dot" aria-hidden="true"></span>
               <span class="r-name">{desk.name}</span>
               <span class="r-state">{STATES[desk.state].label}</span>
@@ -102,7 +96,6 @@
     text-align: left;
   }
   .row-btn:hover { background: var(--hover); border-color: var(--line); }
-  .row-btn.sel { border-color: var(--accent); }
   .r-name { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
   .r-task { grid-column: 2; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
   .r-state { grid-row: span 2; font-size: 12px; color: var(--muted); white-space: nowrap; }
