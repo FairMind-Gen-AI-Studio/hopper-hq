@@ -16,7 +16,7 @@ import type { FloorView } from './index';
 import { LabelLayer } from './labels';
 import { pickSession, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
-import { POLAR, azimuthOf, cameraOffset, frustumFor } from './world';
+import { POLAR, azimuthOf, cameraOffset, frustumFor, type Point } from './world';
 
 /** What the view needs of a three.js WebGLRenderer. */
 export interface RendererLike {
@@ -40,6 +40,8 @@ export interface ViewEnv {
   pixelRatio(): number;
   /** Calls `changed` when the element's size changes; returns a function that stops watching. */
   observeResize(el: Element, changed: () => void): () => void;
+  /** Runs `run` once, `ms` milliseconds from now; returns a function that cancels it. */
+  later(ms: number, run: () => void): () => void;
 }
 
 export function browserEnv(): ViewEnv {
@@ -55,11 +57,20 @@ export function browserEnv(): ViewEnv {
       observer.observe(el);
       return () => observer.disconnect();
     },
+    later(ms, run) {
+      const id = setTimeout(run, ms);
+      return () => clearTimeout(id);
+    },
   };
 }
 
 /** A press and release closer than this many pixels is a click; farther is a drag of the camera. */
 export const DRAG_PX = 6;
+/**
+ * How long after a click a second one may still come. A pan to the desk the click selected waits this long, so the
+ * desk is still under the pointer for the second click of a double-click.
+ */
+export const DOUBLE_CLICK_MS = 400;
 
 type Listener = (sessionId: string | null) => void;
 
@@ -90,8 +101,8 @@ export function createFloorView(
     for (const fn of [...listeners[event]]) fn(sessionId);
   };
   const labels = new LabelLayer(host.labels, {
-    select: (id) => emit('select', id),
-    activate: (id) => emit('activate', id),
+    select: (id, clicks) => clickSelect(() => id, clicks),
+    activate: (id) => doubleClick(() => id),
   });
 
   let size = { ...MIN_SIZE };
@@ -107,6 +118,10 @@ export function createFloorView(
   let frame = 0;
   let disposed = false;
   let down: { x: number; y: number } | null = null;
+  /** What the last click selected, and when: the second click of a double-click and the double-click keep to it. */
+  let clicked: { id: string | null; at: number } | null = null;
+  /** Cancels a pan that waits for the end of a double-click. */
+  let panLater: (() => void) | null = null;
 
   function pose(): CameraPose {
     const t = controls.target;
@@ -125,6 +140,15 @@ export function createFloorView(
   function moveTo(to: CameraPose, ms: number): void {
     tween = new Tween(pose(), to, env.now(), reduced ? 0 : ms);
     request();
+  }
+
+  function panTo(spot: Point): void {
+    moveTo(deskPose(pose(), spot, size), PAN_MS);
+  }
+
+  function stopPanLater(): void {
+    panLater?.();
+    panLater = null;
   }
 
   function fit(): void {
@@ -174,20 +198,39 @@ export function createFloorView(
     return pickSession(camera, ndc, world.pickables());
   }
 
-  // Only the main button selects: the others pan the camera.
+  /**
+   * A click that selects what `pick` names. The second click of a double-click selects what the first one did,
+   * without looking again: the camera, and the desks with it, may have moved in between.
+   */
+  function clickSelect(pick: () => string | null, clicks: number): void {
+    const id = clicks > 1 && clicked ? clicked.id : pick();
+    // A click from the keyboard has no count, and starts no double-click.
+    clicked = clicks > 0 ? { id, at: env.now() } : null;
+    emit('select', id);
+  }
+
+  /** A double-click activates the desk its first click picked; one that follows no click, what `pick` names. */
+  function doubleClick(pick: () => string | null): void {
+    stopPanLater();
+    const id = clicked && env.now() - clicked.at <= DOUBLE_CLICK_MS ? clicked.id : pick();
+    clicked = null;
+    if (id) emit('activate', id);
+  }
+
+  // Only the main button selects: the others pan the camera. A press takes the camera from any move under way.
   const onPointerDown = (e: PointerEvent) => {
     down = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
     tween = null;
+    stopPanLater();
   };
-  const onPointerUp = (e: PointerEvent) => {
+  // A browser clicks after a drag too, when it starts and ends on the canvas.
+  const onClick = (e: MouseEvent) => {
     const start = down;
     down = null;
-    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) <= DRAG_PX) emit('select', pickAt(e.clientX, e.clientY));
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) <= DRAG_PX) clickSelect(() => pickAt(e.clientX, e.clientY), e.detail);
+    else clicked = null;
   };
-  const onDoubleClick = (e: MouseEvent) => {
-    const id = pickAt(e.clientX, e.clientY);
-    if (id) emit('activate', id);
-  };
+  const onDoubleClick = (e: MouseEvent) => doubleClick(() => pickAt(e.clientX, e.clientY));
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && selected !== null && world.desks.has(selected)) {
       e.preventDefault();
@@ -203,7 +246,7 @@ export function createFloorView(
   };
 
   canvas.addEventListener('pointerdown', onPointerDown);
-  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('click', onClick);
   canvas.addEventListener('dblclick', onDoubleClick);
   canvas.addEventListener('keydown', onKeyDown);
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
@@ -241,7 +284,7 @@ export function createFloorView(
       const spot = panPending === null ? null : world.focusPoint(panPending);
       if (spot) {
         panPending = null;
-        moveTo(deskPose(pose(), spot, size), PAN_MS);
+        panTo(spot);
       } else request();
     },
     setTheme(next: ThemeTokens) {
@@ -256,10 +299,19 @@ export function createFloorView(
       selected = sessionId;
       world.setSelected(sessionId);
       labels.setSelected(sessionId);
+      stopPanLater();
       const pan = sessionId !== null && opts?.pan === true;
       const spot = pan ? world.focusPoint(sessionId) : null;
       panPending = pan && !spot ? sessionId : null;
-      if (spot) moveTo(deskPose(pose(), spot, size), PAN_MS);
+      // A pan to the desk the view's own click just selected waits until a second click can no longer come.
+      const wait = spot && clicked && clicked.id === sessionId ? clicked.at + DOUBLE_CLICK_MS - env.now() : 0;
+      if (spot && wait > 0) {
+        panLater = env.later(wait, () => {
+          panLater = null;
+          panTo(spot);
+        });
+        request();
+      } else if (spot) panTo(spot);
       else request();
     },
     rotate(step: -1 | 1) {
@@ -278,9 +330,10 @@ export function createFloorView(
       disposed = true;
       if (frame) env.cancelFrame(frame);
       frame = 0;
+      stopPanLater();
       stopResize();
       canvas.removeEventListener('pointerdown', onPointerDown);
-      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('dblclick', onDoubleClick);
       canvas.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('visibilitychange', onVisibility);

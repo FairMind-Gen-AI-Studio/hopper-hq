@@ -112,6 +112,18 @@ describe('the label layer', () => {
     expect(calls).toEqual(['select oa-c3', 'activate sw-b2']);
   });
 
+  it('tells which click of a series selected', () => {
+    const root = document.body.appendChild(document.createElement('div'));
+    const counts: number[] = [];
+    const labels = new LabelLayer(root, { select: (_id, clicks) => counts.push(clicks), activate: () => {} });
+    labels.sync(checkoutFloor());
+    const tag = labels.tag('oa-c3')!;
+    tag.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
+    tag.dispatchEvent(new MouseEvent('click', { detail: 2, bubbles: true }));
+    tag.click();
+    expect(counts).toEqual([1, 2, 0]);
+  });
+
   it('activates on Enter only once the desk is selected', () => {
     const { calls, labels } = layer();
     labels.sync(checkoutFloor());

@@ -27,7 +27,8 @@ export function projectToScreen(p: Point3, camera: Camera, width: number, height
 }
 
 export interface LabelEvents {
-  select(sessionId: string): void;
+  /** `clicks` is the click's place in a series: 2 for the second click of a double-click, 0 from the keyboard. */
+  select(sessionId: string, clicks: number): void;
   activate(sessionId: string): void;
 }
 
@@ -116,7 +117,7 @@ export class LabelLayer {
       const el = document.createElement('button');
       el.type = 'button';
       el.dataset.session = id;
-      el.addEventListener('click', () => this.events.select(id));
+      el.addEventListener('click', (e) => this.events.select(id, e.detail));
       el.addEventListener('dblclick', () => this.events.activate(id));
       el.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && this.selected === id) {

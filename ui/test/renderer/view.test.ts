@@ -3,7 +3,7 @@ import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'th
 import { PAN_MS, ROTATE_MS } from '../../renderer/camera';
 import type { FloorView } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
-import { DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
+import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { HOME_AZIMUTH, azimuthOf, deskAnchor, floorCenter } from '../../renderer/world';
 import { checkoutFloor, desksOf } from './fixtures';
 
@@ -37,9 +37,10 @@ class FakeRenderer implements RendererLike {
   }
 }
 
-/** Frames run only when the test flushes them, at the time it says. */
+/** Frames and timers run only when the test lets time pass, at the time it says. */
 class FakeEnv implements ViewEnv {
   queue = new Map<number, (now: number) => void>();
+  timers = new Map<number, { at: number; run: () => void }>();
   next = 1;
   time = 1000;
   isHidden = false;
@@ -67,9 +68,22 @@ class FakeEnv implements ViewEnv {
       this.watching = false;
     };
   }
+  later(ms: number, run: () => void): () => void {
+    const id = this.next++;
+    this.timers.set(id, { at: this.time + ms, run });
+    return () => {
+      this.timers.delete(id);
+    };
+  }
+  /** Lets `ms` pass without drawing, running the timers that come due. */
+  wait(ms: number): void {
+    this.time += ms;
+    this.fire();
+  }
   /** Runs the frames asked for so far, once, `advance` ms later. */
   step(advance = 16): void {
     this.time += advance;
+    this.fire();
     const due = [...this.queue.values()];
     this.queue.clear();
     for (const draw of due) draw(this.time);
@@ -79,12 +93,20 @@ class FakeEnv implements ViewEnv {
     let ran = 0;
     while (this.queue.size && ran < limit) {
       this.time += advance;
+      this.fire();
       const due = [...this.queue.values()];
       this.queue.clear();
       for (const draw of due) draw(this.time);
       ran += due.length;
     }
     return ran;
+  }
+  private fire(): void {
+    for (const [id, timer] of [...this.timers]) {
+      if (timer.at > this.time) continue;
+      this.timers.delete(id);
+      timer.run();
+    }
   }
 }
 
@@ -122,9 +144,24 @@ function screenOf(renderer: FakeRenderer, x: number, y: number, z: number): { x:
   return { x: ((p.x + 1) / 2) * W, y: ((1 - p.y) / 2) * H };
 }
 
-function click(canvas: HTMLCanvasElement, at: { x: number; y: number }, moved = 0, button = 0): void {
+/** What a browser sends for a click: the press, the release and, for the main button, the click with its count. */
+function click(canvas: HTMLCanvasElement, at: { x: number; y: number }, moved = 0, button = 0, detail = 1): void {
   canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: at.x, clientY: at.y, button, pointerId: 1, bubbles: true }));
   canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: at.x + moved, clientY: at.y, button, pointerId: 1, bubbles: true }));
+  if (button === 0) canvas.dispatchEvent(new MouseEvent('click', { clientX: at.x + moved, clientY: at.y, detail, bubbles: true }));
+}
+
+/** A double-click whose two clicks are `gap` ms apart, with frames drawn in between. */
+function doubleClick(env: FakeEnv, target: HTMLElement, at: { x: number; y: number }, gap: number): void {
+  const press = (detail: number) => {
+    target.dispatchEvent(new PointerEvent('pointerdown', { clientX: at.x, clientY: at.y, button: 0, pointerId: 1, bubbles: true }));
+    target.dispatchEvent(new PointerEvent('pointerup', { clientX: at.x, clientY: at.y, button: 0, pointerId: 1, bubbles: true }));
+    target.dispatchEvent(new MouseEvent('click', { clientX: at.x, clientY: at.y, detail, bubbles: true }));
+  };
+  press(1);
+  for (let t = 0; t < gap; t += 16) env.step(16);
+  press(2);
+  target.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, detail: 2, bubbles: true }));
 }
 
 function deskPoint(renderer: FakeRenderer, id: string): { x: number; y: number } {
@@ -195,6 +232,83 @@ describe('the floor view', () => {
     canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, bubbles: true }));
     canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 4, clientY: 4, bubbles: true }));
     expect(events).toEqual(['activate ps-d4']);
+  });
+
+  it('activates the desk the first click of a double-click picked, while the UI pans to each desk it selects', () => {
+    for (const reduced of [false, true]) {
+      for (const gap of [150, 250, 350]) {
+        for (const id of desksOf(checkoutFloor()).map((d) => d.sessionId)) {
+          const { renderer, env, view, canvas, events } = setup(dayTheme(reduced));
+          view.setFloor(checkoutFloor());
+          env.flush();
+          view.on('select', (picked) => view.select(picked, { pan: true }));
+          doubleClick(env, canvas, deskPoint(renderer, id), gap);
+          expect([reduced, gap, events]).toEqual([reduced, gap, [`select ${id}`, `select ${id}`, `activate ${id}`]]);
+          // The double-click took the desk's pane: the camera stays where it was.
+          env.wait(DOUBLE_CLICK_MS);
+          env.flush();
+          expect([reduced, gap, id, cameraPose(renderer).zoom]).toEqual([reduced, gap, id, 1]);
+        }
+      }
+    }
+  });
+
+  it('pans to a desk its own click selected once a second click can no longer come', () => {
+    const { renderer, env, view, canvas, events } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.on('select', (picked) => view.select(picked, { pan: true }));
+    click(canvas, deskPoint(renderer, 'oa-c3'));
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(1);
+    expect(renderer.scene!.getObjectByName('selection')!.visible).toBe(true);
+    env.wait(DOUBLE_CLICK_MS);
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(1.25);
+    expect(events).toEqual(['select oa-c3']);
+    // A press before then drops the pan: the camera is the user's.
+    click(canvas, deskPoint(renderer, 'sw-a1'));
+    click(canvas, { x: 4, y: 4 }, DRAG_PX + 1);
+    env.wait(DOUBLE_CLICK_MS);
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(1.25);
+    expect(env.timers.size).toBe(0);
+  });
+
+  it('selects again what the first click picked when the floor moved under a double-click', () => {
+    const { renderer, env, view, canvas, events } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const at = deskPoint(renderer, 'oa-c3');
+    click(canvas, at);
+    view.rotate(1);
+    env.flush();
+    click(canvas, at, 0, 0, 2);
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, detail: 2, bubbles: true }));
+    click(canvas, at);
+    expect(events).toEqual(['select oa-c3', 'select oa-c3', 'activate oa-c3', 'select null']);
+  });
+
+  it('keeps the desk a double-click on a tag started with, and waits with its pan too', () => {
+    const { renderer, env, view, labels, events } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.on('select', (picked) => view.select(picked, { pan: true }));
+    const tag = (id: string) => labels.querySelector(`[data-session="${id}"]`) as HTMLElement;
+    tag('sw-a1').dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(1);
+    // The second click lands on another tag, as if the first one had moved away.
+    tag('sw-b2').dispatchEvent(new MouseEvent('click', { detail: 2, bubbles: true }));
+    tag('sw-b2').dispatchEvent(new MouseEvent('dblclick', { detail: 2, bubbles: true }));
+    env.wait(DOUBLE_CLICK_MS);
+    env.flush();
+    expect(events).toEqual(['select sw-a1', 'select sw-a1', 'activate sw-a1']);
+    expect(cameraPose(renderer).zoom).toBe(1);
+    // A click from the keyboard starts no double-click: its pan does not wait.
+    tag('ps-d4').click();
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(1.25);
   });
 
   it('activates the selected desk on Enter, and is silent when the UI selects', () => {
@@ -319,11 +433,16 @@ describe('the floor view', () => {
   it('lets go of everything on dispose, once', () => {
     const { canvas, labels, renderer, env, view, events } = setup();
     view.setFloor(checkoutFloor());
+    env.flush();
+    view.on('select', (picked) => view.select(picked, { pan: true }));
+    click(canvas, deskPoint(renderer, 'oa-c3'));
+    events.length = 0;
     view.dispose();
     view.dispose();
     expect(renderer.disposed).toBe(1);
     expect(renderer.contextLost).toBe(1);
     expect(env.queue.size).toBe(0);
+    expect(env.timers.size).toBe(0);
     expect(env.watching).toBe(false);
     expect(labels.children).toHaveLength(0);
     click(canvas, { x: 400, y: 250 });
