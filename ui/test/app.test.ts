@@ -180,6 +180,30 @@ describe('App shell', () => {
     reload.mockRestore();
   });
 
+  it('offers a reload when it cannot draw what the daemon sent, and keeps its toasts', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reload = vi.spyOn(location, 'reload').mockImplementation(() => {});
+    try {
+      const store = fakeStore({ scene: makeScene() });
+      const { target } = app(store);
+      const scene = makeScene();
+      // Two entries for one session: Svelte cannot key the list by session.
+      scene.attention.done.push(scene.attention.done[0]!);
+      store.set({ scene });
+      flushSync();
+      const alert = target.querySelector('[role="alert"]');
+      expect(text(alert)).toBe('The page could not show what the daemon sent. Reload');
+      expect(target.querySelector('.topbar, .attention, main')).toBeNull();
+      expect(target.querySelector('.toasts')).not.toBeNull();
+      expect(errors).toHaveBeenCalled();
+      click(alert?.querySelector('button'));
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      reload.mockRestore();
+      errors.mockRestore();
+    }
+  });
+
   it('opens the desk of an attention chip', () => {
     const { target, store, crumbs } = app();
     click([...target.querySelectorAll('.attention button.open')].find((b) => b.querySelector('.who')?.textContent === 'orders-api-g7'));

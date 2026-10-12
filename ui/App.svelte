@@ -206,73 +206,82 @@
 <svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} onfocusin={onFocusIn} />
 
 <div class="app">
-  <TopBar
-    {crumbs}
-    needsYou={scene?.attention.needsYou.length ?? 0}
-    done={scene?.attention.done.length ?? 0}
-    {theme}
-    resolved={resolvedTheme(theme, systemDark)}
-    onNavigate={navigate}
-    onTheme={toggleTheme}
-  />
-  <Notice connection={$store.connection} hasScene={scene !== null} />
-  {#if scene}
-    <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
-  {/if}
-  <main class="main">
-    <section class="stage" aria-label={route.floor === null ? 'Building' : 'Floor'} bind:this={stage}>
-      {#if route.floor === null}
-        {#if scene}
-          <Facade
-            floors={scene.floors}
-            selected={null}
-            onFloor={(key) => navigate({ floor: key, desk: null })}
-            onDesk={(key, id) => navigate({ floor: key, desk: id })}
-          />
-          <p class="hint">{scene.floors.length > 0 ? 'Click a floor to go inside, or a window to open its desk.' : 'No sessions yet.'}</p>
+  <!-- What the page cannot draw (two entries for one session, say) stops the drawing, not the page: it offers a reload. -->
+  <svelte:boundary onerror={(error) => console.error(error)}>
+    <TopBar
+      {crumbs}
+      needsYou={scene?.attention.needsYou.length ?? 0}
+      done={scene?.attention.done.length ?? 0}
+      {theme}
+      resolved={resolvedTheme(theme, systemDark)}
+      onNavigate={navigate}
+      onTheme={toggleTheme}
+    />
+    <Notice connection={$store.connection} hasScene={scene !== null} />
+    {#if scene}
+      <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
+    {/if}
+    <main class="main">
+      <section class="stage" aria-label={route.floor === null ? 'Building' : 'Floor'} bind:this={stage}>
+        {#if route.floor === null}
+          {#if scene}
+            <Facade
+              floors={scene.floors}
+              selected={null}
+              onFloor={(key) => navigate({ floor: key, desk: null })}
+              onDesk={(key, id) => navigate({ floor: key, desk: id })}
+            />
+            <p class="hint">{scene.floors.length > 0 ? 'Click a floor to go inside, or a window to open its desk.' : 'No sessions yet.'}</p>
+          {/if}
+        {:else if floor}
+          <!-- One view per floor: a disposed view cannot draw on its canvas again. -->
+          {#key route.floor}
+            <FloorStage
+              {floor}
+              selected={route.desk}
+              theme={resolvedTheme(theme, systemDark)}
+              load={renderer}
+              onSelect={(id) => navigate({ floor: route.floor, desk: id })}
+              onActivate={focus}
+            />
+          {/key}
+        {:else if floor === null}
+          <p class="hint">This floor is empty now.</p>
         {/if}
-      {:else if floor}
-        <!-- One view per floor: a disposed view cannot draw on its canvas again. -->
-        {#key route.floor}
-          <FloorStage
+      </section>
+      <aside class="panel" aria-label="Details" bind:this={panel}>
+        {#if route.floor === null}
+          {#if scene}
+            <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null })} />
+          {/if}
+        {:else if desk && floor}
+          <DeskPanel
+            desk={desk.desk}
+            island={desk.island}
+            {floor}
+            now={clock}
+            onBack={() => navigate({ floor: route.floor, desk: null })}
+            onGo={focus}
+            onSeen={seen}
+          />
+        {:else}
+          <FloorPanel
+            {summary}
             {floor}
             selected={route.desk}
-            theme={resolvedTheme(theme, systemDark)}
-            load={renderer}
-            onSelect={(id) => navigate({ floor: route.floor, desk: id })}
-            onActivate={focus}
+            onDesk={(id) => navigate({ floor: route.floor, desk: id })}
+            onBack={() => navigate({ floor: null, desk: null })}
           />
-        {/key}
-      {:else if floor === null}
-        <p class="hint">This floor is empty now.</p>
-      {/if}
-    </section>
-    <aside class="panel" aria-label="Details" bind:this={panel}>
-      {#if route.floor === null}
-        {#if scene}
-          <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null })} />
         {/if}
-      {:else if desk && floor}
-        <DeskPanel
-          desk={desk.desk}
-          island={desk.island}
-          {floor}
-          now={clock}
-          onBack={() => navigate({ floor: route.floor, desk: null })}
-          onGo={focus}
-          onSeen={seen}
-        />
-      {:else}
-        <FloorPanel
-          {summary}
-          {floor}
-          selected={route.desk}
-          onDesk={(id) => navigate({ floor: route.floor, desk: id })}
-          onBack={() => navigate({ floor: null, desk: null })}
-        />
-      {/if}
-    </aside>
-  </main>
+      </aside>
+    </main>
+    {#snippet failed()}
+      <div class="broken" role="alert">
+        <strong>The page could not show what the daemon sent.</strong>
+        <button type="button" class="btn" onclick={() => location.reload()}>Reload</button>
+      </div>
+    {/snippet}
+  </svelte:boundary>
   <Toast {toasts} />
 </div>
 
@@ -289,6 +298,17 @@
     overflow: auto;
   }
   .hint { position: absolute; left: 12px; bottom: 10px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .broken {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in oklab, var(--s-needs) 55%, var(--line));
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  .broken strong { color: var(--needs-ink); }
   .panel {
     min-height: 0;
     min-width: 0;
