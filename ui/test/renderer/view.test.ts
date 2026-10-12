@@ -528,6 +528,31 @@ describe('the floor view', () => {
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH + QUARTER, 6);
   });
 
+  it('stops a pan at the edge of the floor, also while it glides', () => {
+    const { renderer, env, view, canvas } = setup();
+    const { w, h } = checkoutFloor().size;
+    view.setFloor(checkoutFloor());
+    env.flush();
+    for (const [dx, dy] of [[3000, 0], [-3000, -3000], [0, 3000]] as const) {
+      drag(canvas, dx, dy, 2);
+      env.flush();
+      const t = cameraPose(renderer).target;
+      expect([dx, dy, t.x > -1e-6 && t.x < w + 1e-6 && t.z > -1e-6 && t.z < h + 1e-6]).toEqual([dx, dy, true]);
+      expect(Math.min(t.x, t.z, w - t.x, h - t.z)).toBeCloseTo(0, 6);
+    }
+    // A floor that shrinks away from where the camera looks takes the camera back to its edge.
+    const islands = checkoutIslands();
+    islands.push({ key: '/demo/more', repo: 'more', color: 5, tie: 4, desks: [{ id: 'm1', state: 'working' }] });
+    const grown = makeFloor(islands);
+    view.setFloor(grown);
+    view.select('m1', { pan: true });
+    env.flush();
+    expect(cameraPose(renderer).target.z).toBeGreaterThan(h);
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(cameraPose(renderer).target.z).toBeCloseTo(h, 6);
+  });
+
   it('ends a turn or a reset exactly where it should, even right after a drag still gliding', () => {
     const { renderer, env, view, canvas } = setup();
     const floor = checkoutFloor();

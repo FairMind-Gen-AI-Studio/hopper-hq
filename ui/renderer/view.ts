@@ -150,23 +150,25 @@ export function createFloorView(
   }
 
   /**
-   * Keeps the point the camera turns about on the ground. A pan moves the camera in the screen's plane, so the floor
-   * follows the pointer, and a pan up or down the screen lifts that point off the ground: sliding it and the camera
-   * back along the line of sight changes nothing an orthographic camera shows. Turns, drag turns and pose() then
-   * all work about the ground point at the centre of the view.
+   * Keeps the point the camera turns about on the ground, and over the floor. A pan moves the camera in the screen's
+   * plane, so the floor follows the pointer, and a pan up or down the screen lifts that point off the ground: sliding
+   * it and the camera back along the line of sight changes nothing an orthographic camera shows. Turns, drag turns
+   * and pose() then all work about the ground point at the centre of the view. A pan stops at the floor's edge.
    */
-  function ground(): void {
+  function keepOnFloor(): void {
     const t = controls.target;
     const p = camera.position;
-    if (t.y === 0) return;
-    const k = t.y / (p.y - t.y);
-    const shift = { x: (t.x - p.x) * k, y: -t.y, z: (t.z - p.z) * k };
+    const k = t.y === 0 ? 0 : t.y / (p.y - t.y);
+    const x = Math.min(size.w, Math.max(0, t.x + (t.x - p.x) * k));
+    const z = Math.min(size.h, Math.max(0, t.z + (t.z - p.z) * k));
+    if (x === t.x && t.y === 0 && z === t.z) return;
+    const shift = { x: x - t.x, y: -t.y, z: z - t.z };
     t.add(shift);
     p.add(shift);
   }
 
   function onControls(): void {
-    ground();
+    keepOnFloor();
     request();
   }
 
@@ -224,6 +226,8 @@ export function createFloorView(
       else again = true;
     }
     if (controls.update()) again = true;
+    // The controls do not report the last, smallest steps of a glide, but those still move the camera.
+    keepOnFloor();
     if (world.setAzimuth(pose().azimuth)) renderer.shadowMap.needsUpdate = true;
     renderer.render(world.scene, camera);
     labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
