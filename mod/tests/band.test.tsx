@@ -6,15 +6,19 @@ const ATTENTION = {
   done: 1,
   items: [
     { id: 'S-OWN', name: 'me', repo: 'shop', state: 'needs_you', since: 1, reason: { kind: 'question', text: 'mine' }, title: null, tmuxPane: '%1' },
-    { id: 'S2', name: 'orders-api-c3', repo: 'orders-api', state: 'needs_you', since: 2, reason: { kind: 'permission', text: 'Bash' }, title: null, tmuxPane: '%7' },
+    { id: 'S2', name: 'orders-api-c3', repo: 'orders-api', state: 'needs_you', since: 2, reason: { kind: 'permission', text: 'Bash' }, title: null, tmuxPane: '%7', tmuxSession: 'work' },
     { id: 'S3', name: 'storefront-web-b2', repo: 'storefront-web', state: 'done', since: 3, reason: null, title: 'Copy', tmuxPane: null },
   ],
 }
 const NOBODY = { needsYou: 0, done: 0, items: [] }
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {}, title: '', isFocused: false }
 const START = { cwd: '/home/dev/shop', surface: null, isInteractive: true } as const
+const IN_TMUX = { HOME: '/home/dev', TMUX: '/tmp/tmux-501/default,1,0' }
+const ASK = ['tmux', 'display-message', '-p', '-t', '%7', '#{session_name}']
+const OTHER = 'The pane is on another tmux server or session'
 
-function daemon(on: On, attention: object, env: Record<string, string>, ran: string[][]) {
+// `tmux.owner`: the tmux session this server's %7 is in; null when this server has no %7.
+function daemon(on: On, attention: object, env: Record<string, string>, ran: string[][], tmux: { owner: string | null } = { owner: 'work' }) {
   mock.env(on, env)
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('session.id', async () => ({ value: 'S-OWN' }))
@@ -22,13 +26,15 @@ function daemon(on: On, attention: object, env: Record<string, string>, ran: str
   on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(attention) } }))
   on('process.run', async ($, e) => {
     ran.push([...e.argv])
-    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const asked = e.argv[1] === 'display-message'
+    const out = !asked ? { exitCode: 0, stdout: '' } : tmux.owner === null ? { exitCode: 1, stdout: '' } : { exitCode: 0, stdout: `${tmux.owner}\n` }
+    return { value: { ...out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
 }
 
 test('shows who else is waiting and jumps to their tmux pane', async ($, on) => {
   const ran: string[][] = []
-  daemon(on, ATTENTION, { HOME: '/home/dev', TMUX: '/tmp/tmux-501/default,1,0' }, ran)
+  daemon(on, ATTENTION, IN_TMUX, ran)
   const clock = mock.clock(on)
   await $.session.start(START)
   await clock.advance(3100)
@@ -39,7 +45,46 @@ test('shows who else is waiting and jumps to their tmux pane', async ($, on) => 
     await ui.press({ key: 'go' })
     await ui.unmount()
   }
-  expect(ran.slice(0, 3)).toEqual([
+  expect(ran.slice(0, 4)).toEqual([
+    ASK,
+    ['tmux', 'switch-client', '-t', '%7'],
+    ['tmux', 'select-window', '-t', '%7'],
+    ['tmux', 'select-pane', '-t', '%7'],
+  ])
+})
+
+test('stays put, and says so, when that pane is in another tmux session or not on this server', async ($, on) => {
+  const ran: string[][] = []
+  const toasts: string[] = []
+  const tmux = { owner: 'other' as string | null }
+  daemon(on, ATTENTION, IN_TMUX, ran, tmux)
+  on('ui.toast', async ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await ui.press({ key: 'go' })
+  tmux.owner = null
+  await ui.press({ key: 'go' })
+  await ui.unmount()
+  expect(ran).toEqual([ASK, ASK])
+  expect(toasts).toEqual([OTHER, OTHER])
+})
+
+test('jumps without asking tmux when the daemon does not say which tmux session the pane is in', async ($, on) => {
+  const ran: string[][] = []
+  const older = { ...ATTENTION, items: ATTENTION.items.map(({ tmuxSession, ...item }) => item) }
+  daemon(on, older, IN_TMUX, ran)
+  const clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await ui.press({ key: 'go' })
+  await ui.unmount()
+  expect(ran).toEqual([
     ['tmux', 'switch-client', '-t', '%7'],
     ['tmux', 'select-window', '-t', '%7'],
     ['tmux', 'select-pane', '-t', '%7'],

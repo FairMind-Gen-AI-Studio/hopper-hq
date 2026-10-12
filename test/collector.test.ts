@@ -83,7 +83,7 @@ describe('Collector', () => {
       generatedAt: NOW + 1000,
       needsYou: 1,
       done: 0,
-      items: [{ id: 'S1', name: null, repo: 'orders-api', feature: null, state: 'needs_you', since: NOW, reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' }, title: null, tmuxPane: null }],
+      items: [{ id: 'S1', name: null, repo: 'orders-api', feature: null, state: 'needs_you', since: NOW, reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' }, title: null, tmuxPane: null, tmuxSession: null }],
     });
   });
 
@@ -94,8 +94,15 @@ describe('Collector', () => {
     await c.ingest(hook({ type: 'waiting', reason: { kind: 'permission', text: 'Bash\u0000', detail: 'Bash: rm\u001b[2K -rf dist' }, agentId: null }));
     expect(c.attentionSummary().items[0]).toEqual({
       id: 'S1', name: 'orders[31m-api', repo: 'orders-api', feature: null, state: 'needs_you', since: NOW,
-      reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm[2K -rf dist' }, title: 'Fix the build', tmuxPane: null,
+      reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm[2K -rf dist' }, title: 'Fix the build', tmuxPane: null, tmuxSession: null,
     });
+  });
+
+  it('gives the pane with its tmux session as Claude Code wrote it, for the mod to compare with what tmux says', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'session.seen', workspace: { cwd: '/w/orders-api', repoRoot: '/w/orders-api', repoName: 'orders-api', worktree: false, branch: 'main' }, tmuxPane: '%7', tmuxSession: 'api  work' }));
+    await c.ingest(hook({ type: 'waiting', reason: { kind: 'question', text: 'Which one?' }, agentId: null }));
+    expect(c.attentionSummary().items[0]).toMatchObject({ tmuxPane: '%7', tmuxSession: 'api  work' });
   });
 
   it('cleans the repo and the feature in the attention summary', async () => {

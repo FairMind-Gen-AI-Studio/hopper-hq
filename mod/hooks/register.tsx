@@ -106,10 +106,26 @@ async function poll($: EngineInterface) {
   }
 }
 
-async function jump($: EngineInterface, pane: string) {
+// A pane id is unique only on its own tmux server: another server can have the same %N. When the daemon knows the pane's
+// tmux session, Go switches only to a pane of this server that is in it, as the daemon's own focus does.
+async function jump($: EngineInterface, pane: string, session: string | null) {
+  if (session !== null && !(await inSession($, pane, session))) {
+    $.ui.toast('The pane is on another tmux server or session')
+    return
+  }
   await $.process.run(['tmux', 'switch-client', '-t', pane])
   await $.process.run(['tmux', 'select-window', '-t', pane])
   await $.process.run(['tmux', 'select-pane', '-t', pane])
+}
+
+// Whether this tmux server has `pane` in `session`. A tmux that fails, or does not answer in time, says no.
+async function inSession($: EngineInterface, pane: string, session: string): Promise<boolean> {
+  try {
+    const r = await $.process.run(['tmux', 'display-message', '-p', '-t', pane, '#{session_name}'], { timeoutMs: 2000 })
+    return r.exitCode === 0 && r.stdout.replace(/\n$/, '') === session
+  } catch {
+    return false
+  }
 }
 
 export const register: Register = on => {
@@ -170,11 +186,12 @@ export const register: Register = on => {
     const inTmux = (await $.env.get('TMUX')) !== undefined
     const first = waiting[0]
     const pane = first?.tmuxPane ?? null
+    const session = first?.tmuxSession ?? null
     const { Box, Button, Text } = $.ui.resolve(e)
     return (
       <Box>
         {first ? <Text color="red">◉ {waiting.length} waiting · {first.name ?? first.repo}: {first.reason?.text ?? 'needs you'} </Text> : null}
-        {pane && inTmux ? <Button key="go" label="Go" onPress={() => jump($, pane)} /> : null}
+        {pane && inTmux ? <Button key="go" label="Go" onPress={() => jump($, pane, session)} /> : null}
         {done > 0 ? <Text color="green"> ✓ {done} done</Text> : null}
       </Box>
     )

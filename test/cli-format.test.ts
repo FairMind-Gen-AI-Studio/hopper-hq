@@ -26,8 +26,8 @@ describe('formatAttentionText', () => {
     const a: AttentionSummary = {
       generatedAt: NOW, needsYou: 1, done: 1,
       items: [
-        { id: 'S1', name: 'orders-api-c3', repo: 'orders-api', feature: 'checkout-v2', state: 'needs_you', since: NOW - 12 * 60_000, reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' }, title: null, tmuxPane: '%7' },
-        { id: 'S2', name: 'storefront-web-b2', repo: 'storefront-web', feature: 'checkout-v2', state: 'done', since: NOW - 3 * 3_600_000, reason: null, title: 'Rewrite checkout copy', tmuxPane: null },
+        { id: 'S1', name: 'orders-api-c3', repo: 'orders-api', feature: 'checkout-v2', state: 'needs_you', since: NOW - 12 * 60_000, reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist' }, title: null, tmuxPane: '%7', tmuxSession: 'work' },
+        { id: 'S2', name: 'storefront-web-b2', repo: 'storefront-web', feature: 'checkout-v2', state: 'done', since: NOW - 3 * 3_600_000, reason: null, title: 'Rewrite checkout copy', tmuxPane: null, tmuxSession: null },
       ],
     };
     const lines = formatAttentionText(a, NOW).split('\n');
@@ -68,7 +68,7 @@ describe('untrusted text', () => {
   it('prints attention names, reasons and panes without control or bidi characters', () => {
     const a: AttentionSummary = {
       generatedAt: NOW, needsYou: 1, done: 0,
-      items: [{ id: 'S1', name: 'evil\u001b]0;owned\u0007', repo: 'r', feature: null, state: 'needs_you', since: NOW, reason: { kind: 'question', text: 'Which\u202E one?' }, title: null, tmuxPane: '%1\u001b[2J' }],
+      items: [{ id: 'S1', name: 'evil\u001b]0;owned\u0007', repo: 'r', feature: null, state: 'needs_you', since: NOW, reason: { kind: 'question', text: 'Which\u202E one?' }, title: null, tmuxPane: '%1\u001b[2J', tmuxSession: null }],
     };
     const out = formatAttentionText(a, NOW);
     expect(out).not.toMatch(UNSAFE);

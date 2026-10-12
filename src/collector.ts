@@ -25,6 +25,8 @@ export interface AttentionItem {
   reason: WaitReason | null;
   title: string | null;
   tmuxPane: string | null;
+  /** The tmux session the pane is in, as Claude Code wrote it; null when unknown. Not cleaned: the mod compares it with what tmux says. */
+  tmuxSession: string | null;
 }
 
 export interface AttentionSummary {
@@ -264,6 +266,7 @@ export class Collector {
       reason: v.waitReason && cleanReason(v.waitReason),
       title: taskTitle(v),
       tmuxPane: v.tmuxPane,
+      tmuxSession: v.tmuxSession,
     });
     return {
       generatedAt: this.now(),

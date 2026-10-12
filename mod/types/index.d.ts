@@ -7,6 +7,8 @@ export type AttentionItem = {
   reason: { kind: string; text: string; detail?: string } | null
   title: string | null
   tmuxPane: string | null
+  // The tmux session the pane is in; null when unknown, absent from a daemon that predates it.
+  tmuxSession?: string | null
 }
 
 export type Attention = { needsYou: number; done: number; items: AttentionItem[] }
