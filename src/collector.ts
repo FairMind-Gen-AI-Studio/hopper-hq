@@ -55,10 +55,15 @@ export class Collector {
   private readonly sessions = new Map<string, Session>();
   private readonly listeners = new Set<() => void>();
   private readonly dirty = new Set<string>();
-  /** When each floor key was first seen: set once, never moved, so floors keep their place. */
+  /**
+   * When each floor key was first seen: set once, so a floor keeps its place while sessions sit on it. A floor no session
+   * sits on any more is forgotten, so that it opens on top when it comes back.
+   */
   private readonly firstSeen = new Map<string, number>();
-  /** First-seen times not yet written to the store. */
-  private newFloors: Array<[string, number]> = [];
+  /** How many sessions that have not ended sit on each floor. Dormant ones count. */
+  private readonly occupants = new Map<string, number>();
+  /** Floors opened or forgotten since the last save. */
+  private readonly dirtyFloors = new Set<string>();
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private seq = 0;
@@ -77,20 +82,50 @@ export class Collector {
     // Sessions saved before floors were recorded: each floor opened when its earliest live session started.
     const opened = new Map<string, number>();
     for (const s of this.sessions.values()) {
-      if (s.state === 'ended') continue;
-      const key = this.floorKey(s);
+      const key = this.liveKey(s);
+      if (key === null) continue;
+      this.occupants.set(key, (this.occupants.get(key) ?? 0) + 1);
       if (!this.firstSeen.has(key)) opened.set(key, Math.min(opened.get(key) ?? s.startedAt, s.startedAt));
     }
     for (const [key, at] of opened) this.openFloor(key, at);
+    // A floor recorded with no live session on it any more is forgotten, as if its last session had just left.
+    for (const key of [...this.firstSeen.keys()]) if (!this.occupants.has(key)) this.forgetFloor(key);
   }
 
   private floorKey(s: Session): string {
     return floorKeyOf({ workspace: s.workspace, feature: deriveFeature(s.workspace.branch, s.workspace.repoName, this.o.featureRules ?? DEFAULT_FEATURE_RULES) });
   }
 
+  /** The floor a session sits on; null once it has ended. */
+  private liveKey(s: Session | undefined): string | null {
+    return s && s.state !== 'ended' ? this.floorKey(s) : null;
+  }
+
   private openFloor(key: string, at: number): void {
     this.firstSeen.set(key, at);
-    this.newFloors.push([key, at]);
+    this.dirtyFloors.add(key);
+  }
+
+  private forgetFloor(key: string): void {
+    this.firstSeen.delete(key);
+    this.dirtyFloors.add(key);
+  }
+
+  /** A session leaves one floor for another (null: none). Its first occupant opens a floor; its last one leaving forgets it. */
+  private moveSeat(from: string | null, to: string | null, at: number): void {
+    if (from === to) return;
+    if (from !== null) {
+      const left = (this.occupants.get(from) ?? 1) - 1;
+      if (left > 0) this.occupants.set(from, left);
+      else {
+        this.occupants.delete(from);
+        this.forgetFloor(from);
+      }
+    }
+    if (to !== null) {
+      this.occupants.set(to, (this.occupants.get(to) ?? 0) + 1);
+      if (!this.firstSeen.has(to)) this.openFloor(to, at);
+    }
   }
 
   ingest(raw: RawEvent): Promise<void> {
@@ -108,7 +143,8 @@ export class Collector {
   }
 
   private async apply(e: CollectorEvent): Promise<void> {
-    let prev = this.sessions.get(e.sessionId);
+    const stored = this.sessions.get(e.sessionId);
+    let prev = stored;
     let created = false;
     if (!prev && e.type !== 'session.seen') {
       if (!e.cwd) {
@@ -128,9 +164,9 @@ export class Collector {
     if (created || next !== prev) {
       this.sessions.set(next.id, next);
       // The event that first puts a session on a floor opens it: a new session, a branch switch, a replayed old event.
-      if (next.state !== 'ended') {
-        const key = this.floorKey(next);
-        if (!this.firstSeen.has(key)) this.openFloor(key, e.ts);
+      // Only a new workspace or an end can move a session to another floor.
+      if (!stored || stored.workspace !== next.workspace || (stored.state === 'ended') !== (next.state === 'ended')) {
+        this.moveSeat(this.liveKey(stored), this.liveKey(next), e.ts);
       }
       this.changed(next.id);
     }
@@ -142,26 +178,24 @@ export class Collector {
     for (const fn of this.listeners) fn();
   }
 
-  /** The timer's save. A store error must not take the daemon down: the sessions stay changed and go with the next save. */
+  /** The timer's save. A store error must not take the daemon down: sessions and floors stay changed and go with the next save. */
   private save(): void {
     try {
       this.flush();
     } catch (err) {
-      this.log(`scranton-hq could not save sessions: ${err instanceof Error ? err.message : String(err)}`);
+      this.log(`scranton-hq could not save sessions and floors: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  /** Writes changed sessions to the store now. */
+  /** Writes changed sessions and floors to the store now, in one transaction. */
   flush(): void {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     const list = [...this.dirty].map((id) => this.sessions.get(id)).filter((s): s is Session => s !== undefined);
-    if (list.length) this.o.store?.saveSessions(list, this.now());
+    const floors = new Map([...this.dirtyFloors].map((key): [string, number | null] => [key, this.firstSeen.get(key) ?? null]));
+    if (list.length || floors.size) this.o.store?.save(list, floors, this.now());
     this.dirty.clear();
-    if (this.newFloors.length) {
-      this.o.store?.recordFloors(this.newFloors);
-      this.newFloors = [];
-    }
+    this.dirtyFloors.clear();
   }
 
   onChange(fn: () => void): () => void {

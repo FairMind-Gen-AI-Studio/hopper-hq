@@ -40,13 +40,21 @@ describe('Store', () => {
     store.close();
   });
 
-  it('remembers when each floor was first seen, keeping the first time recorded', async () => {
+  it('saves sessions and floors together, and forgets a floor saved as null', async () => {
     const store = await Store.open(':memory:');
     expect(store.loadFloors()).toEqual(new Map());
-    store.recordFloors([['feature:checkout-v2', 100], ['repo:/w/orders-api', 200]]);
-    store.recordFloors([['feature:checkout-v2', 50], ['repo:/w/search-svc', 300]]);
-    store.recordFloors([]);
-    expect(store.loadFloors()).toEqual(new Map([['feature:checkout-v2', 100], ['repo:/w/orders-api', 200], ['repo:/w/search-svc', 300]]));
+    store.save([newSession('S1', 1000, WS)], new Map([['feature:checkout-v2', 100], ['repo:/w/orders-api', 200]]), 5);
+    store.save([], new Map([['feature:checkout-v2', 300], ['repo:/w/orders-api', null], ['repo:/w/search-svc', 400]]), 6);
+    expect(store.loadFloors()).toEqual(new Map([['feature:checkout-v2', 300], ['repo:/w/search-svc', 400]]));
+    expect(store.loadSessions().map((s) => s.id)).toEqual(['S1']);
+    store.close();
+  });
+
+  it('writes nothing of a save that fails', async () => {
+    const store = await Store.open(':memory:');
+    expect(() => store.save([newSession('S1', 1000, WS)], new Map([['repo:/w/orders-api', Number.NaN]]), 5)).toThrow('NOT NULL');
+    expect(store.loadSessions()).toEqual([]);
+    expect(store.loadFloors()).toEqual(new Map());
     store.close();
   });
 
