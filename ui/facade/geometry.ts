@@ -16,6 +16,8 @@ export const LOBBY_H = 50;
 export const MIN_WIDTH = 6;
 /** Room kept right of the label column for a floor's name and metadata. */
 export const LABEL_W = 330;
+/** The longest floor name that room holds, in characters: a longer one ends in '…', and shows whole on hover. */
+export const NAME_MAX = 28;
 export const PAD = 24;
 
 export type Point = [number, number];

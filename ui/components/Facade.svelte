@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { cleanText } from '../../src/scene/text';
   import type { FloorSummary } from '../../src/scene/types';
-  import { facadeOf, type Box, type Label } from '../facade/geometry';
+  import { NAME_MAX, facadeOf, type Box, type Label } from '../facade/geometry';
   import { STATES, floorLabel, floorMeta, type Meta } from '../lib/words';
 
   /**
@@ -73,6 +74,7 @@
       onclick={(e) => pick(e, floor.key)}
       onkeydown={(e) => press(e, floor.key)}
     >
+      <title>{summary.name}</title>
       {@render solid(floor.plate, 'plate')}
       {@render solid(floor.wall, 'wall')}
       {#each floor.windows as w (w.sessionId)}
@@ -81,7 +83,7 @@
       {#each floor.blanks as quad, i (i)}<polygon class="sfill st-empty" points={quad} />{/each}
       {#each floor.slats as s, i (i)}<line class="slat" x1={s[0]} y1={s[1]} x2={s[2]} y2={s[3]} />{/each}
       <polygon class="sfill st-empty" points={floor.side} />
-      {@render label(floor.label, String(floor.number), summary.name, floorMeta(summary))}
+      {@render label(floor.label, String(floor.number), cleanText(summary.name, NAME_MAX), floorMeta(summary))}
       <polygon class="outline" points={floor.outline} />
     </g>
   {/each}

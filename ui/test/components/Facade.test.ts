@@ -58,6 +58,17 @@ describe('Facade', () => {
     ]);
   });
 
+  it('ends a long floor name with an ellipsis, and shows it whole on hover', () => {
+    const floors = makeScene().floors;
+    floors[0]!.name = 'jira-1234-add-idempotency-keys-to-orders';
+    const { floor } = facade(floors);
+    expect(text(floor(3).querySelector('.t-name'))).toBe('jira-1234-add-idempotency-k…');
+    expect(floor(3).querySelector(':scope > title')?.textContent).toBe('jira-1234-add-idempotency-keys-to-orders');
+    expect(floor(3).getAttribute('aria-label')).toMatch(/^Floor 4, jira-1234-add-idempotency-keys-to-orders: /);
+    expect(text(floor(2).querySelector('.t-name'))).toBe('search-ranking');
+    expect(floor(2).querySelector(':scope > title')?.textContent).toBe('search-ranking');
+  });
+
   it('goes inside a floor on click, Enter or Space, and to a desk from its window', () => {
     const { target, floor, onFloor, onDesk } = facade();
     floor(1).dispatchEvent(new MouseEvent('click', { bubbles: true }));
