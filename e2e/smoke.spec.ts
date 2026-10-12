@@ -232,11 +232,18 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
     const id = (await other.getAttribute('data-session'))!;
     const name = (await other.locator('.fv-name').textContent())!;
     const { x, y } = await centre(other);
+    // The point hits that desk's own tag, not a neighbour's laid over it.
+    const hit = await page.evaluate(({ px, py }) => document.elementFromPoint(px, py)?.closest('button.fv-tag')?.getAttribute('data-session') ?? null, { px: x, py: y });
+    expect(hit).toBe(id);
     const focus = page.waitForResponse((r) => r.url().endsWith('/api/focus') && r.request().method() === 'POST');
-    // Two clicks 200 ms apart: the first selects, and the desk must still be under the pointer for the second.
-    await page.mouse.click(x, y);
+    // A double-click at a person's pace, two clicks and no more: a press and a release, 200 ms, then a press and a
+    // release the browser counts as the second click. The first selects; the desk must still be under the pointer.
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.up();
     await page.waitForTimeout(200);
-    await page.mouse.click(x, y, { clickCount: 2 });
+    await page.mouse.down({ clickCount: 2 });
+    await page.mouse.up({ clickCount: 2 });
     const answer = await focus;
     expect(answer.request().postDataJSON()).toEqual({ sessionId: id });
     expect(answer.status()).toBe(200);
