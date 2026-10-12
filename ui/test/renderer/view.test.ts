@@ -4,7 +4,7 @@ import { PAN_MS, ROTATE_MS } from '../../renderer/camera';
 import type { FloorView } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
-import { HOME_AZIMUTH, azimuthOf, deskAnchor, floorCenter } from '../../renderer/world';
+import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter } from '../../renderer/world';
 import { checkoutFloor, desksOf } from './fixtures';
 
 const W = 800;
@@ -162,6 +162,14 @@ function doubleClick(env: FakeEnv, target: HTMLElement, at: { x: number; y: numb
   for (let t = 0; t < gap; t += 16) env.step(16);
   press(2);
   target.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, detail: 2, bubbles: true }));
+}
+
+/** A drag across the canvas with a mouse button: the main one turns the camera, the right one pans it. */
+function drag(canvas: HTMLCanvasElement, dx: number, dy: number, button: number): void {
+  const at = (x: number, y: number) => ({ clientX: x, clientY: y, button, pointerId: 7, pointerType: 'mouse', bubbles: true });
+  canvas.dispatchEvent(new PointerEvent('pointerdown', at(W / 2, H / 2)));
+  document.dispatchEvent(new PointerEvent('pointermove', at(W / 2 + dx, H / 2 + dy)));
+  document.dispatchEvent(new PointerEvent('pointerup', at(W / 2 + dx, H / 2 + dy)));
 }
 
 function deskPoint(renderer: FakeRenderer, id: string): { x: number; y: number } {
@@ -402,6 +410,40 @@ describe('the floor view', () => {
     view.rotate(1);
     env.step(1);
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH + Math.PI / 2, 6);
+  });
+
+  it('keeps the ground point it looks at when it turns after a pan up or down the screen', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    drag(canvas, 0, 150, 2);
+    env.flush();
+    const panned = cameraPose(renderer);
+    expect(panned.target.z).toBeLessThan(floorCenter(checkoutFloor().size).z - 1);
+    view.rotate(1);
+    env.flush();
+    view.rotate(-1);
+    env.flush();
+    const turned = cameraPose(renderer);
+    expect(turned.target.x).toBeCloseTo(panned.target.x, 6);
+    expect(turned.target.z).toBeCloseTo(panned.target.z, 6);
+    expect(turned.azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
+    expect(renderer.camera!.position.y).toBeCloseTo(cameraOffset(HOME_AZIMUTH).y, 6);
+  });
+
+  it('turns about the ground point at the centre of the view when dragged, also after a pan up or down', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    drag(canvas, 0, -120, 2);
+    env.flush();
+    const panned = cameraPose(renderer);
+    drag(canvas, 100, 0, 0);
+    env.flush();
+    const turned = cameraPose(renderer);
+    expect(turned.azimuth).not.toBeCloseTo(panned.azimuth, 2);
+    expect(turned.target.x).toBeCloseTo(panned.target.x, 6);
+    expect(turned.target.z).toBeCloseTo(panned.target.z, 6);
   });
 
   it('draws nothing while the page is hidden, and draws once when it shows again', () => {

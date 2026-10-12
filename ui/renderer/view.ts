@@ -137,6 +137,27 @@ export function createFloorView(
     camera.updateProjectionMatrix();
   }
 
+  /**
+   * Keeps the point the camera turns about on the ground. A pan moves the camera in the screen's plane, so the floor
+   * follows the pointer, and a pan up or down the screen lifts that point off the ground: sliding it and the camera
+   * back along the line of sight changes nothing an orthographic camera shows. Turns, drag turns and pose() then
+   * all work about the ground point at the centre of the view.
+   */
+  function ground(): void {
+    const t = controls.target;
+    const p = camera.position;
+    if (t.y === 0) return;
+    const k = t.y / (p.y - t.y);
+    const shift = { x: (t.x - p.x) * k, y: -t.y, z: (t.z - p.z) * k };
+    t.add(shift);
+    p.add(shift);
+  }
+
+  function onControls(): void {
+    ground();
+    request();
+  }
+
   function moveTo(to: CameraPose, ms: number): void {
     tween = new Tween(pose(), to, env.now(), reduced ? 0 : ms);
     request();
@@ -251,7 +272,7 @@ export function createFloorView(
   canvas.addEventListener('keydown', onKeyDown);
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
   document.addEventListener('visibilitychange', onVisibility);
-  controls.addEventListener('change', request);
+  controls.addEventListener('change', onControls);
   const stopResize = env.observeResize(canvas, resize);
   applyPose(homePose(size));
   resize();
@@ -337,7 +358,7 @@ export function createFloorView(
       canvas.removeEventListener('dblclick', onDoubleClick);
       canvas.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('visibilitychange', onVisibility);
-      controls.removeEventListener('change', request);
+      controls.removeEventListener('change', onControls);
       controls.dispose();
       listeners.select.clear();
       listeners.activate.clear();
