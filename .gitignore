@@ -5,3 +5,6 @@ dist/
 .env
 .DS_Store
 mod/tsconfig.json
+/test-results/
+/playwright-report/
+/blob-report/

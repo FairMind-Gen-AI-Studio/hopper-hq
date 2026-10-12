@@ -15,6 +15,7 @@ describe('scaffold', () => {
       '@fontsource-variable/archivo': '5.3.0',
       '@fontsource/ibm-plex-mono': '5.3.0',
       '@fontsource/ibm-plex-sans': '5.3.0',
+      '@playwright/test': '1.63.0',
       '@sveltejs/vite-plugin-svelte': '6.2.4',
       '@types/three': '0.186.0',
       'happy-dom': '20.14.5',
@@ -32,8 +33,19 @@ describe('scaffold', () => {
       'build:server': 'tsc -p tsconfig.build.json',
       'build:ui': 'vite build',
       'dev:ui': 'vite',
-      typecheck: 'tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./ui/tsconfig.json --fail-on-warnings',
+      typecheck:
+        'tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./ui/tsconfig.json --fail-on-warnings && tsc -p e2e/tsconfig.json --noEmit',
       test: 'vitest run',
     });
+  });
+
+  it('runs the browser smoke test only on request, on the installed Chrome, outside CI', () => {
+    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+    const pkg = JSON.parse(read('../package.json'));
+    expect(pkg.scripts['test:e2e']).toBe('npm run build && playwright test');
+    const config = read('../playwright.config.ts');
+    expect(config).toMatch(/channel: 'chrome'/);
+    expect(config).toMatch(/reporter: 'list'/);
+    expect(read('../.github/workflows/ci.yml')).not.toMatch(/e2e|playwright/i);
   });
 });
