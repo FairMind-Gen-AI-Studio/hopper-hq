@@ -42,6 +42,13 @@ describe('buildFloors', () => {
   const v = (id: string, repoName: string, branch: string | null, state: SessionState, startedAt: number) =>
     toView({ ...sess(id, state, now - 1), startedAt, workspace: { ...WS, repoName, branch } }, now);
 
+  it("orders a floor's sessions by repo in code-unit order, then by start, then by id, whatever the input order", () => {
+    const views = [v('B', 'web', 'feat/x', 'working', 5), v('A', 'web', 'feat/x', 'working', 5), v('C', 'Web', 'feat/x', 'working', 9), v('D', 'api', 'feat/x', 'working', 1)];
+    for (const input of [views, [...views].reverse()]) {
+      expect(buildFloors(input)[0]!.sessions.map((s) => s.id)).toEqual(['C', 'D', 'A', 'B']);
+    }
+  });
+
   it('groups by feature across repos and by repo for trunk work, newest floor first', () => {
     const floors = buildFloors([
       v('a', 'storefront-web', 'feat/checkout-v2', 'working', 100),

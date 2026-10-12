@@ -101,7 +101,7 @@ export function buildFloors(views: readonly SessionView[], firstSeen?: ReadonlyM
   for (const f of floors) {
     f.openedAt = firstSeen?.get(f.key) ?? f.openedAt;
     f.repos.sort();
-    f.sessions.sort((a, b) => a.workspace.repoName.localeCompare(b.workspace.repoName) || a.startedAt - b.startedAt);
+    f.sessions.sort((a, b) => byCodeUnit(a.workspace.repoName, b.workspace.repoName) || a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   }
   return floors.sort((a, b) => b.openedAt - a.openedAt || byCodeUnit(a.key, b.key));
 }
