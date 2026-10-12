@@ -25,11 +25,12 @@ describe('toasts', () => {
     expect(seen()).toEqual([]);
   });
 
-  it('keeps the three newest', () => {
+  it('keeps the three newest, and stops the timer of the one it drops', () => {
     const toasts = createToasts();
     const seen = watch(toasts);
     for (const n of [1, 2, 3, 4]) toasts.show(`m${n}`);
     expect(seen()).toEqual(['info:m2', 'info:m3', 'info:m4']);
+    expect(vi.getTimerCount()).toBe(3);
   });
 
   it('dismisses one by id, and all at once', () => {

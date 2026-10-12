@@ -29,11 +29,14 @@ class FakeStream implements EventSourceLike {
   }
 }
 
-function setup(probeStatus: number | Error = 200) {
+/** The probe answers this status, fails with this error, or answers when the test says. */
+function setup(probeStatus: number | Error | (() => Promise<number>) = 200) {
   const streams: FakeStream[] = [];
   /** How many streams were still open each time a new one was asked for. */
   const openAtOpen: number[] = [];
-  const probe = vi.fn(() => (probeStatus instanceof Error ? Promise.reject(probeStatus) : Promise.resolve(probeStatus)));
+  const probe = vi.fn(() =>
+    typeof probeStatus === 'function' ? probeStatus() : probeStatus instanceof Error ? Promise.reject(probeStatus) : Promise.resolve(probeStatus),
+  );
   const store = createClientStore({
     openStream: (url) => {
       openAtOpen.push(streams.filter((s) => s.readyState !== 2).length);
@@ -122,6 +125,19 @@ describe('client store', () => {
     expect(store.get().floor).toEqual(floor);
     last().send('floor', null);
     expect(store.get().floor).toBeNull();
+  });
+
+  it('ignores a floor event that is not JSON, not a floor, or for another floor', () => {
+    const { store, watch, last } = setup();
+    store.watchFloor(CHECKOUT);
+    watch();
+    const floor = makeFloor(CHECKOUT)!;
+    for (const bad of ['{not json', 42, { ...floor, version: 2 }, { ...floor, islands: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
+      last().send('floor', bad);
+    }
+    expect(store.get().floor).toBeUndefined();
+    last().send('floor', floor);
+    expect(store.get().floor).toEqual(floor);
   });
 
   it('does nothing when the floor does not change, and leaves the floor with null', () => {
@@ -226,6 +242,20 @@ describe('client store', () => {
     expect(openAtOpen).toEqual([0, 0, 0, 0, 0]);
     store.close();
     expect(streams.every((s) => s.readyState === 2)).toBe(true);
+  });
+
+  it('ignores a probe that answers after the stream has reopened on another floor', async () => {
+    let answer!: (status: number) => void;
+    const { store, streams, watch, last } = setup(() => new Promise((r) => (answer = r)));
+    watch();
+    last().fail(2);
+    store.watchFloor(CHECKOUT);
+    last().open();
+    answer(401);
+    await settle();
+    expect(store.get().connection).toBe('live');
+    vi.advanceTimersByTime(60_000);
+    expect(streams).toHaveLength(2);
   });
 
   it('retries when the daemon cannot even be probed', async () => {
