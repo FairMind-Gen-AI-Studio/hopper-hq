@@ -568,6 +568,21 @@ describe('App floor in 3D', () => {
     expect(target.querySelector('.stage svg.facade')).not.toBeNull();
   });
 
+  it('offers a reload when the 3D view cannot load, and keeps the floor reachable from the panel', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      location.hash = toHash({ floor: CHECKOUT, desk: null });
+      const { target } = app(undefined, { renderer: () => Promise.reject(new TypeError('Failed to fetch dynamically imported module')) });
+      await settle();
+      expect(text(target.querySelector('.stage .load-failed p'))).toBe('The 3D view could not load; the daemon may have been updated. Reload the page.');
+      expect(target.querySelector('.stage .no-webgl')).toBeNull();
+      click([...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'orders-api-c3'));
+      expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it('keeps the floor reachable from the panel when the browser has no WebGL', async () => {
     location.hash = toHash({ floor: CHECKOUT, desk: null });
     const { target } = app(undefined, { renderer: fakeRenderer({ fail: new WebGLUnavailableError() }).load });

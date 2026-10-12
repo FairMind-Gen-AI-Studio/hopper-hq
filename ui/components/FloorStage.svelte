@@ -25,7 +25,8 @@
   let canvas: HTMLCanvasElement | undefined = $state();
   let labels: HTMLElement | undefined = $state();
   let view: FloorView | null = $state.raw(null);
-  let failed = $state(false);
+  /** Why there is no view: the browser has no WebGL, or the renderer did not load or mount. */
+  let failure: 'no-webgl' | 'load' | null = $state(null);
   let renderer: RendererModule | null = null;
   /** The theme whose colours the view has. */
   let painted = '';
@@ -47,11 +48,18 @@
     return r.readThemeTokens((name) => root.getPropertyValue(name), reducedMotion());
   }
 
-  /** Without WebGL the panel's desk list is the way around the floor. Anything else is a fault worth seeing. */
+  /**
+   * Without WebGL the panel's desk list is the way around the floor. Anything else is a fault worth seeing, most often a
+   * renderer file the page can no longer fetch: the daemon was updated since the page loaded, and a reload fixes it.
+   */
   function fail(err: unknown): void {
     if (gone) return;
-    failed = true;
-    if (!(err instanceof Error && err.name === 'WebGLUnavailableError')) console.error(err);
+    if (err instanceof Error && err.name === 'WebGLUnavailableError') {
+      failure = 'no-webgl';
+      return;
+    }
+    failure = 'load';
+    console.error(err);
   }
 
   onMount(() => {
@@ -113,8 +121,13 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="floor-stage">
-  {#if failed}
+  {#if failure === 'no-webgl'}
     <p class="no-webgl" role="status">This browser cannot draw the floor in 3D. Its desks are listed in the panel.</p>
+  {:else if failure === 'load'}
+    <div class="load-failed" role="alert">
+      <p>The 3D view could not load; the daemon may have been updated. Reload the page.</p>
+      <button type="button" class="btn" onclick={() => location.reload()}>Reload</button>
+    </div>
   {:else}
     <canvas bind:this={canvas} aria-label="Floor {floor.number}, {floor.name}, in 3D"></canvas>
     <div bind:this={labels}></div>
@@ -152,6 +165,8 @@
   .tool svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .hint { position: absolute; right: 12px; bottom: 10px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
   .no-webgl { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; text-align: center; color: var(--muted); }
+  .load-failed { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; }
+  .load-failed p { margin: 0; max-width: 46ch; }
   @media (max-width: 900px) {
     .hint { display: none; }
   }

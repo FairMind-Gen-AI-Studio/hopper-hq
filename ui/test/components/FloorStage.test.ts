@@ -118,8 +118,9 @@ describe('FloorStage', () => {
     expect(logged).not.toHaveBeenCalled();
   });
 
-  it('says so, and logs why, when the renderer does not load', async () => {
+  it('offers a reload, and logs why, when the renderer does not load: the daemon may have been updated', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reload = vi.spyOn(location, 'reload').mockImplementation(() => {});
     const failure = new TypeError('Failed to fetch dynamically imported module');
     const onSelect = vi.fn();
     const target = render(FloorStage, {
@@ -131,7 +132,22 @@ describe('FloorStage', () => {
       onActivate: vi.fn(),
     });
     await settle();
-    expect(text(target.querySelector('.no-webgl'))).toBe('This browser cannot draw the floor in 3D. Its desks are listed in the panel.');
+    const notice = target.querySelector('.load-failed');
+    expect(notice?.getAttribute('role')).toBe('alert');
+    expect(text(notice?.querySelector('p'))).toBe('The 3D view could not load; the daemon may have been updated. Reload the page.');
+    expect(target.querySelector('.no-webgl')).toBeNull();
+    expect(logged).toHaveBeenCalledWith(failure);
+    click(notice?.querySelector('button'));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a reload too when the renderer loads but fails to mount for a reason other than WebGL', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = new Error('three.js could not start');
+    const { target } = stage(fakeRenderer({ fail: failure }));
+    await settle();
+    expect(text(target.querySelector('.load-failed p'))).toBe('The 3D view could not load; the daemon may have been updated. Reload the page.');
+    expect(target.querySelector('.no-webgl')).toBeNull();
     expect(logged).toHaveBeenCalledWith(failure);
   });
 
