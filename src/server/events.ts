@@ -18,6 +18,8 @@ export interface SceneHubOptions {
   tickMs?: number;
   /** Comment period that keeps idle connections open (default 25 s). */
   heartbeatMs?: number;
+  /** Output a client may leave unread before it is dropped (default 1 MiB). Every event carries full state: a client that reconnects has lost nothing. */
+  maxBufferedBytes?: number;
 }
 
 export const SSE_HEADERS: Readonly<Record<string, string>> = {
@@ -56,6 +58,7 @@ export class SceneHub {
       coalesceMs: o.coalesceMs ?? 250,
       tickMs: o.tickMs ?? 15_000,
       heartbeatMs: o.heartbeatMs ?? 25_000,
+      maxBufferedBytes: o.maxBufferedBytes ?? 1024 * 1024,
     };
     this.unsubscribe = o.source.onChange(() => this.schedule());
   }
@@ -71,7 +74,7 @@ export class SceneHub {
     this.clients.add(client);
     res.on('close', () => this.detach(client));
     res.writeHead(200, SSE_HEADERS);
-    res.write('retry: 3000\n\n');
+    this.write(client, 'retry: 3000\n\n');
     this.send(client, JSON.stringify(this.o.source.scene()), floor === null ? null : JSON.stringify(this.o.source.floor(floor)));
     this.startTimers();
     return true;
@@ -102,13 +105,24 @@ export class SceneHub {
 
   private send(c: Client, scene: string, detail: string | null): void {
     if (scene !== c.scene) {
-      c.res.write(`event: scene\ndata: ${scene}\n\n`);
+      if (!this.write(c, `event: scene\ndata: ${scene}\n\n`)) return;
       c.scene = scene;
     }
     if (detail !== null && detail !== c.detail) {
-      c.res.write(`event: floor\ndata: ${detail}\n\n`);
+      if (!this.write(c, `event: floor\ndata: ${detail}\n\n`)) return;
       c.detail = detail;
     }
+  }
+
+  /** Writes to a client, unless it has stopped reading: then it is dropped, and the answer is false. */
+  private write(c: Client, chunk: string): boolean {
+    if (c.res.writableLength > this.o.maxBufferedBytes) {
+      this.detach(c);
+      c.res.destroy();
+      return false;
+    }
+    c.res.write(chunk);
+    return true;
   }
 
   private schedule(): void {
@@ -124,7 +138,7 @@ export class SceneHub {
     if (this.tick) return;
     this.tick = setInterval(() => this.flush(), this.o.tickMs);
     this.heartbeat = setInterval(() => {
-      for (const c of this.clients) c.res.write(': ping\n\n');
+      for (const c of this.clients) this.write(c, ': ping\n\n');
     }, this.o.heartbeatMs);
   }
 

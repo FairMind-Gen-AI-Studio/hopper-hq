@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Server } from 'node:http';
+import { once } from 'node:events';
+import type { Server, ServerResponse } from 'node:http';
+import { connect, type Socket } from 'node:net';
 import { basename } from 'node:path';
 import { Collector } from '../../src/collector.js';
 import type { RawEvent } from '../../src/core/types.js';
+import type { BuildingScene } from '../../src/scene/types.js';
 import { UiAuth } from '../../src/server/auth.js';
-import { SceneHub, type SceneHubOptions } from '../../src/server/events.js';
+import { SceneHub, type SceneHubOptions, type SceneSource } from '../../src/server/events.js';
 import { createApiServer } from '../../src/server/http.js';
 import { bearer, close, listen } from '../helpers/http.js';
 import { isEvent, openSse, type SseStream } from '../helpers/sse.js';
@@ -170,5 +173,92 @@ describe('GET /api/events', () => {
     await Promise.all([a.ended, b.ended]);
     expect(t.hub.size).toBe(0);
     expect((await sse(t.port, '/api/events')).status).toBe(503);
+  });
+});
+
+/** A scene of about `bytes` characters: a different one at every read when `changing`, else always the same. */
+function heavySource(bytes: number, changing: boolean): SceneSource {
+  let reads = 0;
+  return {
+    scene: () => ({ version: 1, floors: [], attention: { needsYou: [], done: [] }, pad: String(changing ? reads++ : 0).padEnd(bytes, '.') }) as unknown as BuildingScene,
+    floor: () => null,
+    onChange: () => () => {},
+  };
+}
+
+async function serve(hub: SceneHub): Promise<number> {
+  const collector = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' }), saveDelayMs: 0 });
+  const server = createApiServer({ collector, token: TOKEN, hub });
+  open.push(server);
+  return listen(server);
+}
+
+/** Asks for a live view on a raw connection, then stops reading from it. */
+function stalledView(port: number): Promise<Socket> {
+  return new Promise((resolve) => {
+    const sock = connect(port, '127.0.0.1', () => {
+      sock.write(`GET /api/events HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${TOKEN}\r\n\r\n`);
+      sock.pause();
+      resolve(sock);
+    });
+    sock.on('error', () => {});
+  });
+}
+
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 300 && !ok(); i++) await sleep(10);
+};
+
+/** A response whose reader has stopped: everything written to it stays buffered. */
+function stalledResponse() {
+  const r = {
+    writableLength: 0,
+    destroyed: false,
+    writeHead: () => r,
+    on: () => r,
+    write: (chunk: string) => {
+      r.writableLength += Buffer.byteLength(chunk);
+      return false;
+    },
+    destroy: () => {
+      r.destroyed = true;
+    },
+    end: () => {},
+  };
+  return r;
+}
+
+describe('a live view that stops reading', () => {
+  it('is dropped once its unread output passes the limit, and the others keep their stream', async () => {
+    const hub = new SceneHub({ source: heavySource(128 * 1024, true), maxBufferedBytes: 64 * 1024, coalesceMs: 30, tickMs: LONG, heartbeatMs: LONG });
+    const port = await serve(hub);
+    const reader = await sse(port, '/api/events');
+    await reader.take(isEvent('scene'));
+    const stalled = await stalledView(port);
+    await until(() => hub.size === 2);
+    for (let i = 0; i < 400 && hub.size === 2; i++) {
+      hub.flush();
+      await reader.take(isEvent('scene'));
+    }
+    expect(hub.size).toBe(1);
+    const gone = once(stalled, 'close');
+    stalled.resume();
+    await gone;
+    hub.flush();
+    expect((await reader.take(isEvent('scene'))).data).toMatch(/^\{"version":1,/);
+  });
+
+  it('is dropped at the heartbeat when nothing changes, past 1 MiB by default', async () => {
+    const hub = new SceneHub({ source: heavySource(1024, false), coalesceMs: 30, tickMs: LONG, heartbeatMs: 20 });
+    const res = stalledResponse();
+    try {
+      expect(hub.attach(res as unknown as ServerResponse, null)).toBe(true);
+      res.writableLength += 1024 * 1024;
+      await until(() => hub.size === 0);
+      expect(hub.size).toBe(0);
+      expect(res.destroyed).toBe(true);
+    } finally {
+      hub.close();
+    }
   });
 });
