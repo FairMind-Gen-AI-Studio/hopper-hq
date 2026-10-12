@@ -1,0 +1,107 @@
+/*
+ * The 3D floor's labels (ui/renderer/labels.ts): HTML laid over the canvas and moved by projection.
+ * Colours and fonts come from the theme tokens of ui/styles/tokens.css; each has a day fallback.
+ */
+.fv-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fv-tag,
+.fv-sign {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.fv-tag {
+  --fv-state: var(--line, #d0d8e1);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 2px 6px;
+  font: 500 11px/1.2 var(--font-mono, ui-monospace, monospace);
+  color: var(--fg, #18202b);
+  background: color-mix(in oklab, var(--panel, #fbfcfd) 90%, transparent);
+  border: 1px solid var(--line, #d0d8e1);
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.fv-tag:hover {
+  background: var(--hover, #eef2f6);
+}
+
+.fv-tag:focus-visible,
+.fv-tag.fv-sel {
+  outline: 2px solid var(--accent, #2c59c9);
+  outline-offset: 1px;
+}
+
+.fv-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--fv-state);
+}
+
+.fv-st-working { --fv-state: var(--s-working, #e8b030); }
+.fv-st-done { --fv-state: var(--s-done, #1c9a6a); }
+.fv-st-in_meeting { --fv-state: var(--s-meeting, #6857db); }
+.fv-st-no_signal { --fv-state: var(--s-nosignal, #c88a35); }
+.fv-st-dormant { opacity: 0.7; }
+
+.fv-st-needs_you {
+  --fv-state: var(--s-needs, #d63a3a);
+  border-color: var(--s-needs, #d63a3a);
+  color: var(--needs-ink, #b92d2d);
+  font-weight: 600;
+}
+
+.fv-agents,
+.fv-remote {
+  color: var(--muted, #566173);
+}
+
+.fv-badge-needs .fv-dot {
+  animation: fv-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes fv-pulse {
+  0%,
+  100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--s-needs, #d63a3a) 55%, transparent); }
+  50% { box-shadow: 0 0 0 4px transparent; }
+}
+
+.fv-sign {
+  padding: 3px 7px;
+  border-radius: 3px;
+  font: 700 12px/1.25 var(--font-display, "Arial Narrow", sans-serif);
+  font-stretch: 75%;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sign-fg, #f3f5fa);
+  background: var(--sign-bg, #20263a);
+  pointer-events: none;
+}
+
+.fv-sign small {
+  display: block;
+  font: 400 10px/1.25 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fv-badge-needs .fv-dot {
+    animation: none;
+  }
+}
