@@ -85,6 +85,27 @@ describe('FsAdapter', () => {
     expect(events).toEqual([{ type: 'session.ended', sessionId: 'S1', ts: now, source: 'fs', cwd: CWD, reason: 'process-gone' }]);
   });
 
+  it('reports the sessions whose process is alive once, after its first scan that completes', async () => {
+    await writeSession(SESSION);
+    const reports: string[][] = [];
+    let failing = true;
+    const a = adapter({
+      probe: async (pids) => {
+        if (failing) {
+          failing = false;
+          throw new Error('ps failed');
+        }
+        return new Map(pids.map((p) => [p, T0 - 1000]));
+      },
+      onFirstScan: (live) => reports.push([...live]),
+    });
+    await a.poll();
+    expect(reports).toEqual([]);
+    await a.poll();
+    await a.poll();
+    expect(reports).toEqual([['S1']]);
+  });
+
   it('ignores a file whose pid now belongs to a newer process', async () => {
     await writeSession(SESSION);
     await adapter({ probe: async (pids) => new Map(pids.map((p) => [p, T0 + 10 * 60_000])) }).poll();

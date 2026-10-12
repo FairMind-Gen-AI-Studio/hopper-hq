@@ -4,9 +4,11 @@ import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { newSession } from '../src/core/reducer.js';
 import { readDaemonFile } from '../src/daemon-file.js';
 import { startDaemon } from '../src/daemon.js';
 import { CSP } from '../src/server/headers.js';
+import { Store } from '../src/store/store.js';
 import { bearer, call } from './helpers/http.js';
 import { isEvent, openSse } from './helpers/sse.js';
 
@@ -63,6 +65,41 @@ describe('startDaemon', () => {
     await expect(startDaemon({ port, dataDir: await tmp('shq-data-'), claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet }))
       .rejects.toMatchObject({ code: 'EADDRINUSE' });
     await new Promise<void>((r) => blocker.close(() => r()));
+  });
+});
+
+describe('startDaemon and the sessions it saved', () => {
+  /** A data directory that holds one session, saved while it was working an hour ago, and a Claude directory with no session file. */
+  async function leftBehind(): Promise<{ dataDir: string; claudeDir: string }> {
+    const dataDir = await tmp('shq-data-');
+    const claudeDir = await tmp('shq-claude-');
+    await mkdir(join(claudeDir, 'sessions'));
+    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const cwd = '/w/alpha';
+    store.saveSessions([{ ...newSession('S1', Date.now() - 60 * 60_000, { cwd, repoRoot: cwd, repoName: 'alpha', worktree: false, branch: 'main' }), state: 'working' }], Date.now());
+    store.close();
+    return { dataDir, claudeDir };
+  }
+
+  it('ends a saved session whose process exited while it was down, once it has looked for the live ones', async () => {
+    const d = await startDaemon({ port: 0, ...(await leftBehind()), log: quiet });
+    try {
+      for (let i = 0; i < 300 && d.collector.liveViews().length > 0; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(d.collector.liveViews()).toEqual([]);
+      expect(d.collector.view('S1')?.state).toBe('ended');
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('leaves saved sessions as they are when it does not watch files', async () => {
+    const d = await startDaemon({ port: 0, ...(await leftBehind()), watchFiles: false, log: quiet });
+    try {
+      await d.collector.idle();
+      expect(d.collector.view('S1')?.state).toBe('working');
+    } finally {
+      await d.stop();
+    }
   });
 });
 

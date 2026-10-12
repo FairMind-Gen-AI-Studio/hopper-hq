@@ -18,6 +18,8 @@ export interface FsAdapterOptions {
   tailBytes?: number;
   subagentScanMs?: number;
   transcriptRetryMs?: number;
+  /** Called once, after the first scan that completes, with the sessions whose process is alive: any other has exited. */
+  onFirstScan?: (live: ReadonlySet<string>) => void;
 }
 
 interface Tracked {
@@ -51,6 +53,7 @@ export class FsAdapter {
   private readonly tracked = new Map<string, Tracked>();
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
+  private scanned = false;
   private readonly now: () => number;
   private readonly probe: ProcessProbe;
 
@@ -110,6 +113,11 @@ export class FsAdapter {
       if (t.ended || live.has(id)) continue;
       t.ended = true;
       this.o.emit({ type: 'session.ended', sessionId: id, ts: now, source: 'fs', cwd: t.file.cwd, reason: 'process-gone' });
+    }
+
+    if (!this.scanned) {
+      this.scanned = true;
+      this.o.onFirstScan?.(live);
     }
   }
 

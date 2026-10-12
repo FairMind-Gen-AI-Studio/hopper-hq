@@ -66,6 +66,8 @@ export class Collector {
   private readonly occupants = new Map<string, number>();
   /** Floors opened or forgotten since the last save. */
   private readonly dirtyFloors = new Set<string>();
+  /** Local sessions restored from the store that no source has reported since: whether their process still runs is not known yet. */
+  private readonly unconfirmed = new Set<string>();
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private seq = 0;
@@ -82,6 +84,7 @@ export class Collector {
       if (!isSessionId(s.id)) continue;
       this.sessions.set(s.id, s);
       this.seq = Math.max(this.seq, s.lastSeq + 1);
+      if (s.location === 'local' && s.state !== 'ended') this.unconfirmed.add(s.id);
     }
     // Sessions saved before floors were recorded: each floor opened when its earliest live session started.
     const opened = new Map<string, number>();
@@ -138,6 +141,8 @@ export class Collector {
       this.dropped++;
       return this.queue;
     }
+    // A source that reports a session has seen it alive since the daemon started.
+    this.unconfirmed.delete(raw.sessionId);
     const e = { ...raw, seq: this.seq++ } as CollectorEvent;
     this.queue = this.queue.then(() => this.apply(e)).catch(() => {
       this.dropped++;
@@ -148,6 +153,20 @@ export class Collector {
   /** Resolves when every event ingested so far has been applied. */
   idle(): Promise<void> {
     return this.queue;
+  }
+
+  /**
+   * Ends the sessions restored from the store that no source has reported since and that `live` does not hold: their
+   * process exited while the daemon was down, so no adapter saw them go, and they would hold their floors for good. Each
+   * ends as of its last event, so anything newer still wins. Only the first call finds any.
+   */
+  endGone(live: ReadonlySet<string>): void {
+    const gone = [...this.unconfirmed].filter((id) => !live.has(id));
+    this.unconfirmed.clear();
+    for (const id of gone) {
+      const s = this.sessions.get(id)!;
+      void this.ingest({ type: 'session.ended', sessionId: id, ts: Math.max(s.lastEventAt, s.startedAt), source: 'fs', cwd: s.workspace.cwd, reason: 'process-gone' });
+    }
   }
 
   private async apply(e: CollectorEvent): Promise<void> {

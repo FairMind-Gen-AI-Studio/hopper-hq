@@ -104,7 +104,13 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
 
   const fsAdapter = opts.demo || opts.watchFiles === false
     ? null
-    : new FsAdapter({ claudeDir: paths.claudeDir, emit: (e) => void collector.ingest(e), resolveWorkspace });
+    : new FsAdapter({
+        claudeDir: paths.claudeDir,
+        emit: (e) => void collector.ingest(e),
+        resolveWorkspace,
+        // A session that exited while the daemon was down left no live process: once the first scan has found the live ones, it ends.
+        onFirstScan: (live) => collector.endGone(live),
+      });
   fsAdapter?.start();
   const demo = opts.demo ? startDemo((e) => void collector.ingest(e)) : null;
   log(`scranton-hq is listening on http://127.0.0.1:${port}`);

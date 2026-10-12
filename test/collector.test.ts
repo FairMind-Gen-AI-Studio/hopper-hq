@@ -173,6 +173,29 @@ describe('Collector', () => {
     await b.close();
     store.close();
   });
+
+  it('ends the sessions it restored that nothing has reported since and whose process is gone, as of their last event', async () => {
+    const store = await Store.open(':memory:');
+    const a = collector({ store });
+    await a.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A1', cwd: '/w/alpha', ts: NOW }));
+    await a.ingest(hook({ type: 'prompt', text: 'b', sessionId: 'B1', cwd: '/w/beta', ts: NOW + 10 }));
+    await a.ingest(hook({ type: 'prompt', text: 'c', sessionId: 'C1', cwd: '/w/gamma', ts: NOW + 20 }));
+    await a.close();
+    store.saveSessions([{ ...newSession('R1', NOW, { cwd: '/w/delta', repoRoot: '/w/delta', repoName: 'delta', worktree: false, branch: 'main' }), location: 'cloud', state: 'working' }], NOW);
+
+    const b = collector({ store });
+    await b.ingest(hook({ type: 'prompt', text: 'c again', sessionId: 'C1', cwd: '/w/gamma', ts: NOW + 30 }));
+    b.endGone(new Set(['B1']));
+    await b.idle();
+    expect(b.view('A1')).toMatchObject({ state: 'ended', stateSince: NOW });
+    expect(b.liveViews().map((v) => v.id)).toEqual(['B1', 'C1', 'R1']);
+    expect(b.snapshot().floors.map((f) => f.key)).toEqual(['repo:/w/gamma', 'repo:/w/beta', 'repo:/w/delta']);
+    b.endGone(new Set());
+    await b.idle();
+    expect(b.liveViews().map((v) => v.id)).toEqual(['B1', 'C1', 'R1']);
+    await b.close();
+    store.close();
+  });
 });
 
 describe('floor order', () => {
