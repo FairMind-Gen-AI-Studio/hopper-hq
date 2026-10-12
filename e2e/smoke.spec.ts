@@ -136,6 +136,19 @@ async function centre(tag: Locator): Promise<{ x: number; y: number }> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
+/** What the smoke test reads of GET /api/scene. */
+interface Scene {
+  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string }> }>;
+  attention: Record<'needsYou' | 'done', Array<{ sessionId: string; name: string; floorKey: string }>>;
+}
+
+/** The building as the daemon sees it now, asked with the page's own sign-in. */
+async function sceneOf(page: Page): Promise<Scene> {
+  const answer = await page.request.get(new URL('/api/scene', page.url()).href);
+  expect(answer.status()).toBe(200);
+  return (await answer.json()) as Scene;
+}
+
 let demo: Demo;
 
 test.beforeAll(async () => {
@@ -284,18 +297,35 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
     await expect(page.locator(`button.fv-tag[data-session="${first.desk}"]`)).toBeVisible();
   });
 
-  await test.step('Esc goes back up to the building, and another floor opens on a fresh canvas', async () => {
+  let second = '';
+  await test.step('an attention entry on another floor opens that floor straight from this one, on a fresh canvas', async () => {
+    const { attention } = await sceneOf(page);
+    const entry = [...attention.needsYou, ...attention.done].find((e) => e.floorKey !== first.floor);
+    expect(entry, 'an attention entry on another floor than the first').toBeDefined();
+    const old = await canvas.elementHandle();
+    await page.locator('.attention li.chip').filter({ has: page.getByText(entry!.name, { exact: true }) }).locator('button.open').click();
+    await expect.poll(() => route(page)).toEqual({ floor: entry!.floorKey, desk: entry!.sessionId });
+    await expect(page.locator(`button.fv-tag[data-session="${entry!.sessionId}"]`)).toBeVisible();
+    await expect(page.locator('.no-webgl, .load-failed')).toHaveCount(0);
+    expect(await canvas.evaluate((now, before) => now !== before, old)).toBe(true);
+    second = entry!.floorKey;
+  });
+
+  await test.step('Esc goes back up to the building, and a floor not opened yet opens on a fresh canvas', async () => {
     await page.keyboard.press('Escape');
-    await expect.poll(() => route(page)).toEqual({ floor: first.floor, desk: null });
+    await expect.poll(() => route(page)).toEqual({ floor: second, desk: null });
     await page.keyboard.press('Escape');
     await expect(page.locator('.stage svg.facade')).toBeVisible();
     await expect(canvas).toHaveCount(0);
-    const floors = page.locator('.stage svg.facade g.floor');
-    await floors.last().focus();
+    const { floors } = await sceneOf(page);
+    const next = floors.find((f) => f.key !== first.floor && f.key !== second) ?? floors.find((f) => f.key !== second);
+    expect(next, 'a floor other than the one just left').toBeDefined();
+    await page.locator(`.stage svg.facade g.floor[aria-label^="Floor ${next!.number}, "]`).focus();
     await page.keyboard.press('Enter');
+    await expect.poll(() => route(page).floor).toBe(next!.key);
     await expect(canvas).toBeVisible();
-    await expect(page.locator('button.fv-tag').first()).toBeVisible();
-    await expect(page.locator('.no-webgl')).toHaveCount(0);
+    await expect(page.locator(`button.fv-tag[data-session="${next!.windows[0]!.sessionId}"]`)).toBeVisible();
+    await expect(page.locator('.no-webgl, .load-failed')).toHaveCount(0);
   });
 
   await test.step('the bundled fonts load from the daemon', async () => {
