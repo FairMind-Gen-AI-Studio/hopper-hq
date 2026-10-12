@@ -56,7 +56,7 @@ describe('FsAdapter', () => {
     const path = await writeTranscript(encodeProjectDir(CWD), LINES);
     await adapter().poll();
     expect(events.map((e) => e.type)).toEqual(['session.seen', 'prompt', 'branch', 'title', 'tool.started', 'session.status']);
-    expect(events[0]).toMatchObject({ sessionId: 'S1', source: 'fs', pid: 4242, name: 'orders-api-a1', tmuxPane: '%7', transcriptPath: path, startedAt: T0, workspace: { cwd: CWD } });
+    expect(events[0]).toMatchObject({ sessionId: 'S1', source: 'fs', pid: 4242, name: 'orders-api-a1', tmuxPane: '%7', tmuxSession: 'x', transcriptPath: path, startedAt: T0, workspace: { cwd: CWD } });
     expect(events[4]).toMatchObject({ label: 'Bash: npm test', cwd: CWD });
     expect(events[5]).toMatchObject({ status: 'busy', ts: T0 + 5000 });
   });

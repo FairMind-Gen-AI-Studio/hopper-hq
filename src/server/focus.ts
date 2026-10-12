@@ -3,9 +3,10 @@ import { execFile } from 'node:child_process';
 export type TmuxRunner = (args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 export interface FocusDriver {
   simulated: boolean;
-  focus(pane: string): Promise<FocusOutcome>;
+  /** `session`: the tmux session the pane should be in, when it is known. */
+  focus(pane: string, session?: string | null): Promise<FocusOutcome>;
 }
-export type FocusOutcome = { ok: true } | { ok: false; reason: 'invalid_pane' | 'no_client' | 'tmux_failed' };
+export type FocusOutcome = { ok: true } | { ok: false; reason: 'invalid_pane' | 'no_client' | 'other_session' | 'tmux_failed' };
 
 const PANE = /^%\d+$/;
 const TTY = /^\/dev\/[\w./-]+$/;
@@ -31,15 +32,24 @@ function pickClient(listing: string): string | null {
   return best?.tty ?? null;
 }
 
-/** Switches the user's tmux client to a pane. The pane comes from a known session, never from a request. */
+/**
+ * Switches the user's tmux client to a pane. The pane comes from a known session, never from a request.
+ * Pane ids are per tmux server, so the same %N on the daemon's server can be another pane: when the session's tmux
+ * session is known, the pane must be in it. When it is not known, the pane is trusted as before; two servers whose
+ * sessions share a name (tmux names them 0, 1, … by default) and a pane id still look alike.
+ */
 export function tmuxFocusDriver(run: TmuxRunner = execTmux): FocusDriver {
   return {
     simulated: false,
-    async focus(pane) {
+    async focus(pane, session) {
       if (!PANE.test(pane)) return { ok: false, reason: 'invalid_pane' };
       const clients = await run(['list-clients', '-F', '#{client_activity} #{client_tty}']);
       const tty = clients.code === 0 ? pickClient(clients.stdout) : null;
       if (!tty) return { ok: false, reason: 'no_client' };
+      if (session) {
+        const owner = await run(['display-message', '-p', '-t', pane, '#{session_name}']);
+        if (owner.code !== 0 || owner.stdout.replace(/\n$/, '') !== session) return { ok: false, reason: 'other_session' };
+      }
       if ((await run(['switch-client', '-c', tty, '-t', pane])).code !== 0) return { ok: false, reason: 'tmux_failed' };
       await run(['select-window', '-t', pane]);
       if ((await run(['select-pane', '-t', pane])).code !== 0) return { ok: false, reason: 'tmux_failed' };

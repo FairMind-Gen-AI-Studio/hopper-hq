@@ -73,6 +73,37 @@ describe('tmuxFocusDriver', () => {
     }
   });
 
+  it('checks that the pane is in its session before switching', async () => {
+    const t = fakeTmux({ 'list-clients': { code: 0, stdout: CLIENTS }, 'display-message': { code: 0, stdout: 'work\n' } });
+    expect(await tmuxFocusDriver(t.run).focus('%7', 'work')).toEqual({ ok: true });
+    expect(t.calls).toEqual([
+      LIST,
+      ['display-message', '-p', '-t', '%7', '#{session_name}'],
+      ['switch-client', '-c', '/dev/ttys004', '-t', '%7'],
+      ['select-window', '-t', '%7'],
+      ['select-pane', '-t', '%7'],
+    ]);
+  });
+
+  it('refuses a pane in another session or on another server, and switches nothing', async () => {
+    for (const reply of [{ code: 0, stdout: 'scratch\n' }, { code: 0, stdout: 'work-2\n' }, { code: 1, stderr: "can't find pane: %7" }]) {
+      const t = fakeTmux({ 'list-clients': { code: 0, stdout: CLIENTS }, 'display-message': reply });
+      expect(await tmuxFocusDriver(t.run).focus('%7', 'work')).toEqual({ ok: false, reason: 'other_session' });
+      expect(t.calls.map((c) => c[0])).toEqual(['list-clients', 'display-message']);
+    }
+    const down = fakeTmux({ 'list-clients': { code: 1, stderr: 'no server running on /tmp/tmux-501/default' } });
+    expect(await tmuxFocusDriver(down.run).focus('%7', 'work')).toEqual({ ok: false, reason: 'no_client' });
+    expect(down.calls).toEqual([LIST]);
+  });
+
+  it('switches without that check when the session is unknown', async () => {
+    for (const session of [null, undefined]) {
+      const t = fakeTmux({ 'list-clients': { code: 0, stdout: CLIENTS } });
+      expect(await tmuxFocusDriver(t.run).focus('%7', session)).toEqual({ ok: true });
+      expect(t.calls.map((c) => c[0])).toEqual(['list-clients', 'switch-client', 'select-window', 'select-pane']);
+    }
+  });
+
   it('reports tmux_failed when switch-client fails, and stops there', async () => {
     const t = fakeTmux({ 'list-clients': { code: 0, stdout: CLIENTS }, 'switch-client': { code: 1, stderr: "can't find pane: %7" } });
     expect(await tmuxFocusDriver(t.run).focus('%7')).toEqual({ ok: false, reason: 'tmux_failed' });
@@ -125,19 +156,21 @@ describe('POST /api/focus', () => {
   const TOKEN = 'h'.repeat(48);
   const T0 = 1_791_700_000_000;
   const ws = (cwd: string): Workspace => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
-  const seenIn = (sessionId: string, tmuxPane: string | null): RawEvent => ({
-    type: 'session.seen', sessionId, ts: T0 - 5000, source: 'hook', cwd: '/w/orders-api', workspace: ws('/w/orders-api'), pid: null, name: null, tmuxPane, startedAt: T0 - 5000,
+  const seenIn = (sessionId: string, tmuxPane: string | null, tmuxSession?: string): RawEvent => ({
+    type: 'session.seen', sessionId, ts: T0 - 5000, source: 'hook', cwd: '/w/orders-api', workspace: ws('/w/orders-api'), pid: null, name: null, tmuxPane, tmuxSession, startedAt: T0 - 5000,
   });
   const waiting = (sessionId: string): RawEvent => ({ type: 'waiting', sessionId, ts: T0 - 4000, source: 'hook', cwd: '/w/orders-api', reason: { kind: 'permission', text: 'Bash' }, agentId: null });
 
   let collector: Collector;
   let auth: UiAuth;
   const panes: string[] = [];
+  const sessions: Array<string | null | undefined> = [];
   let outcome: FocusOutcome = { ok: true };
   const driver: FocusDriver = {
     simulated: false,
-    focus: async (pane) => {
+    focus: async (pane, session) => {
       panes.push(pane);
+      sessions.push(session);
       return outcome;
     },
   };
@@ -146,7 +179,7 @@ describe('POST /api/focus', () => {
 
   beforeAll(async () => {
     collector = new Collector({ resolveWorkspace: async (cwd) => ws(cwd), saveDelayMs: 0, now: () => T0 });
-    for (const e of [seenIn('LOCAL', '%7'), waiting('LOCAL'), waiting('NOPANE'), seenIn('ENDED', '%8')]) void collector.ingest(e);
+    for (const e of [seenIn('LOCAL', '%7'), waiting('LOCAL'), waiting('NOPANE'), seenIn('ENDED', '%8'), seenIn('NAMED', '%9', 'work')]) void collector.ingest(e);
     void collector.ingest({ type: 'session.ended', sessionId: 'ENDED', ts: T0 - 3000, source: 'hook', reason: 'exit' });
     await collector.idle();
     auth = new UiAuth({ token: TOKEN, now: () => T0 });
@@ -156,6 +189,7 @@ describe('POST /api/focus', () => {
   afterAll(() => close(server));
   beforeEach(() => {
     panes.length = 0;
+    sessions.length = 0;
     outcome = { ok: true };
   });
 
@@ -198,6 +232,13 @@ describe('POST /api/focus', () => {
     expect((await focus('{"sessionId":"LOCAL"}')).status).toBe(409);
     outcome = { ok: false, reason: 'tmux_failed' };
     expect(await focus('{"sessionId":"LOCAL"}')).toMatchObject({ status: 502, json: { error: 'tmux could not switch to the pane' } });
+  });
+
+  it("gives the driver the session's tmux session, and refuses a pane that is not in it", async () => {
+    expect(await focus('{"sessionId":"NAMED"}')).toMatchObject({ status: 200, json: { pane: '%9' } });
+    expect(sessions).toEqual(['work']);
+    outcome = { ok: false, reason: 'other_session' };
+    expect(await focus('{"sessionId":"NAMED"}')).toMatchObject({ status: 409, json: { error: 'The pane is on another tmux server or session' } });
   });
 
   it('answers 415 to a body that is not JSON', async () => {

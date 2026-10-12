@@ -217,9 +217,10 @@ async function postFocus(d: Deps, { req, res }: Ctx): Promise<void> {
   if (v.effectiveState === 'ended') return send(res, 409, { error: 'The session has ended' });
   if (v.location !== 'local') return send(res, 409, { error: 'The session does not run on this machine' });
   if (!v.tmuxPane) return send(res, 409, { error: 'The session is not in a tmux pane' });
-  const outcome = await d.focus.focus(v.tmuxPane);
+  const outcome = await d.focus.focus(v.tmuxPane, v.tmuxSession);
   if (outcome.ok) return send(res, 200, { pane: v.tmuxPane, simulated: d.focus.simulated });
   if (outcome.reason === 'tmux_failed') return send(res, 502, { error: 'tmux could not switch to the pane' });
+  if (outcome.reason === 'other_session') return send(res, 409, { error: 'The pane is on another tmux server or session' });
   send(res, 409, { error: outcome.reason === 'no_client' ? 'No tmux client is attached' : 'The session is not in a tmux pane' });
 }
 

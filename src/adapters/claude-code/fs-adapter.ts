@@ -125,6 +125,7 @@ export class FsAdapter {
       pid: f.pid,
       name: f.name,
       tmuxPane: f.tmuxPane,
+      tmuxSession: f.tmuxSession,
       transcriptPath: transcript,
       startedAt: f.startedAt || now,
     });

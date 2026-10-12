@@ -58,6 +58,8 @@ export interface Session {
   pid: number | null;
   name: string | null;
   tmuxPane: string | null;
+  /** The tmux session the pane is in, as Claude Code wrote it; null when unknown. Pane ids are per tmux server: this tells two %N apart. */
+  tmuxSession: string | null;
   transcriptPath: string | null;
   workspace: Workspace;
   state: SessionState;
@@ -103,6 +105,7 @@ export type CollectorEvent = EventBase &
         pid?: number | null;
         name?: string | null;
         tmuxPane?: string | null;
+        tmuxSession?: string | null;
         transcriptPath?: string | null;
         startedAt?: number;
       }

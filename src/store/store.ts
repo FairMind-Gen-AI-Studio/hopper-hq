@@ -66,8 +66,8 @@ export class Store {
     for (const r of rows) {
       try {
         const s = JSON.parse(r.json) as Session;
-        // A row written by an older version has no waitAgentId: its wait is the session's own.
-        out.push({ ...s, waitAgentId: s.waitAgentId ?? null });
+        // A row written by an older version has no waitAgentId (its wait is the session's own) and no tmuxSession (unknown).
+        out.push({ ...s, waitAgentId: s.waitAgentId ?? null, tmuxSession: s.tmuxSession ?? null });
       } catch {
         // skip a corrupt row
       }

@@ -17,6 +17,16 @@ describe('applyEvent', () => {
     expect(s).toMatchObject({ id: 'S1', state: 'idle', stateSince: 1000, pid: 42, name: 'orders-api-a1', tmuxPane: '%7', workspace: WS, startedAt: 1000 });
   });
 
+  it('takes a pane and its tmux session together, from the same session.seen', () => {
+    const named = run(ev('session.seen', 1000, { workspace: WS, tmuxPane: '%7', tmuxSession: 'work' }));
+    expect([named.tmuxPane, named.tmuxSession]).toEqual(['%7', 'work']);
+    const kept = applyEvent(named, ev('session.seen', 1100, { workspace: WS, tmuxPane: null }))!;
+    expect([kept.tmuxPane, kept.tmuxSession]).toEqual(['%7', 'work']);
+    const moved = applyEvent(named, ev('session.seen', 1200, { workspace: WS, tmuxPane: '%9' }))!;
+    expect([moved.tmuxPane, moved.tmuxSession]).toEqual(['%9', null]);
+    expect(run(seen()).tmuxSession).toBeNull();
+  });
+
   it('merges a later session.seen without changing state', () => {
     const s = run(seen(1000), ev('prompt', 1100, { text: 'go' }), ev('session.seen', 1200, { workspace: { ...WS, branch: null }, pid: null, name: 'renamed' }));
     expect(s.state).toBe('working');

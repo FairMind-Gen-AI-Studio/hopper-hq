@@ -31,6 +31,15 @@ describe('Store', () => {
     store.close();
   });
 
+  it("keeps a session's tmux session, and loads one saved without it as unknown", async () => {
+    const store = await Store.open(':memory:');
+    const older: Partial<Session> = newSession('S1', 1000, WS);
+    delete older.tmuxSession;
+    store.saveSessions([older as Session, { ...newSession('S2', 1000, WS), tmuxPane: '%3', tmuxSession: 'work' }], 5);
+    expect(store.loadSessions().map((s) => [s.id, s.tmuxSession])).toEqual([['S1', null], ['S2', 'work']]);
+    store.close();
+  });
+
   it('remembers when each floor was first seen, keeping the first time recorded', async () => {
     const store = await Store.open(':memory:');
     expect(store.loadFloors()).toEqual(new Map());

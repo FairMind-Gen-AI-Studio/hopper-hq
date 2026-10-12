@@ -34,13 +34,27 @@ describe('parseSessionFile', () => {
       waitingFor: 'input needed',
       name: 'orders-api-7c',
       tmuxPane: '%12',
+      tmuxSession: 'xirp-7ef904e4',
       kind: 'interactive',
     });
   });
 
+  it("keeps the tmux session a pane is in, when Claude Code's field names it", () => {
+    const tmuxOf = (tmux: unknown) => {
+      const r = parseSessionFile('/s/1.json', JSON.stringify({ pid: 1, sessionId: 'S', cwd: '/w', tmux }))!;
+      return [r.tmuxPane, r.tmuxSession];
+    };
+    expect(tmuxOf('work:@3.%41')).toEqual(['%41', 'work']);
+    expect(tmuxOf('my session:@3.%41')).toEqual(['%41', 'my session']);
+    expect(tmuxOf('%41')).toEqual(['%41', null]);
+    expect(tmuxOf(':@3.%41')).toEqual(['%41', null]);
+    expect(tmuxOf('work')).toEqual([null, null]);
+    expect(tmuxOf(7)).toEqual([null, null]);
+  });
+
   it('degrades missing or unknown optional fields', () => {
     const r = parseSessionFile('/s/1.json', JSON.stringify({ pid: 1, sessionId: 'S', cwd: '/w', status: 'thinking' }));
-    expect(r).toMatchObject({ startedAt: 0, status: null, statusUpdatedAt: null, waitingFor: null, name: null, tmuxPane: null, kind: null });
+    expect(r).toMatchObject({ startedAt: 0, status: null, statusUpdatedAt: null, waitingFor: null, name: null, tmuxPane: null, tmuxSession: null, kind: null });
   });
 
   it('rejects files without pid, sessionId or cwd, and bad JSON', () => {

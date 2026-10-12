@@ -17,11 +17,21 @@ export interface LiveSessionFile {
   waitingFor: string | null;
   name: string | null;
   tmuxPane: string | null;
+  /** The tmux session the pane is in, when the field names it. */
+  tmuxSession: string | null;
   kind: string | null;
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+
+/** Claude Code's tmux field, 'session:@window.%pane': the pane id, and the session when the field names it. */
+function parseTmux(tmux: string | null): { tmuxPane: string | null; tmuxSession: string | null } {
+  if (!tmux) return { tmuxPane: null, tmuxSession: null };
+  const full = /^(.+):@\d+\.(%\d+)$/.exec(tmux);
+  if (full) return { tmuxPane: full[2]!, tmuxSession: full[1]! };
+  return { tmuxPane: tmux.match(/%\d+$/)?.[0] ?? null, tmuxSession: null };
+}
 
 export function parseSessionFile(file: string, text: string): LiveSessionFile | null {
   let d: Record<string, unknown>;
@@ -34,7 +44,6 @@ export function parseSessionFile(file: string, text: string): LiveSessionFile | 
   }
   if (!Number.isInteger(d.pid) || typeof d.sessionId !== 'string' || !d.sessionId || typeof d.cwd !== 'string' || !d.cwd) return null;
   const status = d.status === 'busy' || d.status === 'idle' || d.status === 'waiting' ? d.status : null;
-  const tmux = str(d.tmux);
   return {
     file,
     pid: d.pid as number,
@@ -45,7 +54,7 @@ export function parseSessionFile(file: string, text: string): LiveSessionFile | 
     statusUpdatedAt: num(d.statusUpdatedAt),
     waitingFor: str(d.waitingFor),
     name: str(d.name),
-    tmuxPane: tmux ? (tmux.match(/%\d+$/)?.[0] ?? null) : null,
+    ...parseTmux(str(d.tmux)),
     kind: str(d.kind),
   };
 }
