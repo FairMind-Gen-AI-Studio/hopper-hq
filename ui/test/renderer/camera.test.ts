@@ -81,6 +81,16 @@ describe('camera moves', () => {
     expect(jump.done(1000)).toBe(true);
   });
 
+  it('turns the long way round when told to', () => {
+    const a = { target: { x: 0, z: 0 }, azimuth: HOME_AZIMUTH, zoom: 1 };
+    const b = { ...a, azimuth: HOME_AZIMUTH + 3 * QUARTER };
+    expect(new Tween(a, b, 0, 100).at(50).azimuth).toBeCloseTo(HOME_AZIMUTH - QUARTER / 2, 10);
+    const long = new Tween(a, b, 0, 100, 3 * QUARTER);
+    expect(long.turn).toBe(3 * QUARTER);
+    expect(long.at(50).azimuth).toBeCloseTo(HOME_AZIMUTH + 1.5 * QUARTER, 10);
+    expect(long.at(100)).toBe(b);
+  });
+
   it('turns the short way round, across the half turn', () => {
     expect(turnBetween(0.9 * Math.PI, -0.9 * Math.PI)).toBeCloseTo(0.2 * Math.PI, 10);
     expect(turnBetween(-HOME_AZIMUTH, HOME_AZIMUTH + TURN)).toBeCloseTo(QUARTER, 10);

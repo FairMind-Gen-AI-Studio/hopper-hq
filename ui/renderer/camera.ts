@@ -78,17 +78,23 @@ export function lerpPose(a: CameraPose, b: CameraPose, t: number): CameraPose {
   };
 }
 
-/** An eased move from one pose to another, started at `start` (ms) and lasting `duration` ms; 0 jumps at once. */
+/**
+ * An eased move from one pose to another, started at `start` (ms) and lasting `duration` ms; 0 jumps at once. It
+ * turns by `turn`, the short way round to `to` unless told otherwise.
+ */
 export class Tween {
   constructor(
     readonly from: CameraPose,
     readonly to: CameraPose,
     readonly start: number,
     readonly duration: number,
+    readonly turn = turnBetween(from.azimuth, to.azimuth),
   ) {}
 
   at(now: number): CameraPose {
-    return this.done(now) ? this.to : lerpPose(this.from, this.to, easeInOut((now - this.start) / this.duration));
+    if (this.done(now)) return this.to;
+    const t = easeInOut((now - this.start) / this.duration);
+    return { ...lerpPose(this.from, this.to, t), azimuth: this.from.azimuth + this.turn * t };
   }
 
   done(now: number): boolean {

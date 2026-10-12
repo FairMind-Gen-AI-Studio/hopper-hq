@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
-import { PAN_MS, ROTATE_MS } from '../../renderer/camera';
+import { PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
@@ -467,6 +467,33 @@ describe('the floor view', () => {
     view.resetView();
     env.flush(ROTATE_MS / 4);
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
+  });
+
+  it('turns the way it was asked through a quick chain of turns, also past half a turn', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    let last = cameraPose(renderer).azimuth;
+    let turned = 0;
+    const frames = (n: number) => {
+      for (let i = 0; i < n && env.queue.size; i++) {
+        env.step(16);
+        const now = cameraPose(renderer).azimuth;
+        expect(turnBetween(last, now)).toBeGreaterThanOrEqual(-1e-9);
+        turned += turnBetween(last, now);
+        last = now;
+      }
+    };
+    view.rotate(1);
+    frames(5);
+    view.rotate(1);
+    view.rotate(1);
+    frames(200);
+    expect(turned).toBeCloseTo(3 * QUARTER, 6);
+    view.rotate(-1);
+    view.rotate(-1);
+    env.flush();
+    expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH + QUARTER, 6);
   });
 
   it('jumps instead of easing when motion is reduced', () => {

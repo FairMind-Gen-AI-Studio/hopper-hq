@@ -170,9 +170,13 @@ export function createFloorView(
     request();
   }
 
-  function moveTo(to: CameraPose, ms: number): void {
-    tween = new Tween(pose(), to, env.now(), reduced ? 0 : ms);
+  function start(next: Tween): void {
+    tween = next;
     request();
+  }
+
+  function moveTo(to: CameraPose, ms: number): void {
+    start(new Tween(pose(), to, env.now(), reduced ? 0 : ms));
   }
 
   function panTo(spot: Point): void {
@@ -436,9 +440,16 @@ export function createFloorView(
     },
     rotate(step: -1 | 1) {
       if (disposed) return;
-      // A turn asked for during another goes on from where that one is heading.
-      const p = tween ? tween.to : pose();
-      moveTo({ ...p, azimuth: stepAzimuth(p.azimuth, step) }, ROTATE_MS);
+      if (!tween) {
+        const p = pose();
+        moveTo({ ...p, azimuth: stepAzimuth(p.azimuth, step) }, ROTATE_MS);
+        return;
+      }
+      // A turn asked for during another goes on from where that one is heading, the same way round: both keep that
+      // move's angles, and the new move turns by their plain difference, which may pass half a turn.
+      const from = tween.at(env.now());
+      const to = { ...tween.to, azimuth: stepAzimuth(tween.to.azimuth, step) };
+      start(new Tween(from, to, env.now(), reduced ? 0 : ROTATE_MS, to.azimuth - from.azimuth));
     },
     resetView() {
       if (disposed) return;
