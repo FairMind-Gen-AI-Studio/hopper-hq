@@ -119,8 +119,8 @@ describe('the shell', () => {
     const shared = geo.size;
     shell.dispose();
     expect(shell.group.parent).toBeNull();
-    // The slab, four walls and four base strips; windows, fittings, rugs and lamps stay with the shared set.
-    expect(freed.size).toBe(9);
+    // The slab, four walls, four base strips and a rug per island; windows, fittings and lamps stay with the shared set.
+    expect(freed.size).toBe(12);
     expect(geo.size).toBe(shared);
   });
 });

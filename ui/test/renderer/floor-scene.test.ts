@@ -76,6 +76,18 @@ describe('the floor scene', () => {
     expect(freed).toBe(true);
   });
 
+  it('keeps no geometry of an old shell, however often the shell is rebuilt', () => {
+    const floorOf = (count: number) =>
+      makeFloor([
+        { key: '/a', repo: 'a', color: 0, tie: 0, desks: Array.from({ length: count }, (_, k) => ({ id: `d${k}`, state: 'working' as const })) },
+        { key: '/b', repo: 'b', color: 1, tie: 1, desks: [{ id: 'b0', state: 'idle' }] },
+      ]);
+    const fs = sceneOf(floorOf(1));
+    for (let n = 2; n <= 20; n++) fs.apply(floorOf(n));
+    for (let n = 19; n >= 1; n--) fs.apply(floorOf(n));
+    expect(fs.geo.size).toBe(sceneOf(floorOf(1)).geo.size);
+  });
+
   it('signs the layout by footprint, core and island rectangles, keys and colours only', () => {
     const a = checkoutFloor();
     const b = makeFloor(changedIslands());

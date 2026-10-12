@@ -186,7 +186,8 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'islands'>
   // Each island: a rug in its repo colour and a lamp with a shade in the same colour.
   for (const island of floor.islands) {
     const c = rectCenter(island.rect);
-    const rug = part(group, geo.plane(island.rect.w - 0.3, island.rect.h - 0.3), mats.rug(island.color), c.x, 0.005, c.z, {
+    const cloth = sized(new PlaneGeometry(island.rect.w - 0.3, island.rect.h - 0.3));
+    const rug = part(group, cloth, mats.rug(island.color), c.x, 0.005, c.z, {
       rx: -Math.PI / 2,
       cast: false,
     });
