@@ -1,0 +1,152 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import FloorStage from '../../components/FloorStage.svelte';
+import { WebGLUnavailableError } from '../../renderer/index';
+import { CHECKOUT, makeFloor } from '../helpers/fixtures';
+import { fakeRenderer, type FakeRenderer } from '../helpers/fake-renderer';
+import { cleanup, click, render, text } from '../helpers/render';
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+/** Lets the loader answer, then updates the DOM. */
+async function settle(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+  flushSync();
+}
+
+function stage(renderer: FakeRenderer = fakeRenderer(), selected: string | null = null) {
+  const onSelect = vi.fn();
+  const onActivate = vi.fn();
+  const target = render(FloorStage, { floor: makeFloor(CHECKOUT)!, selected, theme: 'day', load: renderer.load, onSelect, onActivate });
+  const tool = (label: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  return { target, renderer, onSelect, onActivate, tool };
+}
+
+function key(k: string, init: KeyboardEventInit = {}, on: EventTarget = window): KeyboardEvent {
+  const e = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init });
+  on.dispatchEvent(e);
+  flushSync();
+  return e;
+}
+
+describe('FloorStage', () => {
+  it('loads the renderer, mounts it on its canvas and label layer, then shows the floor and the desk in the address', async () => {
+    const { target, renderer, tool } = stage(undefined, 'sw-b2');
+    expect(renderer.views).toHaveLength(0);
+    expect(tool('Turn left').disabled).toBe(true);
+    await settle();
+    expect(renderer.views).toHaveLength(1);
+    const view = renderer.views[0]!;
+    expect(view.host.canvas).toBe(target.querySelector('.floor-stage canvas'));
+    expect(view.host.labels.parentElement).toBe(target.querySelector('.floor-stage'));
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select sw-b2 pan']);
+    expect(view.mountedTheme).toBe('system');
+    expect(tool('Turn left').disabled).toBe(false);
+    expect(target.querySelector('.no-webgl')).toBeNull();
+  });
+
+  it('reads the theme colours from the page', async () => {
+    document.documentElement.style.setProperty('--scene-floor', '#123456');
+    try {
+      const { renderer } = stage();
+      await settle();
+      expect(renderer.views[0]!.theme.colors['scene-floor']).toBe('#123456');
+    } finally {
+      document.documentElement.style.removeProperty('--scene-floor');
+    }
+  });
+
+  it('marks a desk clicked in 3D at once, without moving the camera, and reports clicks and activations', async () => {
+    const { renderer, onSelect, onActivate } = stage();
+    await settle();
+    const view = renderer.views[0]!;
+    view.emit('select', 'sw-a1');
+    view.emit('select', null);
+    view.emit('activate', 'sw-a1');
+    expect(onSelect.mock.calls).toEqual([['sw-a1'], [null]]);
+    expect(onActivate.mock.calls).toEqual([['sw-a1']]);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', 'select sw-a1', 'select -']);
+  });
+
+  it('turns and resets the camera from its buttons and from Q, E and R', async () => {
+    const { renderer, tool } = stage();
+    await settle();
+    const view = renderer.views[0]!;
+    view.calls.length = 0;
+    click(tool('Turn left'));
+    click(tool('Turn right'));
+    click(tool('Reset view'));
+    expect(view.calls).toEqual(['rotate -1', 'rotate 1', 'reset']);
+    view.calls.length = 0;
+    expect(key('q').defaultPrevented).toBe(true);
+    key('E');
+    key('r');
+    expect(view.calls).toEqual(['rotate -1', 'rotate 1', 'reset']);
+  });
+
+  it('leaves other keys, shortcuts and typing alone', async () => {
+    const { renderer } = stage();
+    await settle();
+    const view = renderer.views[0]!;
+    view.calls.length = 0;
+    expect(key('r', { metaKey: true }).defaultPrevented).toBe(false);
+    key('r', { ctrlKey: true });
+    key('e', { altKey: true });
+    key('Enter');
+    key('Escape');
+    const handled = new KeyboardEvent('keydown', { key: 'q', cancelable: true });
+    handled.preventDefault();
+    window.dispatchEvent(handled);
+    const input = document.body.appendChild(document.createElement('input'));
+    key('q', {}, input);
+    input.remove();
+    expect(view.calls).toEqual([]);
+  });
+
+  it('keeps the desk list in reach when the browser has no WebGL', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { target, renderer } = stage(fakeRenderer({ fail: new WebGLUnavailableError() }));
+    await settle();
+    expect(renderer.views).toHaveLength(0);
+    expect(text(target.querySelector('.no-webgl'))).toBe('This browser cannot draw the floor in 3D. Its desks are listed in the panel.');
+    expect(target.querySelector('canvas')).toBeNull();
+    expect(target.querySelector('.tools')).toBeNull();
+    expect(key('q').defaultPrevented).toBe(false);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it('says so, and logs why, when the renderer does not load', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = new TypeError('Failed to fetch dynamically imported module');
+    const onSelect = vi.fn();
+    const target = render(FloorStage, {
+      floor: makeFloor(CHECKOUT)!,
+      selected: null,
+      theme: 'day',
+      load: () => Promise.reject(failure),
+      onSelect,
+      onActivate: vi.fn(),
+    });
+    await settle();
+    expect(text(target.querySelector('.no-webgl'))).toBe('This browser cannot draw the floor in 3D. Its desks are listed in the panel.');
+    expect(logged).toHaveBeenCalledWith(failure);
+  });
+
+  it('frees the view when it goes away, and mounts nothing once gone', async () => {
+    const { renderer } = stage();
+    await settle();
+    cleanup();
+    expect(renderer.views[0]!.calls.at(-1)).toBe('dispose');
+    key('q');
+    expect(renderer.views[0]!.calls.filter((c) => c.startsWith('rotate'))).toEqual([]);
+
+    const late = fakeRenderer();
+    stage(late);
+    cleanup();
+    await settle();
+    expect(late.views).toHaveLength(0);
+  });
+});

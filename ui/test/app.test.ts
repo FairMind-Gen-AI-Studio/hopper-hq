@@ -3,7 +3,9 @@ import { flushSync } from 'svelte';
 import App from '../App.svelte';
 import { THEME_KEY } from '../lib/theme';
 import { toHash, type Route } from '../lib/route';
-import { CHECKOUT, NOW, ORDERS, makeScene } from './helpers/fixtures';
+import { WebGLUnavailableError } from '../renderer/index';
+import { CHECKOUT, NOW, ORDERS, makeFloor, makeScene } from './helpers/fixtures';
+import { fakeRenderer } from './helpers/fake-renderer';
 import { fakeStore, type FakeStore } from './helpers/fake-store';
 import { cleanup, click, render, text } from './helpers/render';
 
@@ -20,9 +22,10 @@ function go(r: Route): void {
 
 function app(store: FakeStore = fakeStore({ scene: makeScene() }), extra: Record<string, unknown> = {}) {
   const storage = memoryStorage();
-  const target = render(App, { store, storage, prefersDark: false, ...extra });
+  const renderer = fakeRenderer();
+  const target = render(App, { store, storage, prefersDark: false, renderer: renderer.load, ...extra });
   const crumbs = () => [...target.querySelectorAll('.crumbs > :not(.sep)')].map(text).join(' / ');
-  return { target, store, storage, crumbs };
+  return { target, store, storage, crumbs, renderer };
 }
 
 beforeEach(() => {
@@ -220,8 +223,11 @@ describe('App shell', () => {
     floor(3).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     flushSync();
     expect(crumbs()).toBe('Building / 4 · checkout-v2');
-    expect(floor(3).classList.contains('selected')).toBe(true);
-    expect(text(target.querySelector('.stage .hint'))).toBe('Esc goes back to the building.');
+    expect(target.querySelector('.stage svg.facade')).toBeNull();
+    expect(target.querySelector('.stage .floor-stage canvas')).not.toBeNull();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    flushSync();
+    expect(target.querySelector('.stage .floor-stage')).toBeNull();
     target.querySelector('.stage polygon[data-desk="oa-g7"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     flushSync();
     expect(location.hash).toBe(toHash({ floor: ORDERS, desk: 'oa-g7' }));
@@ -297,7 +303,100 @@ describe('App shell', () => {
     location.hash = toHash({ floor: 'feature:gone', desk: null });
     const { target, crumbs } = app();
     expect(text(target.querySelector('aside .p-text'))).toBe('This floor is empty now: its sessions have ended or moved to another floor.');
+    expect(text(target.querySelector('.stage .hint'))).toBe('This floor is empty now.');
+    expect(target.querySelector('.stage .floor-stage')).toBeNull();
     click(target.querySelector('aside .back'));
     expect(crumbs()).toBe('Building');
+  });
+});
+
+describe('App floor in 3D', () => {
+  it('draws the open floor and passes it every update, without moving the selection', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { store, renderer } = app();
+    await settle();
+    expect(renderer.views).toHaveLength(1);
+    const view = renderer.views[0]!;
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan']);
+    const floor = makeFloor(CHECKOUT)!;
+    floor.islands = floor.islands.slice(1);
+    store.set({ floor });
+    flushSync();
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', `floor ${CHECKOUT} 3`]);
+  });
+
+  it('pans to the desk the address or the panel picks, and routes a click on a desk without moving the camera', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { target, renderer, crumbs } = app();
+    await settle();
+    const view = renderer.views[0]!;
+    const selects = () => view.calls.filter((c) => c.startsWith('select'));
+    go({ floor: CHECKOUT, desk: 'sw-b2' });
+    expect(selects()).toEqual(['select - pan', 'select sw-b2 pan']);
+    view.emit('select', 'oa-c3');
+    flushSync();
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
+    expect(crumbs()).toBe('Building / 4 · checkout-v2 / orders-api-c3');
+    expect(text(target.querySelector('aside h2'))).toBe('orders-api-c3');
+    view.emit('select', null);
+    flushSync();
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: null }));
+    click([...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'storefront-web-a1'));
+    expect(selects()).toEqual(['select - pan', 'select sw-b2 pan', 'select oa-c3', 'select -', 'select sw-a1 pan']);
+    expect(renderer.views).toHaveLength(1);
+  });
+
+  it('switches tmux to a desk activated in 3D', async () => {
+    const focusSession = vi.fn(async () => ({ ok: true as const, pane: '%4', simulated: true }));
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { target, renderer } = app(undefined, { api: { focusSession, markSeen: vi.fn() } });
+    await settle();
+    renderer.views[0]!.emit('activate', 'sw-a1');
+    await settle();
+    expect(focusSession).toHaveBeenCalledWith('sw-a1');
+    expect(text(target.querySelector('.toast span'))).toBe('Demo: would switch tmux to %4');
+  });
+
+  it('repaints the floor in the theme the page has just switched to', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { target, renderer } = app();
+    await settle();
+    const view = renderer.views[0]!;
+    const themes = () => view.calls.filter((c) => c.startsWith('theme'));
+    const button = target.querySelector<HTMLButtonElement>('button.theme')!;
+    click(button); // system (day here) -> day: the colours stay
+    expect(themes()).toEqual([]);
+    click(button); // -> night
+    expect(themes()).toEqual(['theme dark']);
+    click(button); // -> system, day here
+    expect(themes()).toEqual(['theme dark', 'theme system']);
+  });
+
+  it('opens a fresh view on each floor, and frees it on the way out', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { target, renderer } = app();
+    await settle();
+    const first = renderer.views[0]!;
+    click([...target.querySelectorAll('.attention button.open')].find((b) => b.querySelector('.who')?.textContent === 'orders-api-g7'));
+    await settle();
+    expect(first.calls.at(-1)).toBe('dispose');
+    expect(renderer.views).toHaveLength(2);
+    const second = renderer.views[1]!;
+    expect(second.host.canvas).not.toBe(first.host.canvas);
+    expect(second.calls).toEqual([`floor ${ORDERS} 5`, 'select oa-g7 pan']);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    flushSync();
+    expect(second.calls.at(-1)).toBe('dispose');
+    expect(target.querySelector('.stage svg.facade')).not.toBeNull();
+  });
+
+  it('keeps the floor reachable from the panel when the browser has no WebGL', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { target } = app(undefined, { renderer: fakeRenderer({ fail: new WebGLUnavailableError() }).load });
+    await settle();
+    expect(text(target.querySelector('.stage .no-webgl'))).toBe('This browser cannot draw the floor in 3D. Its desks are listed in the panel.');
+    click([...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'orders-api-c3'));
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
   });
 });

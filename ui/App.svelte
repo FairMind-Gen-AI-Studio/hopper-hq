@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from 'svelte';
   import type { AttentionEntry } from '../src/scene/types';
   import { focusSession, markSeen } from './lib/api';
+  import { loadRenderer, type RendererModule } from './lib/renderer';
   import { parseHash, toHash, type Route } from './lib/route';
   import { browserStoreDeps, createClientStore, type ClientStore } from './lib/store';
   import { applyTheme, browserStorage, loadTheme, nextTheme, resolvedTheme, saveTheme, systemPrefersDark, watchSystemTheme } from './lib/theme';
@@ -11,6 +12,7 @@
   import DeskPanel from './components/DeskPanel.svelte';
   import Facade from './components/Facade.svelte';
   import FloorPanel from './components/FloorPanel.svelte';
+  import FloorStage from './components/FloorStage.svelte';
   import Notice from './components/Notice.svelte';
   import Toast from './components/Toast.svelte';
   import TopBar, { type Crumb } from './components/TopBar.svelte';
@@ -25,6 +27,8 @@
     prefersDark?: boolean;
     api?: { focusSession: typeof focusSession; markSeen: typeof markSeen };
     now?: () => number;
+    /** Loads the 3D floor renderer, the first time a floor opens. */
+    renderer?: () => Promise<RendererModule>;
   }
   const props: Props = $props();
   // The dependencies are fixed for the page's life: read once, on purpose.
@@ -34,8 +38,9 @@
     prefersDark: props.prefersDark ?? systemPrefersDark(),
     api: props.api ?? { focusSession, markSeen },
     now: props.now ?? Date.now,
+    renderer: props.renderer ?? loadRenderer,
   }));
-  const { store, storage, api, now } = deps;
+  const { store, storage, api, now, renderer } = deps;
   const toasts = createToasts();
 
   const initial = parseHash(location.hash);
@@ -47,7 +52,8 @@
   let clock = $state(now());
 
   $effect(() => store.watchFloor(route.floor));
-  $effect(() => applyTheme(document.documentElement, theme));
+  // Before the components' effects: the floor stage reads its colours from <html> once the theme is set there.
+  $effect.pre(() => applyTheme(document.documentElement, theme));
   $effect(() => watchSystemTheme((dark) => (systemDark = dark)));
   $effect(() => {
     const timer = setInterval(() => (clock = now()), 1000);
@@ -148,18 +154,31 @@
     <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
   {/if}
   <main class="main">
-    <section class="stage" aria-label="Building">
-      {#if scene}
-        <!-- On a floor, the façade stays, with the open floor outlined. -->
-        <Facade
-          floors={scene.floors}
-          selected={route.floor}
-          onFloor={(key) => navigate({ floor: key, desk: null })}
-          onDesk={(key, id) => navigate({ floor: key, desk: id })}
-        />
-        <p class="hint">
-          {#if route.floor !== null}Esc goes back to the building.{:else if scene.floors.length > 0}Click a floor to go inside, or a window to open its desk.{:else}No sessions yet.{/if}
-        </p>
+    <section class="stage" aria-label={route.floor === null ? 'Building' : 'Floor'}>
+      {#if route.floor === null}
+        {#if scene}
+          <Facade
+            floors={scene.floors}
+            selected={null}
+            onFloor={(key) => navigate({ floor: key, desk: null })}
+            onDesk={(key, id) => navigate({ floor: key, desk: id })}
+          />
+          <p class="hint">{scene.floors.length > 0 ? 'Click a floor to go inside, or a window to open its desk.' : 'No sessions yet.'}</p>
+        {/if}
+      {:else if floor}
+        <!-- One view per floor: a disposed view cannot draw on its canvas again. -->
+        {#key route.floor}
+          <FloorStage
+            {floor}
+            selected={route.desk}
+            theme={resolvedTheme(theme, systemDark)}
+            load={renderer}
+            onSelect={(id) => navigate({ floor: route.floor, desk: id })}
+            onActivate={focus}
+          />
+        {/key}
+      {:else if floor === null}
+        <p class="hint">This floor is empty now.</p>
       {/if}
     </section>
     <aside class="panel" aria-label="Details">

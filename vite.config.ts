@@ -20,6 +20,9 @@ export default defineConfig({
     modulePreload: { polyfill: false },
     sourcemap: false,
     target: 'es2022',
+    // three.js alone is past Vite's default warning (500 kB). It sits in the 3D floor's own chunk, which loads only
+    // when a floor opens (ui/lib/renderer.ts); the building view's chunk stays small.
+    chunkSizeWarningLimit: 640,
   },
   server: {
     host: '127.0.0.1',
