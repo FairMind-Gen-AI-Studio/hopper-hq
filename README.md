@@ -47,7 +47,7 @@ The façade has one floor per feature, shared by every repository working on tha
 | Lit yellow | Working. |
 | Purple | In a meeting: idle itself, while its subagents or workflow agents run. |
 | Amber, flickering | No signal: working, but nothing new for a while, often a long command. |
-| Dark | Idle, or dormant (idle for days). A floor where everyone is dormant lowers its shutters. |
+| Unlit (grey by day, dark at night) | Idle, or dormant (idle for days). A floor where everyone is dormant lowers its shutters. |
 
 The bar at the top lists who needs you (longest wait first) and what is done (oldest first) at every level. Click an entry to open its desk; `Go` switches tmux to its pane.
 
@@ -70,7 +70,7 @@ Going to a pane switches the most recently used tmux client to it. The daemon ta
 - The daemon listens on 127.0.0.1 only.
 - `scranton-hq ui` asks the daemon for a one-time link. It works once, within a minute; the demo's link lasts 10 minutes.
 - Opening the link sets a signed, HttpOnly cookie for that daemon's port. It lasts 30 days and survives daemon restarts. To sign every browser out, delete `~/.scranton-hq/token` and restart the daemon.
-- A signed-in browser can watch the building, switch tmux panes and mark sessions as seen. It cannot send hook events or ask for sign-in links. Changes are accepted only from the daemon's own page.
+- A signed-in browser can watch the building, switch tmux panes and mark sessions as seen. It cannot send hook events or ask for sign-in links. From a browser, changes are accepted only from the daemon's own page.
 - The page loads nothing from the network. Scripts, styles and fonts come from the daemon, under a strict content security policy.
 - Known risk: browsers do not keep cookies apart by port. Any other server on 127.0.0.1 that this browser talks to, such as a dev server an agent started, receives the cookie. It could reuse it for up to 30 days to watch the building, switch your tmux panes and mark sessions as seen. If that matters to you, sign everything out as above.
 - In the demo, `Go` and `Go to pane` are simulated: the page says which pane it would switch to, and tmux is never touched.
