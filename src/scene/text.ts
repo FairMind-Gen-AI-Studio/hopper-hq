@@ -5,6 +5,8 @@
  */
 import type { SessionState } from '../core/types.js';
 
+/** A surrogate pair, or a lone surrogate: half a character, on which encodeURIComponent throws. */
+const SURROGATES = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g;
 /** Whitespace, and the next-line control (U+0085), which JavaScript does not count as whitespace but which breaks a line. */
 const SPACE = /[\s\u0085]+/g;
 /** C0 and C1 control characters, except tab and line feed (whitespace, collapsed with the rest). */
@@ -19,15 +21,16 @@ const FORMAT = /(?![\u200C\u200D])\p{Cf}/gu;
 export const KEY_MAX = 256;
 
 /**
- * One line of plain text from untrusted input: control and format characters removed, whitespace collapsed to single
- * spaces, trimmed, and cut to `max` code points with '…' (never inside a surrogate pair).
+ * One line of plain text from untrusted input: control and format characters removed, a lone surrogate replaced by
+ * U+FFFD, whitespace collapsed to single spaces, trimmed, and cut to `max` code points with '…' (never inside a surrogate pair).
  * Numbers and booleans are stringified; anything else that is not a string becomes ''.
  */
 export function cleanText(input: unknown, max = 200): string {
   const raw =
     typeof input === 'string' ? input : typeof input === 'number' || typeof input === 'boolean' || typeof input === 'bigint' ? String(input) : '';
-  // Whitespace first, so a carriage return or a form feed separates words instead of joining them.
-  const text = raw.replace(SPACE, ' ').replace(CONTROL, '').replace(FORMAT, '').replace(/ {2,}/g, ' ').trim();
+  // Lone surrogates first, so the rest sees whole characters; then whitespace, so a carriage return or a form feed
+  // separates words instead of joining them.
+  const text = raw.replace(SURROGATES, (s) => (s.length === 2 ? s : '\uFFFD')).replace(SPACE, ' ').replace(CONTROL, '').replace(FORMAT, '').replace(/ {2,}/g, ' ').trim();
   if (text.length <= max) return text;
   const points = Array.from(text);
   if (points.length <= max) return text;

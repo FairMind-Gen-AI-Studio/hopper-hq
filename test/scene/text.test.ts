@@ -16,6 +16,15 @@ describe('cleanText', () => {
     expect(cleanText('\u{1F469}\u200D\u{1F4BB} \u0645\u200C\u0646')).toBe('\u{1F469}\u200D\u{1F4BB} \u0645\u200C\u0646');
   });
 
+  it('replaces a lone surrogate with U+FFFD, so that the text is well formed and goes into a URL', () => {
+    expect(cleanText('a\ud800b')).toBe('a\uFFFDb');
+    expect(cleanText('\udc00x\ud83d')).toBe('\uFFFDx\uFFFD');
+    expect(cleanText('\udc00\ud800')).toBe('\uFFFD\uFFFD');
+    expect(cleanText('ok \u{1F600}')).toBe('ok \u{1F600}');
+    expect(cleanText('\ud800'.repeat(5), 3)).toBe('\uFFFD\uFFFD\u2026');
+    expect(() => encodeURIComponent(cleanText('/w/a\ud800pi'))).not.toThrow();
+  });
+
   it('reads a next-line character as a line break, which separates words', () => {
     expect(cleanText('one\u0085two')).toBe('one two');
   });

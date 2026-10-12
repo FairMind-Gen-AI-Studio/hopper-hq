@@ -231,6 +231,14 @@ describe('untrusted text', () => {
   const strings = (x: unknown): string[] =>
     typeof x === 'string' ? [x] : Array.isArray(x) ? x.flatMap(strings) : x && typeof x === 'object' ? Object.entries(x).flatMap(([k, v]) => [k, ...strings(v)]) : [];
 
+  it('emits only well-formed strings, whatever lone surrogates the paths and titles carry', () => {
+    const v = view('a', ws('/w/a\ud800pi', 'feat/x\udc00'), 'needs_you', { title: 'Fix \ud83d', waitReason: { kind: 'input', text: 'wh\udfffy' } });
+    const out = render([v]);
+    for (const s of strings(out)) expect(() => encodeURIComponent(s)).not.toThrow();
+    expect(out.scene.floors[0]!.key).toBe('feature:x\uFFFD');
+    expect(out.floors[0]!.islands[0]!.key).toBe('/w/a\uFFFDpi');
+  });
+
   it('says a desk needs you when its reason has no text left once cleaned', () => {
     const v = view('a', ws('/w/api', 'main'), 'needs_you', { waitReason: { kind: 'input', text: '\u0007\u202E' } });
     expect(buildScene([v]).attention.needsYou[0]!.reason).toEqual({ kind: 'input', text: 'Needs you', detail: null, agent: null });
