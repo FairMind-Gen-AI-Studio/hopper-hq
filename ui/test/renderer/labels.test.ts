@@ -164,6 +164,69 @@ describe('the label layer', () => {
     expect(root.querySelectorAll('.fv-sel')).toHaveLength(0);
   });
 
+  it('puts one tag in the tab order: the one selected or focused last, else the first', () => {
+    const { labels } = layer();
+    const ids = desksOf(checkoutFloor()).map((d) => d.sessionId);
+    const stops = () => ids.filter((id) => labels.tag(id)?.tabIndex === 0);
+    labels.sync(checkoutFloor());
+    expect(stops()).toEqual(['sw-a1']);
+    expect(ids.filter((id) => labels.tag(id)!.tabIndex === -1)).toHaveLength(6);
+    labels.setSelected('oa-c3');
+    expect(stops()).toEqual(['oa-c3']);
+    labels.tag('ps-d4')!.focus();
+    expect(stops()).toEqual(['ps-d4']);
+    // A floor update marks the same selection again: the tab stop stays where the focus left it.
+    labels.sync(checkoutFloor());
+    labels.setSelected('oa-c3');
+    expect(stops()).toEqual(['ps-d4']);
+    // When its desk leaves, the stop goes to the selected desk's tag, or with none selected to the first.
+    const islands = checkoutIslands();
+    islands[2]!.desks.shift();
+    labels.sync(makeFloor(islands));
+    expect(stops()).toEqual(['oa-c3']);
+    labels.setSelected(null);
+    expect(stops()).toEqual(['oa-c3']);
+    islands[1]!.desks.shift();
+    labels.sync(makeFloor(islands));
+    expect(stops()).toEqual(['sw-a1']);
+  });
+
+  it('moves the focus between the tags on the view with the arrow keys, Home and End, in floor order', () => {
+    const { labels } = layer();
+    const floor = checkoutFloor();
+    labels.sync(floor);
+    const camera = isoCamera(floor.size);
+    labels.position(camera, 800, 500);
+    const press = (key: string) => {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      (document.activeElement as HTMLElement).dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const focused = () => (document.activeElement as HTMLElement).dataset.session;
+    labels.tag('oa-c3')!.focus();
+    expect(press('ArrowRight')).toBe(true);
+    expect(focused()).toBe('oa-d5');
+    press('ArrowUp');
+    press('ArrowLeft');
+    expect(focused()).toBe('sw-c3');
+    press('End');
+    press('ArrowDown');
+    expect(focused()).toBe('ps-f7');
+    expect(labels.tag('ps-f7')!.tabIndex).toBe(0);
+    press('Home');
+    expect(focused()).toBe('sw-a1');
+    expect(press('x')).toBe(false);
+    // Closer in, the first two tags are off the view: the keys pass them by.
+    camera.zoom = 3;
+    camera.updateProjectionMatrix();
+    labels.position(camera, 800, 500);
+    labels.tag('oa-c3')!.focus();
+    press('Home');
+    expect(focused()).toBe('sw-c3');
+    press('ArrowLeft');
+    expect(focused()).toBe('sw-c3');
+  });
+
   it('keeps labels hidden until placed, then hangs each from its anchor', () => {
     const { labels } = layer();
     const floor = checkoutFloor();

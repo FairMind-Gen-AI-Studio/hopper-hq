@@ -2,6 +2,7 @@
  * The floor's HTML labels, laid over the canvas: one tag per desk (state dot, name, "needs you", running agents,
  * remote) and one placard per island (repo, branch). Built with createElement and textContent only: names, repos
  * and branches come from transcripts and stay text. A label hangs from a point of the scene, projected each frame.
+ * One tag at a time is in the tab order; the arrow keys, Home and End move between the tags on the view.
  */
 import { Vector3, type Camera } from 'three';
 import { STATE_LABEL } from '../../src/scene/text';
@@ -52,6 +53,9 @@ export class LabelLayer {
   private readonly tags = new Map<string, Label>();
   private readonly signs = new Map<string, Label>();
   private selected: string | null = null;
+  /** The desks in floor order, and the one whose tag is in the tab order. */
+  private order: string[] = [];
+  private stop: string | null = null;
   private compact = false;
   private readonly v = new Vector3();
 
@@ -76,15 +80,20 @@ export class LabelLayer {
     }
     for (const [id, label] of this.tags) if (!tags.has(id)) this.drop(this.tags, id, label);
     for (const [key, label] of this.signs) if (!signs.has(key)) this.drop(this.signs, key, label);
+    this.order = [...tags];
+    this.rove(this.stop);
   }
 
   /** Marks the selected desk's tag; null clears. */
   setSelected(sessionId: string | null): void {
     const old = this.selected === null ? undefined : this.tags.get(this.selected);
     if (old) mark(old.el, false);
+    const changed = sessionId !== this.selected;
     this.selected = sessionId;
     const now = sessionId === null ? undefined : this.tags.get(sessionId);
     if (now) mark(now.el, true);
+    // The tab stop follows a new selection; the same one marked again, as on each floor update, leaves it be.
+    if (changed) this.rove(sessionId);
   }
 
   /** How many CSS pixels a metre takes on screen. Below COMPACT_PX, tags show only their dot. */
@@ -131,13 +140,18 @@ export class LabelLayer {
     if (!label) {
       const el = document.createElement('button');
       el.type = 'button';
+      el.tabIndex = -1;
       el.dataset.session = id;
       el.addEventListener('click', (e) => this.events.select(id, e.detail));
       el.addEventListener('dblclick', () => this.events.activate(id));
+      el.addEventListener('focus', () => this.rove(id));
       el.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && this.selected === id) {
           e.preventDefault();
           this.events.activate(id);
+        } else if (MOVES.includes(e.key)) {
+          e.preventDefault();
+          this.focusFrom(id, e.key);
         }
       });
       label = this.add(this.tags, id, el);
@@ -171,6 +185,28 @@ export class LabelLayer {
     label.el.replaceChildren(document.createTextNode(island.repo), small);
   }
 
+  /**
+   * Puts one tag in the tab order: `want`'s if it has one, else the one there now, else the selected desk's, else
+   * the first.
+   */
+  private rove(want: string | null): void {
+    const next = [want, this.stop, this.selected, this.order[0] ?? null].find((id) => id !== null && this.tags.has(id)) ?? null;
+    const old = this.stop === null ? undefined : this.tags.get(this.stop);
+    if (old) old.el.tabIndex = -1;
+    this.stop = next;
+    const now = next === null ? undefined : this.tags.get(next);
+    if (now) now.el.tabIndex = 0;
+  }
+
+  /** Focuses the tag a key leads to from this one, among the tags on the view, in floor order. */
+  private focusFrom(id: string, key: string): void {
+    const shown = this.order.filter((d) => this.tags.get(d)?.visible);
+    const at = shown.indexOf(id);
+    const to = key === 'Home' ? 0 : key === 'End' ? shown.length - 1 : at + (key === 'ArrowRight' || key === 'ArrowDown' ? 1 : -1);
+    const next = shown[Math.max(0, Math.min(shown.length - 1, to))];
+    if (next !== undefined) this.tags.get(next)!.el.focus();
+  }
+
   private add(map: Map<string, Label>, key: string, el: HTMLElement): Label {
     el.style.visibility = 'hidden';
     this.root.append(el);
@@ -184,6 +220,9 @@ export class LabelLayer {
     map.delete(key);
   }
 }
+
+/** The keys that move the focus between tags. */
+const MOVES = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'];
 
 function span(className: string, text: string): HTMLSpanElement {
   const el = document.createElement('span');
