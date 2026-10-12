@@ -87,6 +87,13 @@ describe('Collector', () => {
     });
   });
 
+  it('cleans the repo and the feature in the attention summary', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'session.seen', workspace: { cwd: '/w/orders-api', repoRoot: '/w/orders-api', repoName: 'orders\u001b[1m-api', worktree: false, branch: 'feat/check\u202Eout' } }));
+    await c.ingest(hook({ type: 'waiting', reason: { kind: 'question', text: 'Which one?' }, agentId: null }));
+    expect(c.attentionSummary().items[0]).toMatchObject({ repo: 'orders[1m-api', feature: 'checkout' });
+  });
+
   it('says a session needs you when its reason has no text left once cleaned', async () => {
     const c = collector();
     await c.ingest(hook({ type: 'waiting', reason: { kind: 'input', text: '\u0007\u202E' }, agentId: null }));
