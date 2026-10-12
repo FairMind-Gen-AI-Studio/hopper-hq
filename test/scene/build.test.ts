@@ -252,7 +252,7 @@ describe('untrusted text', () => {
     const desk = out.floors[0]!.islands[0]!.desks[0]!;
     expect([out.scene.floors[0]!.key, out.scene.floors[0]!.name, desk.sessionId, desk.name, desk.title, desk.pane, desk.reason, desk.activity?.label]).toEqual([
       'feature:x', 'x', 'h', 'name', 'title line', '%1',
-      { kind: 'question', text: 'wh[2Jy', detail: 'detail', agent: { id: 'ag', type: 'Explore' } },
+      { kind: 'question', text: 'wh[2Jy', detail: 'de tail', agent: { id: 'ag', type: 'Explore' } },
       'Bash: [31mls',
     ]);
   });

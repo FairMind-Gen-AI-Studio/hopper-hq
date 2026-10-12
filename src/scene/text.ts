@@ -5,16 +5,21 @@
  */
 import type { SessionState } from '../core/types.js';
 
+/** Whitespace, and the next-line control (U+0085), which JavaScript does not count as whitespace but which breaks a line. */
+const SPACE = /[\s\u0085]+/g;
 /** C0 and C1 control characters, except tab and line feed (whitespace, collapsed with the rest). */
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
-/** Bidirectional formatting characters: they can make text read differently from what it is. */
-const BIDI = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+/**
+ * Format characters. Bidirectional ones can make text read differently from what it is; others are invisible: zero-width
+ * spaces, word joiners, soft hyphens, tags. The zero-width non-joiner and joiner stay: emoji and some scripts need them.
+ */
+const FORMAT = /(?![\u200C\u200D])\p{Cf}/gu;
 
 /** Cap for keys and ids: 256 code points are at most 512 UTF-16 code units, the longest key GET /api/floor accepts. */
 export const KEY_MAX = 256;
 
 /**
- * One line of plain text from untrusted input: control and bidi characters removed, whitespace collapsed to single
+ * One line of plain text from untrusted input: control and format characters removed, whitespace collapsed to single
  * spaces, trimmed, and cut to `max` code points with '…' (never inside a surrogate pair).
  * Numbers and booleans are stringified; anything else that is not a string becomes ''.
  */
@@ -22,7 +27,7 @@ export function cleanText(input: unknown, max = 200): string {
   const raw =
     typeof input === 'string' ? input : typeof input === 'number' || typeof input === 'boolean' || typeof input === 'bigint' ? String(input) : '';
   // Whitespace first, so a carriage return or a form feed separates words instead of joining them.
-  const text = raw.replace(/\s+/g, ' ').replace(CONTROL, '').replace(BIDI, '').replace(/ {2,}/g, ' ').trim();
+  const text = raw.replace(SPACE, ' ').replace(CONTROL, '').replace(FORMAT, '').replace(/ {2,}/g, ' ').trim();
   if (text.length <= max) return text;
   const points = Array.from(text);
   if (points.length <= max) return text;

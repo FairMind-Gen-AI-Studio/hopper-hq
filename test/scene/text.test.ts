@@ -7,8 +7,17 @@ describe('cleanText', () => {
   });
 
   it('removes C1 controls and bidi formatting characters', () => {
-    expect(cleanText('a\u0085b\u009bc')).toBe('abc');
+    expect(cleanText('a\u009bc')).toBe('ac');
     expect(cleanText('report\u202Etxt.exe \u2066x\u2069 \u200Fy\u061C\u200E')).toBe('reporttxt.exe x y');
+  });
+
+  it('removes invisible format characters, but keeps the joiners that emoji and scripts need', () => {
+    expect(cleanText('ad\u200Bmin \u2060x\u00ADy \u{E0041}z')).toBe('admin xy z');
+    expect(cleanText('\u{1F469}\u200D\u{1F4BB} \u0645\u200C\u0646')).toBe('\u{1F469}\u200D\u{1F4BB} \u0645\u200C\u0646');
+  });
+
+  it('reads a next-line character as a line break, which separates words', () => {
+    expect(cleanText('one\u0085two')).toBe('one two');
   });
 
   it('collapses whitespace, line breaks included, and trims', () => {
