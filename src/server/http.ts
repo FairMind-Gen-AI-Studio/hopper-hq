@@ -83,10 +83,21 @@ function routes(d: Deps): Route[] {
       methods: POST,
       path: /^\/api\/sessions\/([^/]+)\/seen$/,
       auth: 'write',
-      run: ({ res, params }) =>
-        d.collector.markSeen(decodeURIComponent(params[0]!)) ? send(res, 204) : send(res, 404, { error: 'No finished session with that id' }),
+      run: ({ res, params }) => {
+        const id = decoded(params[0]!);
+        return id !== null && d.collector.markSeen(id) ? send(res, 204) : send(res, 404, { error: 'No finished session with that id' });
+      },
     },
   ];
+}
+
+/** A percent-decoded path, or null when it is not valid percent-encoding. */
+function decoded(path: string): string | null {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return null;
+  }
 }
 
 function findRoute(table: Route[], method: string, path: string): { route: Route; params: string[] } | null {
@@ -253,13 +264,8 @@ function serveIndex(d: Deps, res: ServerResponse): void {
 }
 
 function serveAsset(d: Deps, res: ServerResponse, pathname: string): void {
-  let path: string;
-  try {
-    path = decodeURIComponent(pathname);
-  } catch {
-    return send(res, 404, { error: 'Not found' });
-  }
-  const file = d.ui?.get(path);
+  const path = decoded(pathname);
+  const file = path === null ? undefined : d.ui?.get(path);
   if (!file) return send(res, 404, { error: 'Not found' });
   sendFile(res, file, ASSET_HEADERS);
 }

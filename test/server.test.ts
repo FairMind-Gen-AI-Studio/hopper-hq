@@ -84,6 +84,12 @@ describe('API routes', () => {
     expect((await call({ method: 'POST', path: '/api/seen' })).json).toEqual({ marked: 0 });
   });
 
+  it('answers 404 to a session id that is not valid percent-encoding', async () => {
+    for (const id of ['%E0%A4%A', '%', '%zz']) {
+      expect([id, await call({ method: 'POST', path: `/api/sessions/${id}/seen` })]).toEqual([id, { status: 404, json: { error: 'No finished session with that id' } }]);
+    }
+  });
+
   it('accepts a batch of payloads, as the mod sends them', async () => {
     const batch = (JSON.parse(readFileSync(new URL('./fixtures/hooks/batch.json', import.meta.url), 'utf8')) as Record<string, unknown>[])
       .map((p) => ({ ...p, session_id: 'BATCH' }));
