@@ -65,6 +65,7 @@ const POST = ['POST'];
 function routes(d: Deps): Route[] {
   return [
     { methods: GET, path: '/', auth: 'public', run: ({ res }) => redirect(res, 302, '/ui/') },
+    { methods: GET, path: '/ui', auth: 'public', run: ({ res }) => redirect(res, 302, '/ui/') },
     { methods: GET_HEAD, path: '/ui/', auth: 'public', run: ({ res }) => serveIndex(d, res) },
     { methods: GET_HEAD, path: '/ui/index.html', auth: 'public', run: ({ res }) => serveIndex(d, res) },
     { methods: GET_HEAD, path: /^\/ui\/assets\//, auth: 'public', run: ({ res, url }) => serveAsset(d, res, url.pathname) },
@@ -250,10 +251,14 @@ const EXPIRED_PAGE = `<!doctype html>
 </html>
 `;
 
-/** Spends a one-time code and signs the browser in. The redirect takes the code out of the address bar. */
-function login(d: Deps, { res, url, port }: Ctx): void {
-  if (!d.auth.redeemCode(url.searchParams.get('code') ?? '')) return sendHtml(res, 401, EXPIRED_PAGE);
-  redirect(res, 303, '/ui/', { 'set-cookie': d.auth.cookie(port) });
+/**
+ * Spends a one-time code and signs the browser in. The redirect takes the code out of the address bar.
+ * A browser already signed in goes on to the UI whatever its link: a reload, the history, a link opened twice.
+ */
+function login(d: Deps, { req, res, url, port }: Ctx): void {
+  if (d.auth.redeemCode(url.searchParams.get('code') ?? '')) return redirect(res, 303, '/ui/', { 'set-cookie': d.auth.cookie(port) });
+  if (d.auth.hasCookie(req.headers.cookie, port)) return redirect(res, 303, '/ui/');
+  sendHtml(res, 401, EXPIRED_PAGE);
 }
 
 function sendFile(res: ServerResponse, file: UiFile, headers: Readonly<Record<string, string>>): void {

@@ -48,6 +48,22 @@ describe('browser sign-in', () => {
     expect(again.headers['set-cookie']).toBeUndefined();
   });
 
+  it('sends a browser that is already signed in on to the UI, whatever its link', async () => {
+    const minted = await call(port, { method: 'POST', path: '/api/ui/login-code', headers: bearer(TOKEN) });
+    const url = new URL(minted.json.url as string);
+    const login = await call(port, { path: url.pathname + url.search });
+    const cookie = login.headers['set-cookie']![0]!.split(';')[0]!;
+    for (const path of [url.pathname + url.search, '/ui/login?code=nope', '/ui/login']) {
+      const r = await call(port, { path, headers: { cookie } });
+      expect([path, r.status, r.headers.location, r.headers['set-cookie']]).toEqual([path, 303, '/ui/', undefined]);
+    }
+  });
+
+  it('sends /ui on to /ui/', async () => {
+    const r = await call(port, { path: '/ui' });
+    expect([r.status, r.headers.location]).toEqual([302, '/ui/']);
+  });
+
   it('lets no HEAD request spend a code', async () => {
     const minted = await call(port, { method: 'POST', path: '/api/ui/login-code', headers: bearer(TOKEN) });
     const url = new URL(minted.json.url as string);
