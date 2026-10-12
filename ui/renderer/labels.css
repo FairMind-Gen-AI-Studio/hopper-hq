@@ -32,10 +32,20 @@
   border-radius: 4px;
   cursor: pointer;
   pointer-events: auto;
+  /* A drag that starts on a tag moves the camera (view.ts): no page gesture, no text selection. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .fv-tag:hover {
   background: var(--hover, #eef2f6);
+}
+
+.fv-tag:hover,
+.fv-tag:focus-visible,
+.fv-tag.fv-sel {
+  z-index: 1;
 }
 
 .fv-tag:focus-visible,
@@ -68,6 +78,26 @@
 .fv-agents,
 .fv-remote {
   color: var(--muted, #566173);
+}
+
+/*
+ * Many desks, or a camera far out (.fv-compact): a tag shows only its dot, and its name as well when its desk needs
+ * you. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it still names the
+ * button.
+ */
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you) {
+  gap: 0;
+  padding: 3px;
+}
+
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you) > .fv-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .fv-badge-needs .fv-dot {

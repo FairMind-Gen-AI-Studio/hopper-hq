@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { OrthographicCamera } from 'three';
-import { LabelLayer, projectToScreen, tagTitle, type LabelEvents } from '../../renderer/labels';
+import { COMPACT_PX, LabelLayer, projectToScreen, tagTitle, type LabelEvents } from '../../renderer/labels';
+import css from '../../renderer/labels.css?raw';
 import { labelAnchor } from '../../renderer/world';
 import { checkoutFloor, checkoutIslands, desksOf, isoCamera, makeFloor } from './fixtures';
 
@@ -22,6 +23,13 @@ function layer() {
 }
 
 const HOSTILE = '<img src=x onerror=alert(1)>';
+
+/** The declarations of the rule for exactly this selector in labels.css. */
+function rule(selector: string): string {
+  const at = css.indexOf(`\n${selector} {\n`);
+  expect(at, selector).toBeGreaterThanOrEqual(0);
+  return css.slice(at, css.indexOf('}', at));
+}
 
 afterEach(() => document.body.replaceChildren());
 
@@ -172,6 +180,32 @@ describe('the label layer', () => {
     camera.updateMatrixWorld();
     labels.position(camera, 800, 500);
     expect(tag.style.visibility).toBe('hidden');
+  });
+
+  it('shows only the dots while a metre takes few pixels on screen, and keeps the names as text', () => {
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    expect(root.classList.contains('fv-compact')).toBe(false);
+    labels.setScale(COMPACT_PX - 1);
+    expect(root.classList.contains('fv-compact')).toBe(true);
+    expect(labels.tag('sw-a1')!.querySelector('.fv-name')!.textContent).toBe('sw-a1');
+    labels.setScale(COMPACT_PX);
+    expect(root.classList.contains('fv-compact')).toBe(false);
+    labels.setScale(10);
+    labels.dispose();
+    expect(root.classList.contains('fv-compact')).toBe(false);
+  });
+
+  it('styles compact tags so that hidden text still names them, and lets drags on a tag reach the camera', () => {
+    expect(rule('.fv-tag')).toContain('touch-action: none;');
+    expect(rule('.fv-tag')).toContain('user-select: none;');
+    const hidden = rule(
+      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
+        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you) > .fv-name',
+    );
+    expect(hidden).toContain('clip-path: inset(50%);');
+    expect(hidden).not.toContain('display');
+    expect(rule('.fv-tag:hover,\n.fv-tag:focus-visible,\n.fv-tag.fv-sel')).toContain('z-index: 1;');
   });
 
   it('removes its labels on dispose', () => {

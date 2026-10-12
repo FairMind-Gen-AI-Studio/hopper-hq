@@ -101,7 +101,10 @@ export function createFloorView(
     for (const fn of [...listeners[event]]) fn(sessionId);
   };
   const labels = new LabelLayer(host.labels, {
-    select: (id, clicks) => clickSelect(() => id, clicks),
+    select: (id, clicks) => {
+      // A drag of the camera that started on the tag may end in a click on it: that click selects nothing.
+      if (!(relayed && clicks > 0)) clickSelect(() => id, clicks);
+    },
     activate: (id) => doubleClick(() => id),
   });
 
@@ -122,6 +125,10 @@ export function createFloorView(
   let clicked: { id: string | null; at: number } | null = null;
   /** Cancels a pan that waits for the end of a double-click. */
   let panLater: (() => void) | null = null;
+  /** A press of the main button on a tag: a click if it ends there, a drag of the camera once it moves away. */
+  let press: PointerEvent | null = null;
+  /** The last press on a tag went on to the canvas as a drag. */
+  let relayed = false;
 
   function pose(): CameraPose {
     const t = controls.target;
@@ -196,6 +203,7 @@ export function createFloorView(
     if (controls.update()) again = true;
     world.setAzimuth(pose().azimuth);
     renderer.render(world.scene, camera);
+    labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
     labels.position(camera, width, height);
     if (again) request();
   }
@@ -252,6 +260,70 @@ export function createFloorView(
     else clicked = null;
   };
   const onDoubleClick = (e: MouseEvent) => doubleClick(() => pickAt(e.clientX, e.clientY));
+
+  /** Hands a press on a tag to the canvas, where the controls take it as the start of a drag. */
+  function relay(e: PointerEvent): void {
+    relayed = true;
+    clicked = null;
+    canvas.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        pointerId: e.pointerId,
+        pointerType: e.pointerType,
+        isPrimary: e.isPrimary,
+        button: e.button,
+        buttons: e.buttons,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+      }),
+    );
+  }
+
+  // The tags lie over the canvas. The wheel, and drags that start on a tag, go on to the canvas, so the camera zooms,
+  // turns and pans there too; only a click of the main button stays with the tag. Other buttons only ever drag.
+  const onTagPointerDown = (e: PointerEvent) => {
+    relayed = false;
+    if (e.button === 0) press = e;
+    else relay(e);
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    const start = press;
+    if (!start || e.pointerId !== start.pointerId || Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY) <= DRAG_PX) return;
+    press = null;
+    relay(start);
+  };
+  const onPointerEnd = (e: PointerEvent) => {
+    if (press && e.pointerId === press.pointerId) press = null;
+  };
+  const onTagWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    canvas.dispatchEvent(
+      new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaX: e.deltaX,
+        deltaY: e.deltaY,
+        deltaZ: e.deltaZ,
+        deltaMode: e.deltaMode,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        screenX: e.screenX,
+        screenY: e.screenY,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        metaKey: e.metaKey,
+      }),
+    );
+  };
+  const onTagMenu = (e: Event) => e.preventDefault();
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && selected !== null && world.desks.has(selected)) {
       e.preventDefault();
@@ -271,6 +343,12 @@ export function createFloorView(
   canvas.addEventListener('dblclick', onDoubleClick);
   canvas.addEventListener('keydown', onKeyDown);
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
+  host.labels.addEventListener('pointerdown', onTagPointerDown);
+  host.labels.addEventListener('wheel', onTagWheel, { passive: false });
+  host.labels.addEventListener('contextmenu', onTagMenu);
+  document.addEventListener('pointermove', onPointerMove);
+  document.addEventListener('pointerup', onPointerEnd);
+  document.addEventListener('pointercancel', onPointerEnd);
   document.addEventListener('visibilitychange', onVisibility);
   controls.addEventListener('change', onControls);
   const stopResize = env.observeResize(canvas, resize);
@@ -357,6 +435,12 @@ export function createFloorView(
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('dblclick', onDoubleClick);
       canvas.removeEventListener('keydown', onKeyDown);
+      host.labels.removeEventListener('pointerdown', onTagPointerDown);
+      host.labels.removeEventListener('wheel', onTagWheel);
+      host.labels.removeEventListener('contextmenu', onTagMenu);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerEnd);
+      document.removeEventListener('pointercancel', onPointerEnd);
       document.removeEventListener('visibilitychange', onVisibility);
       controls.removeEventListener('change', onControls);
       controls.dispose();

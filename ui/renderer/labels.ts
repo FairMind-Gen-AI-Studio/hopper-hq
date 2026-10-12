@@ -26,6 +26,12 @@ export function projectToScreen(p: Point3, camera: Camera, width: number, height
   return { x: Math.round(((v.x + 1) / 2) * width), y: Math.round(((1 - v.y) / 2) * height), visible };
 }
 
+/**
+ * Below this many CSS pixels to the metre, tags show only their dot (labels.css): desks side by side are 2 m apart,
+ * and a tag with a short name is about 70 px wide.
+ */
+export const COMPACT_PX = 40;
+
 export interface LabelEvents {
   /** `clicks` is the click's place in a series: 2 for the second click of a double-click, 0 from the keyboard. */
   select(sessionId: string, clicks: number): void;
@@ -46,6 +52,7 @@ export class LabelLayer {
   private readonly tags = new Map<string, Label>();
   private readonly signs = new Map<string, Label>();
   private selected: string | null = null;
+  private compact = false;
   private readonly v = new Vector3();
 
   constructor(
@@ -80,6 +87,14 @@ export class LabelLayer {
     if (now) mark(now.el, true);
   }
 
+  /** How many CSS pixels a metre takes on screen. Below COMPACT_PX, tags show only their dot. */
+  setScale(pxPerMetre: number): void {
+    const compact = pxPerMetre < COMPACT_PX;
+    if (compact === this.compact) return;
+    this.compact = compact;
+    this.root.classList.toggle('fv-compact', compact);
+  }
+
   /** Moves every label to its anchor's place on the canvas, hiding those off the view. */
   position(camera: Camera, width: number, height: number): void {
     for (const label of [...this.signs.values(), ...this.tags.values()]) {
@@ -107,7 +122,7 @@ export class LabelLayer {
   dispose(): void {
     for (const [id, label] of this.tags) this.drop(this.tags, id, label);
     for (const [key, label] of this.signs) this.drop(this.signs, key, label);
-    this.root.classList.remove('fv-labels');
+    this.root.classList.remove('fv-labels', 'fv-compact');
   }
 
   private syncTag(desk: Desk): void {

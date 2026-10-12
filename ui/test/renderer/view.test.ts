@@ -343,6 +343,68 @@ describe('the floor view', () => {
     expect(events).toEqual(['select sw-a1']);
   });
 
+  it('zooms with the wheel over a tag, as over the canvas', () => {
+    const { renderer, env, view, labels } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const wheel = new WheelEvent('wheel', { deltaY: -200, bubbles: true, cancelable: true });
+    labels.querySelector('[data-session="oa-c3"] .fv-name')!.dispatchEvent(wheel);
+    env.flush();
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(cameraPose(renderer).zoom).toBeGreaterThan(1.1);
+  });
+
+  it('turns the camera on a drag that starts on a tag, and still selects on a click there', () => {
+    const { renderer, env, view, labels, events } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const tag = labels.querySelector('[data-session="sw-b2"]') as HTMLElement;
+    const at = (x: number, button = 0) => ({ clientX: x, clientY: 200, button, pointerId: 9, pointerType: 'mouse', bubbles: true });
+    tag.dispatchEvent(new PointerEvent('pointerdown', at(300)));
+    document.dispatchEvent(new PointerEvent('pointermove', at(300 + DRAG_PX)));
+    env.flush();
+    expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
+    document.dispatchEvent(new PointerEvent('pointermove', at(380)));
+    document.dispatchEvent(new PointerEvent('pointermove', at(400)));
+    document.dispatchEvent(new PointerEvent('pointerup', at(400)));
+    // A browser that ends the drag with a click on the tag: it selects nothing.
+    tag.dispatchEvent(new MouseEvent('click', { clientX: 400, clientY: 200, detail: 1, bubbles: true }));
+    env.flush();
+    expect(cameraPose(renderer).azimuth).not.toBeCloseTo(HOME_AZIMUTH, 2);
+    tag.dispatchEvent(new PointerEvent('pointerdown', at(300)));
+    document.dispatchEvent(new PointerEvent('pointerup', at(300)));
+    tag.dispatchEvent(new MouseEvent('click', { clientX: 300, clientY: 200, detail: 1, bubbles: true }));
+    expect(events).toEqual(['select sw-b2']);
+  });
+
+  it('pans on a right-button drag that starts on a tag, with no menu', () => {
+    const { renderer, env, view, labels } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const before = cameraPose(renderer);
+    const tag = labels.querySelector('[data-session="ps-d4"]') as HTMLElement;
+    const at = (x: number) => ({ clientX: x, clientY: 200, button: 2, pointerId: 9, pointerType: 'mouse', bubbles: true });
+    tag.dispatchEvent(new PointerEvent('pointerdown', at(300)));
+    document.dispatchEvent(new PointerEvent('pointermove', at(400)));
+    document.dispatchEvent(new PointerEvent('pointerup', at(400)));
+    const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    tag.dispatchEvent(menu);
+    env.flush();
+    expect(menu.defaultPrevented).toBe(true);
+    expect(cameraPose(renderer).target.x).not.toBeCloseTo(before.target.x, 2);
+    expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
+  });
+
+  it('shows only the dots of the tags while the floor is small on screen', () => {
+    const { env, view, canvas, labels } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(labels.classList.contains('fv-compact')).toBe(true);
+    for (let i = 0; i < 6; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -1000, bubbles: true, cancelable: true }));
+    env.flush();
+    expect(labels.classList.contains('fv-compact')).toBe(false);
+  });
+
   it('stops calling a listener once it unsubscribes', () => {
     const { renderer, env, view, canvas } = setup();
     view.setFloor(checkoutFloor());
