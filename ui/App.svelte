@@ -7,7 +7,10 @@
   import { applyTheme, browserStorage, loadTheme, nextTheme, resolvedTheme, saveTheme, systemPrefersDark, watchSystemTheme } from './lib/theme';
   import { createToasts } from './lib/toast';
   import AttentionBar from './components/AttentionBar.svelte';
+  import BuildingPanel from './components/BuildingPanel.svelte';
+  import DeskPanel from './components/DeskPanel.svelte';
   import Facade from './components/Facade.svelte';
+  import FloorPanel from './components/FloorPanel.svelte';
   import Notice from './components/Notice.svelte';
   import Toast from './components/Toast.svelte';
   import TopBar, { type Crumb } from './components/TopBar.svelte';
@@ -118,6 +121,11 @@
     else toasts.show(result.error, 'error');
   }
 
+  async function seen(sessionId: string): Promise<void> {
+    if (await api.markSeen(sessionId)) toasts.show('Marked as seen.');
+    else toasts.show('It is no longer waiting for review.', 'error');
+  }
+
   function openEntry(entry: AttentionEntry): void {
     navigate({ floor: entry.floorKey, desk: entry.sessionId });
   }
@@ -154,7 +162,31 @@
         </p>
       {/if}
     </section>
-    <aside class="panel" aria-live="polite"></aside>
+    <aside class="panel" aria-label="Details">
+      {#if route.floor === null}
+        {#if scene}
+          <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null })} />
+        {/if}
+      {:else if desk && floor}
+        <DeskPanel
+          desk={desk.desk}
+          island={desk.island}
+          {floor}
+          now={clock}
+          onBack={() => navigate({ floor: route.floor, desk: null })}
+          onGo={focus}
+          onSeen={seen}
+        />
+      {:else}
+        <FloorPanel
+          {summary}
+          {floor}
+          selected={route.desk}
+          onDesk={(id) => navigate({ floor: route.floor, desk: id })}
+          onBack={() => navigate({ floor: null, desk: null })}
+        />
+      {/if}
+    </aside>
   </main>
   <Toast {toasts} />
 </div>

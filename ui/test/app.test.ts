@@ -241,4 +241,63 @@ describe('App shell', () => {
     expect(target.querySelector('.stage svg')).not.toBeNull();
     expect(text(target.querySelector('.stage .hint'))).toBe('No sessions yet.');
   });
+
+  it('shows the panel of the level: directory, floor, desk', () => {
+    const { target, crumbs } = app();
+    const panel = () => target.querySelector('aside.panel')!;
+    expect(text(panel().querySelector('.p-title'))).toBe('The building');
+    click(panel().querySelectorAll('.dir-btn')[0]);
+    expect(crumbs()).toBe('Building / 4 · checkout-v2');
+    expect(text(panel().querySelector('.p-title'))).toBe('checkout-v2');
+    click([...panel().querySelectorAll('.row-btn')].find((b) => text(b.querySelector('.r-name')) === 'storefront-web-b2'));
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'sw-b2' }));
+    expect(text(panel().querySelector('h2'))).toBe('storefront-web-b2');
+    click(panel().querySelector('.back'));
+    expect(crumbs()).toBe('Building / 4 · checkout-v2');
+  });
+
+  it('marks a done session as seen, and says so', async () => {
+    const markSeen = vi.fn(async () => true);
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target } = app(undefined, { api: { focusSession: vi.fn(), markSeen } });
+    click([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen'));
+    await settle();
+    expect(markSeen).toHaveBeenCalledWith('sw-b2');
+    expect(text(target.querySelector('.toast span'))).toBe('Marked as seen.');
+  });
+
+  it('says when marking as seen did not take', async () => {
+    const markSeen = vi.fn(async () => false);
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target } = app(undefined, { api: { focusSession: vi.fn(), markSeen } });
+    click([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen'));
+    await settle();
+    expect(target.querySelector('.toast')!.classList.contains('error')).toBe(true);
+    expect(text(target.querySelector('.toast span'))).toBe('It is no longer waiting for review.');
+  });
+
+  it('switches tmux from the desk panel', async () => {
+    const focusSession = vi.fn(async () => ({ ok: true as const, pane: '%4', simulated: false }));
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-a1' });
+    const { target } = app(undefined, { api: { focusSession, markSeen: vi.fn() } });
+    click(target.querySelector('aside .actions button.primary'));
+    await settle();
+    expect(focusSession).toHaveBeenCalledWith('sw-a1');
+    expect(text(target.querySelector('.toast span'))).toBe('Switched tmux to %4');
+  });
+
+  it('keeps the floor open when the desk in the address has left it', () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: 'left-already' });
+    const { target } = app();
+    expect(text(target.querySelector('aside .p-title'))).toBe('checkout-v2');
+    expect(text(target.querySelector('aside .gone'))).toBe('That session has left this floor.');
+  });
+
+  it('says when the floor in the address is gone, and goes back to the building', () => {
+    location.hash = toHash({ floor: 'feature:gone', desk: null });
+    const { target, crumbs } = app();
+    expect(text(target.querySelector('aside .p-text'))).toBe('This floor is empty now: its sessions have ended or moved to another floor.');
+    click(target.querySelector('aside .back'));
+    expect(crumbs()).toBe('Building');
+  });
 });
