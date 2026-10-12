@@ -7,6 +7,8 @@
   /**
    * The attention queue, visible at every level: who needs you (longest wait first) and what is done, to review
    * (oldest first), in the order the scene gives. A chip opens its desk; Go switches tmux to its pane.
+   * The bar keeps one height, two rows of chips, and scrolls past them: a bar that grew as sessions finished would move
+   * the stage under the pointer, between the two clicks of a double-click.
    */
   interface Props {
     attention: BuildingScene['attention'];
@@ -56,7 +58,20 @@
 </section>
 
 <style>
-  .attention { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-width: 0; }
+  .attention {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: flex-start;
+    gap: 8px 22px;
+    min-width: 0;
+    /* Two rows of chips, with room around them for a focus ring the scrolling would otherwise cut. */
+    height: 80px;
+    margin: -4px;
+    padding: 4px;
+    overflow-y: auto;
+  }
   .group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
   .label { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
   .empty { margin: 0; color: var(--muted); font-size: 13px; }

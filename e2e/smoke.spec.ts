@@ -165,6 +165,28 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
     expect(seen.scripts).toHaveLength(1);
   });
 
+  await test.step('the attention bar keeps one height however many sessions it lists, so the stage below never moves', async () => {
+    await expect(page.locator('.attention .chip').first()).toBeVisible();
+    const { before, after, scrolls } = await page.evaluate(() => {
+      const where = () =>
+        ['.attention', '.stage'].map((selector) => {
+          const box = document.querySelector(selector)!.getBoundingClientRect();
+          return `${selector} ${box.top} ${box.height}`;
+        });
+      const bar = document.querySelector('.attention')!;
+      const chip = bar.querySelector('.chip')!;
+      const before = where();
+      // Forty more chips, as if a crowd of sessions finished at once: added and taken away before the page draws again.
+      const clones = Array.from({ length: 40 }, () => chip.parentElement!.appendChild(chip.cloneNode(true) as Element));
+      const after = where();
+      const scrolls = bar.scrollHeight > bar.clientHeight && getComputedStyle(bar).overflowY === 'auto';
+      for (const clone of clones) clone.remove();
+      return { before, after, scrolls };
+    });
+    expect(after).toEqual(before);
+    expect(scrolls).toBe(true);
+  });
+
   let first = { floor: '', desk: '' };
   await test.step('a needs-you entry opens its desk on its floor, drawn in 3D', async () => {
     const chip = page.locator('.attention .group.needs button.open').first();
