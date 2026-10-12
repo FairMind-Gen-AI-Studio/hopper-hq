@@ -9,8 +9,11 @@ export interface FakeStore extends ClientStore {
   set(patch: Partial<ClientState>): void;
 }
 
-/** A store that answers watchFloor at once, from the fixtures (or `floors`), and lets the test push any state. */
-export function fakeStore(initial: Partial<ClientState> = {}, floors: (key: string) => FloorDetail | null = makeFloor): FakeStore {
+/**
+ * A store that answers watchFloor at once, from the fixtures (or `floors`: undefined leaves the floor loading), and lets
+ * the test push any state.
+ */
+export function fakeStore(initial: Partial<ClientState> = {}, floors: (key: string) => FloorDetail | null | undefined = makeFloor): FakeStore {
   let state: ClientState = { connection: 'live', scene: null, floorKey: null, floor: undefined, ...initial };
   const subscribers = new Set<(s: ClientState) => void>();
   const store: FakeStore = {

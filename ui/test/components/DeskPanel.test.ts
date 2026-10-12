@@ -49,6 +49,13 @@ describe('DeskPanel', () => {
     expect(panel(SEARCH, 'ss-e5', NOW + 60_000).facts()['Running']).toBe('Bash: npm test for 15m, no new output');
   });
 
+  it('says how long a working session has run its command, and nothing about its output', () => {
+    const { facts } = panel(CHECKOUT, 'sw-a1', NOW, (d) => {
+      d.activity = { label: 'Bash: npm run build', since: NOW - 90_000, running: true };
+    });
+    expect(facts()['Running']).toBe('Bash: npm run build for 1m');
+  });
+
   it('lists the facts: since, last action, subagents, repo, branch, folder and pane', () => {
     const { facts } = panel(CHECKOUT, 'sw-a1');
     expect(facts()).toEqual({

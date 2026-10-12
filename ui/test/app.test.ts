@@ -329,6 +329,20 @@ describe('App shell', () => {
     expect(text(target.querySelector('.toast span'))).toBe('Switched tmux to %4');
   });
 
+  it('names a desk from the attention bar and shows its floor loading, until the floor arrives', () => {
+    location.hash = toHash({ floor: ORDERS, desk: 'oa-g7' });
+    const store = fakeStore({ scene: makeScene() }, () => undefined);
+    const { target, crumbs } = app(store);
+    expect(crumbs()).toBe('Building / 2 · orders-api / orders-api-g7');
+    expect(text(target.querySelector('aside .p-title'))).toBe('orders-api');
+    expect(text(target.querySelector('aside .p-note'))).toBe('Loading the floor…');
+    expect(target.querySelector('.stage .floor-stage')).toBeNull();
+    store.set({ floor: makeFloor(ORDERS) });
+    flushSync();
+    expect(text(target.querySelector('aside h2'))).toBe('orders-api-g7');
+    expect(target.querySelector('.stage .floor-stage')).not.toBeNull();
+  });
+
   it('keeps the floor open when the desk in the address has left it', () => {
     location.hash = toHash({ floor: CHECKOUT, desk: 'left-already' });
     const { target } = app();
