@@ -30,7 +30,9 @@ Once it is published, `npm install -g scranton-hq` will do the same.
 
 ## Quick start
 
-Run `scranton-hq start` in its own tmux window or terminal. Then run `scranton-hq ls`, or `scranton-hq ui` to open the building in your browser.
+Run `scranton-hq up`. It starts the daemon in the background if it is not running yet, then opens the building in your browser. The daemon writes its log to `~/.scranton-hq/daemon.log`. `scranton-hq down` stops it.
+
+To run the daemon in the foreground instead, in its own tmux window or terminal, use `scranton-hq start`. Then run `scranton-hq ls`, or `scranton-hq ui` to open the building in your browser.
 
 This already works from the files Claude Code writes, without the mod.
 
@@ -70,7 +72,7 @@ Going to a pane switches the most recently used tmux client to it. The daemon ta
 - The daemon listens on 127.0.0.1 only.
 - `scranton-hq ui` asks the daemon for a one-time link. It works once, within a minute; the demo's link lasts 10 minutes.
 - Opening the link sets a signed, HttpOnly cookie for that daemon's port. It lasts 30 days and survives daemon restarts. To sign every browser out, delete `~/.scranton-hq/token` and restart the daemon.
-- A signed-in browser can watch the building, switch tmux panes and mark sessions as seen. It cannot send hook events or ask for sign-in links. From a browser, changes are accepted only from the daemon's own page.
+- A signed-in browser can watch the building, switch tmux panes and mark sessions as seen. It cannot send hook events, ask for sign-in links or stop the daemon. From a browser, changes are accepted only from the daemon's own page.
 - The page loads nothing from the network. Scripts, styles and fonts come from the daemon, under a strict content security policy.
 - Known risk: browsers do not keep cookies apart by port. Any other server on 127.0.0.1 that this browser talks to, such as a dev server an agent started, receives the cookie. It could reuse it for up to 30 days to watch the building, switch your tmux panes and mark sessions as seen. If that matters to you, sign everything out as above.
 - In the demo, `Go` and `Go to pane` are simulated: the page says which pane it would switch to, and tmux is never touched.
@@ -89,6 +91,8 @@ set -g status-interval 5
 ## The Claude Code mod (recommended)
 
 The mod reports each session as things happen, with the exact reason a session waits. It also shows, above the prompt of every session, who else is waiting for you. A `Go` button jumps to that tmux pane.
+
+Type `/scranton-hq` in any session to open the building. It runs `scranton-hq up`, so it also starts the daemon when it is not running, and it takes no turn of the model. The sign-in link stays out of the conversation. The `Open building` button in the band above the prompt does the same; the band shows only while another session waits for you or has finished. Both need `scranton-hq` on your `PATH`: see [Install](#install).
 
 Install it from a shell:
 
@@ -109,7 +113,9 @@ Without the mod, scranton-hq still works from the files Claude Code writes. It h
 
 | Command | What it does |
 | --- | --- |
-| `scranton-hq start` | Runs the daemon: collector, file watcher and local API. |
+| `scranton-hq up` | Starts the daemon in the background unless it is running, then opens the building like `ui`. Use `--no-open` to print the link only. |
+| `scranton-hq down` | Stops the daemon. |
+| `scranton-hq start` | Runs the daemon in the foreground: collector, file watcher and local API. One daemon runs per data directory. |
 | `scranton-hq status` | Prints a summary. Use `--format text`, `tmux` or `json`. |
 | `scranton-hq ls` | Lists floors and their sessions. |
 | `scranton-hq ack` | Marks finished sessions as seen. |
