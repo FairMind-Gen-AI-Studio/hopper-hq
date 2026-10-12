@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { once } from 'node:events';
 import type { Server, ServerResponse } from 'node:http';
 import { connect, type Socket } from 'node:net';
@@ -260,5 +260,46 @@ describe('a live view that stops reading', () => {
     } finally {
       hub.close();
     }
+  });
+});
+
+/** A source that throws while `failing` is set; its scene changes at every read. */
+function flakySource() {
+  const state = { failing: false, reads: 0 };
+  const source: SceneSource = {
+    scene: () => {
+      if (state.failing) throw new Error('scene broke');
+      return { version: 1, floors: [], attention: { needsYou: [], done: [] }, reads: state.reads++ } as unknown as BuildingScene;
+    },
+    floor: () => null,
+    onChange: () => () => {},
+  };
+  return { state, source };
+}
+
+describe('scene code that throws', () => {
+  it('is logged on a flush and on the tick, and the streams stay open', async () => {
+    const { state, source } = flakySource();
+    const log = vi.fn();
+    const hub = new SceneHub({ source, log, coalesceMs: 30, tickMs: 20, heartbeatMs: LONG });
+    const port = await serve(hub);
+    const reader = await sse(port, '/api/events');
+    await reader.take(isEvent('scene'));
+    state.failing = true;
+    expect(() => hub.flush()).not.toThrow();
+    await until(() => log.mock.calls.length >= 2);
+    expect(log).toHaveBeenCalledWith('scranton-hq could not build the live view: scene broke');
+    expect(hub.size).toBe(1);
+    state.failing = false;
+    expect(json((await reader.take(isEvent('scene'))).data).reads).toBeGreaterThan(0);
+  });
+
+  it('fails a new view whole with 500, and registers nothing', async () => {
+    const { state, source } = flakySource();
+    state.failing = true;
+    const hub = new SceneHub({ source, log: vi.fn(), coalesceMs: 30, tickMs: LONG, heartbeatMs: LONG });
+    const port = await serve(hub);
+    expect((await sse(port, '/api/events')).status).toBe(500);
+    expect(hub.size).toBe(0);
   });
 });

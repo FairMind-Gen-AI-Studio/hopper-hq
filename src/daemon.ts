@@ -88,7 +88,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   const resolveWorkspace = createGitResolver();
   const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log });
   const auth = new UiAuth({ token, codeTtlMs: opts.demo ? DEMO_CODE_TTL_MS : undefined });
-  const hub = new SceneHub({ source: collector });
+  const hub = new SceneHub({ source: collector, log });
   // Demo panes (%4…%11) must never reach the user's real tmux.
   const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
   const server = createApiServer({ collector, token, auth, ui, hub, focus });

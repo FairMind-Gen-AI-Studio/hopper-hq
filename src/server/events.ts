@@ -20,6 +20,8 @@ export interface SceneHubOptions {
   heartbeatMs?: number;
   /** Output a client may leave unread before it is dropped (default 1 MiB). Every event carries full state: a client that reconnects has lost nothing. */
   maxBufferedBytes?: number;
+  /** Where a scene that cannot be built is reported (default stderr). */
+  log?: (line: string) => void;
 }
 
 export const SSE_HEADERS: Readonly<Record<string, string>> = {
@@ -59,6 +61,7 @@ export class SceneHub {
       tickMs: o.tickMs ?? 15_000,
       heartbeatMs: o.heartbeatMs ?? 25_000,
       maxBufferedBytes: o.maxBufferedBytes ?? 1024 * 1024,
+      log: o.log ?? ((line) => process.stderr.write(line + '\n')),
     };
     this.unsubscribe = o.source.onChange(() => this.schedule());
   }
@@ -67,15 +70,20 @@ export class SceneHub {
     return this.clients.size;
   }
 
-  /** Starts a stream on `res`. False when the hub is full or closed: the caller answers 503. */
+  /**
+   * Starts a stream on `res`. False when the hub is full or closed: the caller answers 503.
+   * The payloads are built first: when the scene code throws, the error reaches the caller and nothing is registered.
+   */
   attach(res: ServerResponse, floor: string | null): boolean {
     if (this.closed || this.clients.size >= this.o.maxClients) return false;
+    const scene = JSON.stringify(this.o.source.scene());
+    const detail = floor === null ? null : JSON.stringify(this.o.source.floor(floor));
     const client: Client = { res, floor, scene: null, detail: null };
     this.clients.add(client);
     res.on('close', () => this.detach(client));
     res.writeHead(200, SSE_HEADERS);
     this.write(client, 'retry: 3000\n\n');
-    this.send(client, JSON.stringify(this.o.source.scene()), floor === null ? null : JSON.stringify(this.o.source.floor(floor)));
+    this.send(client, scene, detail);
     this.startTimers();
     return true;
   }
@@ -85,10 +93,17 @@ export class SceneHub {
     if (this.pending) clearTimeout(this.pending);
     this.pending = null;
     if (this.clients.size === 0) return;
-    const scene = JSON.stringify(this.o.source.scene());
+    let scene: string;
     const floors = new Map<string, string>();
-    for (const c of this.clients) {
-      if (c.floor !== null && !floors.has(c.floor)) floors.set(c.floor, JSON.stringify(this.o.source.floor(c.floor)));
+    try {
+      scene = JSON.stringify(this.o.source.scene());
+      for (const c of this.clients) {
+        if (c.floor !== null && !floors.has(c.floor)) floors.set(c.floor, JSON.stringify(this.o.source.floor(c.floor)));
+      }
+    } catch (err) {
+      // Flushes run from timers, where a throw would take the daemon down. Clients keep what they have; the next change or tick tries again.
+      this.o.log(`scranton-hq could not build the live view: ${err instanceof Error ? err.message : String(err)}`);
+      return;
     }
     for (const c of this.clients) this.send(c, scene, c.floor === null ? null : floors.get(c.floor)!);
   }
