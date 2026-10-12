@@ -11,8 +11,10 @@ export type UiBundle = ReadonlyMap<string, UiFile>;
 
 export const UI_LIMITS = { files: 300, bytes: 30 * 1024 * 1024 };
 
+const HTML_TYPE = 'text/html; charset=utf-8';
+
+/** Asset types. No HTML: the one page is index.html. */
 const TYPES: Readonly<Record<string, string>> = {
-  '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
@@ -34,7 +36,7 @@ export async function loadUiBundle(dir: string, limits = UI_LIMITS): Promise<UiB
   } catch {
     return null;
   }
-  const files = new Map<string, UiFile>([['/ui/index.html', { body: index, type: TYPES['.html']! }]]);
+  const files = new Map<string, UiFile>([['/ui/index.html', { body: index, type: HTML_TYPE }]]);
   let bytes = index.length;
   const assets = join(dir, 'assets');
   const found = await readdir(assets, { recursive: true, withFileTypes: true }).catch(() => []);

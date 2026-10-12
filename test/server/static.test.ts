@@ -21,6 +21,7 @@ async function fixture(): Promise<string> {
   await writeFile(join(dir, 'assets', 'archivo-latin.woff2'), FONT);
   await writeFile(join(dir, 'assets', 'img', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   await writeFile(join(dir, 'assets', 'notes.md'), '# not served\n');
+  await writeFile(join(dir, 'assets', 'stray.html'), '<!doctype html><script src="/ui/assets/index-abc.js"></script>');
   await writeFile(join(dir, 'secret.txt'), 'outside assets\n');
   await symlink(join(dir, 'secret.txt'), join(dir, 'assets', 'linked.txt'));
   return dir;
@@ -80,7 +81,7 @@ describe('serving the UI', () => {
     expect(CSP).toBe("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
   });
 
-  it('serves assets with their type and a year of immutable caching', async () => {
+  it('serves assets with their type, the strict policy and a year of immutable caching', async () => {
     const expected: Record<string, string> = {
       '/ui/assets/index-abc.js': 'text/javascript; charset=utf-8',
       '/ui/assets/index-abc.css': 'text/css; charset=utf-8',
@@ -92,6 +93,7 @@ describe('serving the UI', () => {
       expect(r.status).toBe(200);
       expect(r.headers['content-type']).toBe(type);
       expect(r.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+      expect(r.headers['content-security-policy']).toBe(CSP);
       expect(r.headers['cross-origin-resource-policy']).toBe('same-origin');
     }
   });
@@ -112,6 +114,7 @@ describe('serving the UI', () => {
       '/ui/assets/img%2f..%2f..%2fsecret.txt',
       '/ui/assets\\..\\..\\package.json',
       '/ui/assets/notes.md',
+      '/ui/assets/stray.html',
       '/ui/assets/linked.txt',
       '/ui/assets/missing.js',
       '/ui/assets/%E0%A4%A',

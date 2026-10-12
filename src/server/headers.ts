@@ -19,8 +19,14 @@ export const HTML_HEADERS: Readonly<Record<string, string>> = {
   'cache-control': 'no-cache',
 };
 
-/** Added to bundled assets, whose file names carry a content hash. */
-export const ASSET_HEADERS: Readonly<Record<string, string>> = { 'cache-control': 'public, max-age=31536000, immutable' };
+/**
+ * Added to bundled assets, whose file names carry a content hash. The policy too: an asset opened on its own, such as
+ * an SVG, is a document of this origin. Browsers ignore it on scripts, styles and fonts.
+ */
+export const ASSET_HEADERS: Readonly<Record<string, string>> = {
+  'content-security-policy': CSP,
+  'cache-control': 'public, max-age=31536000, immutable',
+};
 
 /** Added to API answers. */
 export const API_HEADERS: Readonly<Record<string, string>> = { 'cache-control': 'no-store' };
