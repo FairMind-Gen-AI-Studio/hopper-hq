@@ -37,6 +37,8 @@ export interface RunningDaemon {
   collector: Collector;
   /** A one-time sign-in link for the browser (default lifetime: one minute, ten in the demo). */
   loginUrl(ttlMs?: number): string;
+  /** Resolves when the CLI asks the daemon to stop (`scranton-hq down`). Whoever started the daemon stops it. */
+  stopRequested: Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -104,7 +106,9 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const hub = new SceneHub({ source: collector, log });
   // Demo panes (%4…%11) must never reach the user's real tmux.
   const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
-  const server = createApiServer({ collector, token, auth, ui, hub, focus });
+  let requestStop!: () => void;
+  const stopRequested = new Promise<void>((resolve) => (requestStop = resolve));
+  const server = createApiServer({ collector, token, auth, ui, hub, focus, onShutdown: () => requestStop() });
 
   let port: number;
   try {
@@ -133,6 +137,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
     dataDir: paths.dataDir,
     collector,
     loginUrl: (ttlMs) => loginUrl(port, auth.issueCode(ttlMs).code),
+    stopRequested,
     stop: async () => {
       fsAdapter?.stop();
       demo?.stop();

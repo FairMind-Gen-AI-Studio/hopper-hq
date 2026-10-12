@@ -58,6 +58,18 @@ describe('startDaemon', () => {
     await b.stop();
   });
 
+  it('tells whoever runs it that the CLI asked it to stop', async () => {
+    const dataDir = await tmp('shq-data-');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    try {
+      const r = await call(d.port, { method: 'POST', path: '/api/shutdown', headers: bearer((await readDaemonFile(dataDir))!.token) });
+      expect(r.status).toBe(202);
+      await d.stopRequested;
+    } finally {
+      await d.stop();
+    }
+  });
+
   it('fails clearly when the port is taken', async () => {
     const blocker = createServer();
     await new Promise<void>((r) => blocker.listen(0, '127.0.0.1', r));

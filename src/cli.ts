@@ -4,7 +4,14 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { AttentionSummary, Snapshot } from './collector.js';
 import { resolvePaths } from './config.js';
-import { DataDirInUseError } from './daemon-lock.js';
+import { readDaemonFile } from './daemon-file.js';
+import { dataDirInUse, DataDirInUseError } from './daemon-lock.js';
+
+/** Time, for the commands that wait. */
+export interface Clock {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
 
 export interface Io {
   out(line: string): void;
@@ -13,6 +20,8 @@ export interface Io {
   open?(url: string): Promise<void>;
   /** Resolves when a long-running command (start, demo) should stop. Default: SIGINT or SIGTERM. */
   untilStopped?(): Promise<void>;
+  /** For the commands that wait (down). Default: the real clock. */
+  clock?: Clock;
 }
 
 /** Opens a URL with the desktop's opener (macOS, Linux). Failures are ignored: the link is printed anyway. */
@@ -23,6 +32,8 @@ function openInBrowser(url: string): Promise<void> {
     execFile(opener, [url], { timeout: 10_000 }, () => resolve());
   });
 }
+
+const realClock: Clock = { now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) };
 
 function untilSignal(): Promise<void> {
   return new Promise((resolve) => {
@@ -42,6 +53,7 @@ export const HELP = `scranton-hq: watch your coding-agent sessions work
 
 Usage:
   scranton-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch]
+  scranton-hq down [--data-dir DIR]
   scranton-hq status [--format text|tmux|json] [--data-dir DIR]
   scranton-hq ls [--data-dir DIR]
   scranton-hq ack [SESSION_ID] [--data-dir DIR]
@@ -65,6 +77,8 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
     switch (cmd) {
       case 'start':
         return await cmdStart(args, io);
+      case 'down':
+        return await cmdDown(args, io);
       case 'status':
         return await cmdStatus(args, io);
       case 'ls':
@@ -126,8 +140,62 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
     throw err;
   }
   io.err('Open the building in your browser with: scranton-hq ui');
-  await (io.untilStopped ?? untilSignal)();
+  await Promise.race([(io.untilStopped ?? untilSignal)(), daemon.stopRequested]);
   await daemon.stop();
+  return 0;
+}
+
+/** How long `down` waits for the daemon to stop, and how often it looks. */
+const WAIT_MS = 10_000;
+const POLL_MS = 100;
+
+/** Whether a daemon holds the data directory, answering or not. */
+async function held(dataDir: string): Promise<boolean> {
+  // The lock is SQLite's, and Node 22 warns that node:sqlite is experimental: nothing a command should print.
+  const { silenceExperimentalWarnings } = await import('./daemon.js');
+  silenceExperimentalWarnings();
+  return dataDirInUse(dataDir);
+}
+
+/** Asks the daemon to stop and waits until it has. No signal is sent: a process id in a file can be stale, or reused. */
+async function cmdDown(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({ args, options: { ...dataDirOption } });
+  const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
+  const info = await readDaemonFile(dataDir);
+  if (!info) {
+    io.err('scranton-hq is not running.');
+    return 0;
+  }
+  const { callDaemon } = await import('./client.js');
+  const r = await callDaemon<unknown>(dataDir, 'POST', '/api/shutdown');
+  if (!r) {
+    // Nothing answers: the file is left over, unless a daemon still holds the directory.
+    if (!(await held(dataDir))) {
+      io.err('scranton-hq is not running.');
+      return 0;
+    }
+    io.err(`scranton-hq does not answer, but it still holds ${dataDir}. Its daemon file names process ${info.pid}.`);
+    return 1;
+  }
+  if (r.status === 404) {
+    io.err(`This scranton-hq daemon (process ${info.pid}) is older than the down command. Stop it with Ctrl-C where it runs.`);
+    return 1;
+  }
+  if (!r.ok) {
+    io.err(`The daemon answered with status ${r.status}.`);
+    return 1;
+  }
+  // The daemon removes its file last, once it has stopped.
+  const clock = io.clock ?? realClock;
+  const until = clock.now() + WAIT_MS;
+  while ((await readDaemonFile(dataDir))?.pid === info.pid) {
+    if (clock.now() >= until) {
+      io.err(`scranton-hq is still stopping. Check again with: scranton-hq status${dataDirFlag(values['data-dir'])}`);
+      return 1;
+    }
+    await clock.sleep(POLL_MS);
+  }
+  io.err('scranton-hq has stopped.');
   return 0;
 }
 
@@ -223,7 +291,7 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
   }
   io.err(`Demo running. In another terminal: scranton-hq ls --data-dir ${dataDir}`);
   io.err(`Open the building (this link works once, for 10 minutes): ${daemon.loginUrl()}`);
-  await (io.untilStopped ?? untilSignal)();
+  await Promise.race([(io.untilStopped ?? untilSignal)(), daemon.stopRequested]);
   await daemon.stop();
   return 0;
 }

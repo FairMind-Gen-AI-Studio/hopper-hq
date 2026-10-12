@@ -24,6 +24,8 @@ export interface ApiOptions {
   hub?: SceneHub;
   /** Switches tmux to a session's pane. Defaults to the simulated driver: nothing reaches tmux unless the daemon wires the real one. */
   focus?: FocusDriver;
+  /** Called when the CLI asks the daemon to stop (`scranton-hq down`), once the answer is sent. Default: nothing stops. */
+  onShutdown?: () => void;
 }
 
 type Deps = Required<ApiOptions>;
@@ -38,6 +40,7 @@ function withDefaults(o: ApiOptions): Deps {
     ui: o.ui ?? null,
     hub: o.hub ?? new SceneHub({ source: o.collector }),
     focus: o.focus ?? simulatedFocusDriver,
+    onShutdown: o.onShutdown ?? (() => {}),
   };
 }
 
@@ -76,6 +79,7 @@ function routes(d: Deps): Route[] {
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
     { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c) },
     { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
+    { methods: POST, path: '/api/shutdown', auth: 'bearer', run: ({ res }) => postShutdown(d, res) },
     { methods: GET, path: '/api/scene', auth: 'read', run: ({ res }) => send(res, 200, d.collector.scene()) },
     { methods: GET, path: '/api/floor', auth: 'read', run: (c) => getFloor(d, c) },
     { methods: GET, path: '/api/events', auth: 'read', run: (c) => getEvents(d, c) },
@@ -242,6 +246,12 @@ async function postFocus(d: Deps, { req, res }: Ctx): Promise<void> {
   if (outcome.reason === 'tmux_failed') return send(res, 502, { error: 'tmux could not switch to the pane' });
   if (outcome.reason === 'other_session') return send(res, 409, { error: 'The pane is on another tmux server or session' });
   send(res, 409, { error: outcome.reason === 'no_client' ? 'No tmux client is attached' : 'The session is not in a tmux pane' });
+}
+
+/** Answers first: stopping closes every connection, this one included. */
+function postShutdown(d: Deps, res: ServerResponse): void {
+  res.once('finish', () => d.onShutdown());
+  send(res, 202);
 }
 
 function postLoginCode(d: Deps, { res, port }: Ctx): void {
