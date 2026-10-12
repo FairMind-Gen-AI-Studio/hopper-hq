@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -22,6 +22,7 @@ interface Demo {
 }
 
 const BIN = join(import.meta.dirname, '..', 'dist', 'bin.js');
+const UI = join(import.meta.dirname, '..', 'dist', 'ui');
 const LOGIN = /http:\/\/127\.0\.0\.1:\d+\/ui\/login\?code=[0-9a-f]{48}/;
 
 /** Runs `node dist/bin.js demo` until it prints its sign-in link. Null when the port was taken. */
@@ -143,6 +144,24 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (demo) await stopDemo(demo);
+});
+
+test('builds a page that writes no script, style or asset inline, where the content policy would block it', async () => {
+  const files = (await readdir(UI, { recursive: true })).filter((file) => /\.(?:html|css|js)$/.test(file));
+  expect(files).toContain('index.html');
+  for (const file of files) {
+    const text = await readFile(join(UI, file), 'utf8');
+    // A data: URI with a media type, as an inlined asset has (three.js only tests for the 'data:' prefix).
+    expect(text, file).not.toMatch(/data:[a-z]+\/[\w.+-]+[;,]/i);
+    if (file.endsWith('.css')) continue;
+    // A style attribute in the page, or in a component's HTML template.
+    expect(text, file).not.toMatch(/\sstyle\s*=/i);
+    expect(text, file).not.toMatch(/createElement\(\s*["'`]style["'`]\s*\)/);
+    if (file.endsWith('.html')) {
+      for (const tag of text.match(/<script\b[^>]*>/g) ?? []) expect(tag, file).toMatch(/\ssrc=/);
+      expect(text, file).not.toMatch(/<style\b/i);
+    }
+  }
 });
 
 test('signs in from the demo link, then walks the building, a floor in 3D and a desk', async ({ page, browser }, info) => {
