@@ -79,13 +79,19 @@ export class Collector {
     this.now = o.now ?? Date.now;
     this.log = o.log ?? ((line) => process.stderr.write(line + '\n'));
     for (const [key, at] of o.store?.loadFloors() ?? []) this.firstSeen.set(key, at);
+    let skipped = 0;
     for (const s of o.store?.loadSessions() ?? []) {
       // Saved before ids were checked: such a session could not be named in a URL.
-      if (!isSessionId(s.id)) continue;
+      if (!isSessionId(s.id)) {
+        skipped++;
+        continue;
+      }
       this.sessions.set(s.id, s);
       this.seq = Math.max(this.seq, s.lastSeq + 1);
       if (s.location === 'local' && s.state !== 'ended') this.unconfirmed.add(s.id);
     }
+    // Their rows stay in the store, which keeps every session: say how many, once.
+    if (skipped > 0) this.log(`scranton-hq skipped ${skipped === 1 ? '1 saved session whose id is' : `${skipped} saved sessions whose ids are`} not valid`);
     // Sessions saved before floors were recorded: each floor opened when its earliest live session started.
     const opened = new Map<string, number>();
     for (const s of this.sessions.values()) {

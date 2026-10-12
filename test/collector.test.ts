@@ -40,14 +40,22 @@ describe('Collector', () => {
     expect(c.snapshot().attention.done.map((s) => s.id)).toEqual(['S1']);
   });
 
-  it('drops events whose session id could not name a session, and skips such saved sessions', async () => {
+  it('drops events whose session id could not name a session, and skips such saved sessions, saying how many', async () => {
     const c = collector();
     for (const sessionId of ['..', 'a/b']) await c.ingest(hook({ type: 'prompt', text: 'go', sessionId }));
     expect(c.dropped).toBe(2);
     expect(c.liveViews()).toEqual([]);
     const store = await Store.open(':memory:');
-    store.saveSessions([newSession('..', 1000, { cwd: '/w/x', repoRoot: '/w/x', repoName: 'x', worktree: false, branch: 'main' }), newSession('S1', 1000, { cwd: '/w/x', repoRoot: '/w/x', repoName: 'x', worktree: false, branch: 'main' })], 1);
-    expect(collector({ store }).liveViews().map((v) => v.id)).toEqual(['S1']);
+    const ws = { cwd: '/w/x', repoRoot: '/w/x', repoName: 'x', worktree: false, branch: 'main' };
+    const log = vi.fn();
+    store.saveSessions([newSession('S1', 1000, ws)], 1);
+    collector({ store, log });
+    expect(log).not.toHaveBeenCalled();
+    store.saveSessions([newSession('..', 1000, ws)], 1);
+    expect(collector({ store, log }).liveViews().map((v) => v.id)).toEqual(['S1']);
+    store.saveSessions([newSession('a b', 1000, ws)], 1);
+    collector({ store, log });
+    expect(log.mock.calls).toEqual([['scranton-hq skipped 1 saved session whose id is not valid'], ['scranton-hq skipped 2 saved sessions whose ids are not valid']]);
     store.close();
   });
 
