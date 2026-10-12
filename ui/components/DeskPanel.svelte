@@ -31,7 +31,7 @@
 <div>
   <p class="eyebrow">{island.repo} · {where}</p>
   <div class="head-row">
-    <h2 class="p-title mono">{desk.name}</h2>
+    <h2 tabindex="-1" class="p-title mono">{desk.name}</h2>
     <StatePill state={desk.state} />
     {#if desk.location === 'cloud'}<span class="tag">remote</span>{/if}
   </div>

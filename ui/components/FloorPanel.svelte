@@ -27,13 +27,13 @@
 <div>
   {#if head}
     <p class="eyebrow">Floor {head.number} · {head.kind === 'department' ? 'Department' : 'Feature'}</p>
-    <h2 class="p-title">{head.name}</h2>
+    <h2 tabindex="-1" class="p-title">{head.name}</h2>
     <p class="p-sub">
       {head.kind === 'department' ? 'Sessions with no feature branch' : `${plural(head.repos.length, 'repo', 'repos')} on this feature`} · {plural(sessions, 'session', 'sessions')}
     </p>
   {:else}
     <p class="eyebrow">Floor</p>
-    <h2 class="p-title">Not in the building</h2>
+    <h2 tabindex="-1" class="p-title">Not in the building</h2>
   {/if}
 </div>
 

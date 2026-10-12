@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import type { AttentionEntry } from '../src/scene/types';
   import { SIGNED_OUT, focusSession, markSeen } from './lib/api';
   import { loadRenderer, type RendererModule } from './lib/renderer';
@@ -50,6 +50,10 @@
   let theme = $state(loadTheme(storage));
   let systemDark = $state(deps.prefersDark);
   let clock = $state(now());
+  let stage: HTMLElement | undefined = $state();
+  let panel: HTMLElement | undefined = $state();
+  /** The element that last had focus, and the attention chip it sat in, for when an update takes it away. */
+  let lastFocus: { el: Element; group: Element | null; index: number } | null = null;
 
   $effect(() => store.watchFloor(route.floor));
   // Before the components' effects: the floor stage reads its colours from <html> once the theme is set there.
@@ -62,6 +66,12 @@
   onDestroy(() => {
     store.close();
     toasts.clear();
+  });
+  // After every live update, and every toast that goes.
+  $effect(() => {
+    void $store;
+    void $toasts;
+    untrack(keepFocus);
   });
 
   const scene = $derived($store.scene);
@@ -89,14 +99,52 @@
   });
 
   function navigate(next: Route): void {
-    route = next.floor === null ? { floor: null, desk: null } : next;
+    const to = next.floor === null ? { floor: null, desk: null } : next;
+    const moved = to.floor !== route.floor || to.desk !== route.desk;
+    route = to;
     const hash = toHash(route);
     if (location.hash !== hash) location.hash = hash;
+    if (moved) void followMove();
   }
 
   function onHashChange(): void {
     const next = parseHash(location.hash);
-    if (next.floor !== route.floor || next.desk !== route.desk) route = next;
+    if (next.floor === route.floor && next.desk === route.desk) return;
+    route = next;
+    void followMove();
+  }
+
+  /** The open panel's heading. Each panel's h2 can take focus from script (tabindex -1). */
+  function heading(): HTMLElement | null {
+    return panel?.querySelector<HTMLElement>('h2') ?? null;
+  }
+
+  /**
+   * After a move, focus goes to the new panel's heading: the keyboard carries on from there, and a screen reader says
+   * where the page is. Focus in the stage stays: a desk picked in 3D keeps its canvas or tag, where Enter acts on it.
+   */
+  async function followMove(): Promise<void> {
+    await tick();
+    if (!stage?.contains(document.activeElement)) heading()?.focus();
+  }
+
+  function onFocusIn(e: FocusEvent): void {
+    if (!(e.target instanceof Element)) return;
+    const chip = e.target.closest('.attention li.chip');
+    const index = chip?.parentElement ? [...chip.parentElement.children].indexOf(chip) : -1;
+    lastFocus = { el: e.target, group: chip?.closest('.group') ?? null, index };
+  }
+
+  /**
+   * An update took the focused element away, and focus fell to the page: it goes to the attention chip now in its
+   * place, else to the panel's heading. Focus anywhere else, or on the page because someone put it there, stays.
+   */
+  function keepFocus(): void {
+    const last = lastFocus;
+    if (!last || last.el.isConnected) return;
+    if (document.activeElement !== null && document.activeElement !== document.body) return;
+    const chips = last.group?.querySelectorAll<HTMLElement>('li.chip button.open') ?? [];
+    (chips[Math.min(last.index, chips.length - 1)] ?? heading())?.focus();
   }
 
   /** Esc goes up one level: desk, floor, building. */
@@ -155,7 +203,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} />
+<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} onfocusin={onFocusIn} />
 
 <div class="app">
   <TopBar
@@ -172,7 +220,7 @@
     <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
   {/if}
   <main class="main">
-    <section class="stage" aria-label={route.floor === null ? 'Building' : 'Floor'}>
+    <section class="stage" aria-label={route.floor === null ? 'Building' : 'Floor'} bind:this={stage}>
       {#if route.floor === null}
         {#if scene}
           <Facade
@@ -199,7 +247,7 @@
         <p class="hint">This floor is empty now.</p>
       {/if}
     </section>
-    <aside class="panel" aria-label="Details">
+    <aside class="panel" aria-label="Details" bind:this={panel}>
       {#if route.floor === null}
         {#if scene}
           <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null })} />

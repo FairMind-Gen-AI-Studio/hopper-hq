@@ -14,7 +14,7 @@
 
 <div>
   <p class="eyebrow">Directory</p>
-  <h2 class="p-title">The building</h2>
+  <h2 tabindex="-1" class="p-title">The building</h2>
   <p class="p-sub">{plural(floors.length, 'floor', 'floors')} · {plural(sessions, 'session', 'sessions')}</p>
 </div>
 <p class="p-text">

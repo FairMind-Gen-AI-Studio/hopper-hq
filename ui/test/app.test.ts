@@ -347,6 +347,101 @@ describe('App shell', () => {
   });
 });
 
+describe('App focus', () => {
+  const active = () => document.activeElement;
+  const heading = (target: HTMLElement) => target.querySelector('aside h2');
+
+  /** Focuses a button, clicks it, and waits for the move. */
+  async function press(el: Element | null | undefined): Promise<void> {
+    (el as HTMLElement).focus();
+    click(el);
+    await settle();
+  }
+
+  it('moves focus to the new panel heading on every move, so that it never falls to the page', async () => {
+    const { target } = app();
+    expect(active()).toBe(document.body);
+    await press(target.querySelector('.dir-btn'));
+    expect(active()).toBe(heading(target));
+    expect(text(active())).toBe('checkout-v2');
+    expect(active()?.getAttribute('tabindex')).toBe('-1');
+    await press([...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'storefront-web-b2'));
+    expect(text(active())).toBe('storefront-web-b2');
+    expect(active()?.getAttribute('tabindex')).toBe('-1');
+    await press(target.querySelector('aside .back'));
+    expect(text(active())).toBe('checkout-v2');
+    await press([...target.querySelectorAll('.crumbs button')].find((b) => text(b) === 'Building'));
+    expect(text(active())).toBe('The building');
+    expect(active()?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('moves focus the same way on Esc and on Back or Forward', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target } = app();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    expect(active()).toBe(heading(target));
+    expect(text(active())).toBe('checkout-v2');
+    go({ floor: ORDERS, desk: 'oa-g7' });
+    await settle();
+    expect(text(active())).toBe('orders-api-g7');
+  });
+
+  it('leaves focus in the 3D floor when a desk is picked there', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { renderer } = app();
+    await settle();
+    const view = renderer.views[0]!;
+    view.host.canvas.tabIndex = 0;
+    view.host.canvas.focus();
+    view.emit('select', 'oa-c3');
+    await settle();
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
+    expect(active()).toBe(view.host.canvas);
+  });
+
+  it('keeps focus in the page when a live update takes the focused button away', () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target, store } = app();
+    ([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen') as HTMLElement).focus();
+    const floor = makeFloor(CHECKOUT)!;
+    for (const island of floor.islands) for (const desk of island.desks) if (desk.sessionId === 'sw-b2') desk.state = 'idle';
+    store.set({ floor });
+    flushSync();
+    expect(active()).toBe(heading(target));
+    expect(text(active())).toBe('storefront-web-b2');
+  });
+
+  it('moves focus to the chip now in the place of an answered one, else to the panel heading', () => {
+    const { target, store } = app();
+    const who = () => text(active()?.querySelector('.who'));
+    target.querySelector<HTMLElement>('.attention .needs button.open')!.focus();
+    expect(who()).toBe('orders-api-c3');
+    const scene = makeScene();
+    scene.attention.needsYou = scene.attention.needsYou.slice(1);
+    store.set({ scene });
+    flushSync();
+    expect(who()).toBe('orders-api-g7');
+    store.set({ scene: { ...scene, attention: { ...scene.attention, needsYou: [] } } });
+    flushSync();
+    expect(active()).toBe(heading(target));
+    expect(text(active())).toBe('The building');
+  });
+
+  it('never takes focus from an element still in the page, nor from the page itself', () => {
+    const { target, store } = app();
+    const floor = target.querySelector<SVGGElement>('.stage g.floor')!;
+    floor.focus();
+    store.set({ scene: makeScene() });
+    flushSync();
+    expect(active()).toBe(floor);
+    floor.blur();
+    store.set({ scene: makeScene() });
+    flushSync();
+    expect(active()).toBe(document.body);
+  });
+});
+
 describe('App floor in 3D', () => {
   it('draws the open floor and passes it every update, without moving the selection', async () => {
     location.hash = toHash({ floor: CHECKOUT, desk: null });
