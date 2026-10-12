@@ -11,6 +11,34 @@ const FONTS = [
   { family: 'IBM Plex Mono', pkg: '@fontsource/ibm-plex-mono', licence: 'licenses/ibm-plex-mono-OFL.txt', copyright: 'Copyright 2017 IBM Corp.' },
 ];
 
+/** The npm packages whose code is bundled into dist/ui: found from the source maps of a production build. */
+const LIBRARIES = [
+  { pkg: 'svelte', licence: 'licenses/svelte-MIT.txt', spdx: 'MIT', copyright: 'Copyright (c) 2016-2025 [Svelte Contributors]' },
+  { pkg: 'clsx', licence: 'licenses/clsx-MIT.txt', spdx: 'MIT', copyright: 'Copyright (c) Luke Edwards' },
+  { pkg: 'three', licence: 'licenses/three-MIT.txt', spdx: 'MIT', copyright: 'Copyright © 2010-2026 three.js authors' },
+];
+
+describe('bundled libraries', () => {
+  it('ships each licence exactly as its package has it', () => {
+    for (const l of LIBRARIES) {
+      const source = ['LICENSE', 'LICENSE.md', 'license'].map((n) => `node_modules/${l.pkg}/${n}`).find((p) => existsSync(new URL(p, ROOT)));
+      expect(source, l.pkg).toBeDefined();
+      expect(read(l.licence), l.licence).toBe(read(source!));
+      expect(read(l.licence)).toContain(l.copyright);
+    }
+  });
+
+  it('names every library, its installed version, copyright and licence file in the notices', () => {
+    const notices = read('THIRD_PARTY_NOTICES.md');
+    for (const l of LIBRARIES) {
+      const version = JSON.parse(read(`node_modules/${l.pkg}/package.json`)).version;
+      expect(notices, l.pkg).toContain(`| \`${l.pkg}\` ${version} |`);
+      expect(notices).toContain(l.copyright);
+      expect(notices).toContain(`${l.spdx}, \`${l.licence}\``);
+    }
+  });
+});
+
 describe('bundled fonts', () => {
   it('ships each licence exactly as its font package has it', () => {
     for (const f of FONTS) {
