@@ -216,11 +216,14 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
   return 0;
 }
 
+/** The one thing `ui` prints or opens: a sign-in link to the loopback address, as the daemon mints them. */
+const LOGIN_URL = /^http:\/\/127\.0\.0\.1:\d{1,5}\/ui\/login\?code=[0-9a-f]{48}$/;
+
 async function cmdUi(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { 'no-open': { type: 'boolean', default: false }, ...dataDirOption } });
   const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
   const { callDaemon } = await import('./client.js');
-  const r = await callDaemon<{ url: string; expiresAt: number }>(dataDir, 'POST', '/api/ui/login-code');
+  const r = await callDaemon<{ url?: unknown; expiresAt?: unknown }>(dataDir, 'POST', '/api/ui/login-code');
   if (!r) {
     io.err('scranton-hq is not running. Start it with: scranton-hq start');
     return 1;
@@ -229,9 +232,15 @@ async function cmdUi(args: string[], io: Io): Promise<number> {
     io.err(`The daemon answered with status ${r.status}.`);
     return 1;
   }
-  const minutes = Math.max(1, Math.round((r.data.expiresAt - Date.now()) / 60_000));
+  // Whatever listens on the daemon's port answers here: print and open only what scranton-hq would send.
+  const { url, expiresAt } = r.data;
+  if (typeof url !== 'string' || !LOGIN_URL.test(url) || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) {
+    io.err('The daemon did not answer with a sign-in link.');
+    return 1;
+  }
+  const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60_000));
   io.err(`This link signs your browser in. It works once, within ${minutes} minute${minutes === 1 ? '' : 's'}:`);
-  io.out(r.data.url);
-  if (!values['no-open'] && io.open) await io.open(r.data.url);
+  io.out(url);
+  if (!values['no-open'] && io.open) await io.open(url);
   return 0;
 }

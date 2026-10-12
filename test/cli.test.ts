@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, type Io } from '../src/cli.js';
+import { writeDaemonFile } from '../src/daemon-file.js';
 import { startDaemon, type RunningDaemon } from '../src/daemon.js';
-import { call } from './helpers/http.js';
+import { call, close, listen } from './helpers/http.js';
 
 let d: RunningDaemon;
 let dataDir: string;
@@ -127,6 +129,44 @@ describe('cli ui', () => {
     expect(opened).toEqual(c.out);
     expect(await main(['ui', '--no-open', '--data-dir', dataDir], { ...capture().io, open })).toBe(0);
     expect(opened).toHaveLength(1);
+  });
+
+  it('prints and opens nothing but a sign-in link to the loopback address', async () => {
+    let answer: unknown = null;
+    const impostor = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(answer));
+    });
+    const port = await listen(impostor);
+    const dir = await mkdtemp(join(tmpdir(), 'shq-impostor-'));
+    await writeDaemonFile(dir, { port, token: 'i'.repeat(48), pid: process.pid, startedAt: Date.now() });
+    const code = 'a'.repeat(48);
+    const soon = Date.now() + 60_000;
+    const answers = [
+      { url: '-a/Applications/Calculator.app', expiresAt: soon },
+      { url: 'file:///Applications/Calculator.app', expiresAt: soon },
+      { url: `http://127.0.0.1:${port}/ui/login?code=${code}\u001b]0;owned\u0007`, expiresAt: soon },
+      { url: `http://localhost:${port}/ui/login?code=${code}`, expiresAt: soon },
+      { url: `http://127.0.0.1:${port}/ui/login?code=${code.slice(1)}`, expiresAt: soon },
+      { url: 42, expiresAt: soon },
+      { url: `http://127.0.0.1:${port}/ui/login?code=${code}`, expiresAt: 'soon' },
+    ];
+    const opened: string[] = [];
+    try {
+      for (const a of answers) {
+        answer = a;
+        const c = capture();
+        expect([a, await main(['ui', '--data-dir', dir], { ...c.io, open: async (url) => void opened.push(url) })]).toEqual([a, 1]);
+        expect(c.out).toEqual([]);
+        expect(c.err).toEqual(['The daemon did not answer with a sign-in link.']);
+      }
+      expect(opened).toEqual([]);
+      answer = { url: `http://127.0.0.1:${port}/ui/login?code=${code}`, expiresAt: soon };
+      const ok = capture();
+      expect(await main(['ui', '--no-open', '--data-dir', dir], ok.io)).toBe(0);
+      expect(ok.out).toEqual([`http://127.0.0.1:${port}/ui/login?code=${code}`]);
+    } finally {
+      await close(impostor);
+    }
   });
 
   it('reports a daemon that is not running', async () => {
