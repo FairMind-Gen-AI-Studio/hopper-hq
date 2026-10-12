@@ -57,6 +57,12 @@ describe('parseSessionFile', () => {
     expect(r).toMatchObject({ startedAt: 0, status: null, statusUpdatedAt: null, waitingFor: null, name: null, tmuxPane: null, tmuxSession: null, kind: null });
   });
 
+  it('rejects a file whose session id could reach outside a directory or a URL path', () => {
+    for (const sessionId of ['..', '../../../tmp/x', 'a/b', 'a\\b', 'a\u0000b']) {
+      expect([sessionId, parseSessionFile('/s/1.json', JSON.stringify({ pid: 1, sessionId, cwd: '/w' }))]).toEqual([sessionId, null]);
+    }
+  });
+
   it('rejects files without pid, sessionId or cwd, and bad JSON', () => {
     expect(parseSessionFile('/s/x.json', '{oops')).toBeNull();
     expect(parseSessionFile('/s/x.json', JSON.stringify({ sessionId: 'S', cwd: '/w' }))).toBeNull();

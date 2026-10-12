@@ -248,7 +248,7 @@ describe('POST /api/focus', () => {
   });
 
   it('answers 400 to a bad body, including one over 1 KB', async () => {
-    const bodies = ['{oops', '', 'null', '[]', '{}', '{"sessionId":5}', '{"sessionId":""}', JSON.stringify({ sessionId: 'LOCAL', pad: 'x'.repeat(1100) })];
+    const bodies = ['{oops', '', 'null', '[]', '{}', '{"sessionId":5}', '{"sessionId":""}', '{"sessionId":".."}', '{"sessionId":"a/b"}', JSON.stringify({ sessionId: 'LOCAL', pad: 'x'.repeat(1100) })];
     for (const body of bodies) expect([body.slice(0, 20), (await focus(body)).status]).toEqual([body.slice(0, 20), 400]);
     expect((await focus('{"sessionId":"LOCAL"}', { ...bearer(TOKEN), 'content-type': 'application/json; charset=utf-8' })).status).toBe(200);
     expect(panes).toEqual(['%7']);

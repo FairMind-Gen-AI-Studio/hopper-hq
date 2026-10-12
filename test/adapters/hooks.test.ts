@@ -92,6 +92,13 @@ describe('mapHookPayload edge cases', () => {
     expect(reason({ hook_event_name: 'Notification', notification_type: 'elicitation_dialog', message: '\u0000' })).toEqual({ kind: 'question', text: 'Input needed' });
   });
 
+  it('rejects a session id that could not name a session in a URL or a file name', () => {
+    for (const id of ['..', '.', '../../etc/passwd', 'a/b', 'a\\b', 'a\u0007', '%2e%2e']) {
+      expect([id, mapHookPayload({ session_id: id, cwd: '/w/shop', hook_event_name: 'UserPromptSubmit', prompt: 'hi' }, NOW)]).toEqual([id, []]);
+    }
+    expect(mapHookPayload({ session_id: '7ef904e4-9872-4cca-924f-e7ddde08fc55', cwd: '/w/shop', hook_event_name: 'Stop' }, NOW)).toHaveLength(1);
+  });
+
   it('rejects payloads without a session or event name', () => {
     expect(mapHookPayload(null, NOW)).toEqual([]);
     expect(mapHookPayload('x', NOW)).toEqual([]);

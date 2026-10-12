@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanOrNull, cleanText, formatAgo, KEY_MAX, reasonText, STATE_LABEL, taskTitle } from '../../src/scene/text.js';
+import { cleanOrNull, cleanText, formatAgo, isSessionId, KEY_MAX, reasonText, STATE_LABEL, taskTitle } from '../../src/scene/text.js';
 
 describe('cleanText', () => {
   it('removes terminal escapes, bells and NULs', () => {
@@ -44,6 +44,19 @@ describe('cleanText', () => {
 
   it('keeps a key cut at KEY_MAX within 512 UTF-16 code units', () => {
     expect(cleanText('\u{1F600}'.repeat(400), KEY_MAX).length).toBeLessThanOrEqual(512);
+  });
+});
+
+describe('isSessionId', () => {
+  it('takes letters, digits, dots, underscores and dashes, up to KEY_MAX', () => {
+    for (const id of ['7ef904e4-9872-4cca-924f-e7ddde08fc55', '01HZX3V8K4QW2N5M7P9R0S1T2U', 'V1StGXR8_Z5jdHi6B-myT', 'demo-oa-c3', 'S1', 'a.b', '...', 'x'.repeat(KEY_MAX)]) {
+      expect([id, isSessionId(id)]).toEqual([id, true]);
+    }
+  });
+
+  it('refuses dot segments, separators, escapes, spaces, controls and anything over KEY_MAX', () => {
+    const bad = ['', '.', '..', '../x', 'a/b', 'a\\b', '%2e%2e', 'a%2Fb', 'a b', 'a\u0000', 'a\u202Eb', 'caf\u00e9', '\ud800', 'a?b', 'a#b', 'x'.repeat(KEY_MAX + 1), 42, null, undefined];
+    for (const id of bad) expect([id, isSessionId(id)]).toEqual([id, false]);
   });
 });
 

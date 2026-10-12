@@ -1,5 +1,6 @@
 import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
+import { isSessionId } from '../../scene/text.js';
 import { promptText } from './transcript.js';
 
 /** The payload names the mapper understands. The mod sends a subset (see test/mod-contract.test.ts). */
@@ -34,7 +35,7 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
   const p = payload as Record<string, unknown>;
   const sessionId = str(p.session_id);
   const name = str(p.hook_event_name);
-  if (!sessionId || !name) return [];
+  if (!isSessionId(sessionId) || !name) return [];
 
   const ts = typeof p._scranton_ts === 'number' && Number.isFinite(p._scranton_ts) ? p._scranton_ts : receivedAt;
   const cwd = str(p.cwd);

@@ -40,6 +40,17 @@ describe('Collector', () => {
     expect(c.snapshot().attention.done.map((s) => s.id)).toEqual(['S1']);
   });
 
+  it('drops events whose session id could not name a session, and skips such saved sessions', async () => {
+    const c = collector();
+    for (const sessionId of ['..', 'a/b']) await c.ingest(hook({ type: 'prompt', text: 'go', sessionId }));
+    expect(c.dropped).toBe(2);
+    expect(c.liveViews()).toEqual([]);
+    const store = await Store.open(':memory:');
+    store.saveSessions([newSession('..', 1000, { cwd: '/w/x', repoRoot: '/w/x', repoName: 'x', worktree: false, branch: 'main' }), newSession('S1', 1000, { cwd: '/w/x', repoRoot: '/w/x', repoName: 'x', worktree: false, branch: 'main' })], 1);
+    expect(collector({ store }).liveViews().map((v) => v.id)).toEqual(['S1']);
+    store.close();
+  });
+
   it('ignores sources it was not asked to accept', async () => {
     const c = collector({ acceptSources: ['demo'] });
     await c.ingest(hook({ type: 'prompt', text: 'go' }));

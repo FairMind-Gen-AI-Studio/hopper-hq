@@ -5,7 +5,7 @@ import { applyEvent, markSeen } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
 import { buildFloorDetail, buildScene } from './scene/build.js';
-import { cleanOrNull, cleanText, taskTitle } from './scene/text.js';
+import { cleanOrNull, cleanText, isSessionId, taskTitle } from './scene/text.js';
 import type { BuildingScene, FloorDetail } from './scene/types.js';
 import type { Store } from './store/store.js';
 
@@ -76,6 +76,8 @@ export class Collector {
     this.log = o.log ?? ((line) => process.stderr.write(line + '\n'));
     for (const [key, at] of o.store?.loadFloors() ?? []) this.firstSeen.set(key, at);
     for (const s of o.store?.loadSessions() ?? []) {
+      // Saved before ids were checked: such a session could not be named in a URL.
+      if (!isSessionId(s.id)) continue;
       this.sessions.set(s.id, s);
       this.seq = Math.max(this.seq, s.lastSeq + 1);
     }
@@ -130,6 +132,10 @@ export class Collector {
 
   ingest(raw: RawEvent): Promise<void> {
     if (this.o.acceptSources && !this.o.acceptSources.includes(raw.source)) return this.queue;
+    if (!isSessionId(raw.sessionId)) {
+      this.dropped++;
+      return this.queue;
+    }
     const e = { ...raw, seq: this.seq++ } as CollectorEvent;
     this.queue = this.queue.then(() => this.apply(e)).catch(() => {
       this.dropped++;

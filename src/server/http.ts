@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createRequire } from 'node:module';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
-import { KEY_MAX } from '../scene/text.js';
+import { isSessionId, KEY_MAX } from '../scene/text.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
 import { SceneHub } from './events.js';
 import { simulatedFocusDriver, type FocusDriver } from './focus.js';
@@ -87,7 +87,7 @@ function routes(d: Deps): Route[] {
       auth: 'write',
       run: ({ res, params }) => {
         const id = decoded(params[0]!);
-        return id !== null && d.collector.markSeen(id) ? send(res, 204) : send(res, 404, { error: 'No finished session with that id' });
+        return isSessionId(id) && d.collector.markSeen(id) ? send(res, 204) : send(res, 404, { error: 'No finished session with that id' });
       },
     },
   ];
@@ -231,7 +231,7 @@ async function postFocus(d: Deps, { req, res }: Ctx): Promise<void> {
   } catch {
     sessionId = undefined;
   }
-  if (typeof sessionId !== 'string' || sessionId === '') return send(res, 400, { error: 'Send {"sessionId": "<id>"}, at most 1 KB' });
+  if (!isSessionId(sessionId)) return send(res, 400, { error: 'Send {"sessionId": "<id>"}, at most 1 KB' });
   const v = d.collector.view(sessionId);
   if (!v) return send(res, 404, { error: 'No such session' });
   if (v.effectiveState === 'ended') return send(res, 409, { error: 'The session has ended' });

@@ -84,6 +84,12 @@ describe('API routes', () => {
     expect((await call({ method: 'POST', path: '/api/seen' })).json).toEqual({ marked: 0 });
   });
 
+  it('answers 404 to a session id that cannot be one once decoded', async () => {
+    for (const id of ['a%2Fb', 'a%5Cb', '%00', 'a%20b']) {
+      expect([id, (await call({ method: 'POST', path: `/api/sessions/${id}/seen` })).status]).toEqual([id, 404]);
+    }
+  });
+
   it('answers 404 to a session id that is not valid percent-encoding', async () => {
     for (const id of ['%E0%A4%A', '%', '%zz']) {
       expect([id, await call({ method: 'POST', path: `/api/sessions/${id}/seen` })]).toEqual([id, { status: 404, json: { error: 'No finished session with that id' } }]);

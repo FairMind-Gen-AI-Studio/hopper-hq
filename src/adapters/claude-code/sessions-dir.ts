@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { isSessionId } from '../../scene/text.js';
 
 const execFileP = promisify(execFile);
 
@@ -42,7 +43,8 @@ export function parseSessionFile(file: string, text: string): LiveSessionFile | 
   } catch {
     return null;
   }
-  if (!Number.isInteger(d.pid) || typeof d.sessionId !== 'string' || !d.sessionId || typeof d.cwd !== 'string' || !d.cwd) return null;
+  // The id names the transcript file too: one that is not a plain id is no session.
+  if (!Number.isInteger(d.pid) || !isSessionId(d.sessionId) || typeof d.cwd !== 'string' || !d.cwd) return null;
   const status = d.status === 'busy' || d.status === 'idle' || d.status === 'waiting' ? d.status : null;
   return {
     file,

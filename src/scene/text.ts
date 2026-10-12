@@ -34,6 +34,16 @@ export function cleanText(input: unknown, max = 200): string {
   return max < 1 ? '' : points.slice(0, max - 1).join('') + '…';
 }
 
+/**
+ * A session id the building can carry: 1 to KEY_MAX letters, digits, dots, underscores or dashes, and not '.' or '..'.
+ * Ids come from hook payloads and session files. Claude Code's are UUIDs, and other agents' (ULIDs, nanoids) fit too.
+ * Such an id is unchanged by cleanText, so the scene names a session by its real id; it goes into a file name and a URL
+ * path as it is, where only a dot segment could change what it points at ('/api/sessions/../seen' is '/api/seen').
+ */
+export function isSessionId(id: unknown): id is string {
+  return typeof id === 'string' && id.length <= KEY_MAX && /^[A-Za-z0-9._-]+$/.test(id) && id !== '.' && id !== '..';
+}
+
 /** cleanText, or null when nothing is left. */
 export function cleanOrNull(input: unknown, max = 200): string | null {
   return cleanText(input, max) || null;
