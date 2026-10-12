@@ -27,7 +27,15 @@ describe('focusSession', () => {
   it('says what went wrong when the answer is not the daemon JSON', async () => {
     expect(await focusSession('x', async () => answer(500, 'Internal error'))).toEqual({ ok: false, status: 500, error: 'The daemon answered 500' });
     expect(await focusSession('x', async () => answer(200, { simulated: true }))).toEqual({ ok: false, status: 200, error: 'The daemon answered 200' });
-    expect(await focusSession('x', async () => answer(401, { error: 42 }))).toEqual({ ok: false, status: 401, error: 'The daemon answered 401' });
+    expect(await focusSession('x', async () => answer(403, { error: 42 }))).toEqual({ ok: false, status: 403, error: 'The daemon answered 403' });
+  });
+
+  it('says how to sign in again when the daemon no longer takes the browser\'s sign-in', async () => {
+    expect(await focusSession('x', async () => answer(401, { error: 'Missing or wrong token' }))).toEqual({
+      ok: false,
+      status: 401,
+      error: 'Signed out: run scranton-hq ui again',
+    });
   });
 
   it('never rejects: a daemon that does not answer is an error result', async () => {
@@ -51,6 +59,15 @@ describe('markSeen', () => {
     expect(await markSeen('7c1e9b2a-41d3-4f0e-a5b6-0c2d8e9f1a37', fetch)).toBe(true);
     expect(fetch).toHaveBeenCalledWith('/api/sessions/7c1e9b2a-41d3-4f0e-a5b6-0c2d8e9f1a37/seen', { method: 'POST', credentials: 'same-origin' });
     expect(json).not.toHaveBeenCalled();
+  });
+
+  it('tells the caller when the daemon no longer takes the browser\'s sign-in', async () => {
+    const signedOut = vi.fn();
+    expect(await markSeen('x', async () => answer(401, { error: 'Missing or wrong token' }), signedOut)).toBe(false);
+    expect(signedOut).toHaveBeenCalledTimes(1);
+    expect(await markSeen('x', async () => answer(404, { error: 'No finished session with that id' }), signedOut)).toBe(false);
+    expect(await markSeen('x', async () => answer(401, undefined))).toBe(false);
+    expect(signedOut).toHaveBeenCalledTimes(1);
   });
 
   it('is false when the session is not done or the daemon does not answer', async () => {

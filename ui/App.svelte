@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
   import type { AttentionEntry } from '../src/scene/types';
-  import { focusSession, markSeen } from './lib/api';
+  import { SIGNED_OUT, focusSession, markSeen } from './lib/api';
   import { loadRenderer, type RendererModule } from './lib/renderer';
   import { parseHash, toHash, type Route } from './lib/route';
   import { browserStoreDeps, createClientStore, type ClientStore } from './lib/store';
@@ -128,8 +128,9 @@
   }
 
   async function seen(sessionId: string): Promise<void> {
-    if (await api.markSeen(sessionId)) toasts.show('Marked as seen.');
-    else toasts.show('It is no longer waiting for review.', 'error');
+    let signedOut = false;
+    if (await api.markSeen(sessionId, undefined, () => (signedOut = true))) toasts.show('Marked as seen.');
+    else toasts.show(signedOut ? SIGNED_OUT : 'It is no longer waiting for review.', 'error');
   }
 
   function openEntry(entry: AttentionEntry): void {

@@ -7,6 +7,9 @@ import { cleanText, isSessionId } from '../../src/scene/text';
 
 export type FocusResult = { ok: true; pane: string; simulated: boolean } | { ok: false; status: number; error: string };
 
+/** What to do when the daemon answers 401: the browser's sign-in cookie is missing, expired, or another daemon's. */
+export const SIGNED_OUT = 'Signed out: run scranton-hq ui again';
+
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
@@ -26,6 +29,7 @@ export async function focusSession(sessionId: string, fetchFn: Fetch = fetch): P
   } catch {
     return { ok: false, status: 0, error: 'The daemon is not answering' };
   }
+  if (res.status === 401) return { ok: false, status: 401, error: SIGNED_OUT };
   const body = (await res.json().catch(() => null)) as { pane?: unknown; simulated?: unknown; error?: unknown } | null;
   if (res.ok && typeof body?.pane === 'string') return { ok: true, pane: cleanText(body.pane), simulated: body.simulated === true };
   const error = typeof body?.error === 'string' ? cleanText(body.error) : '';
@@ -33,13 +37,14 @@ export async function focusSession(sessionId: string, fetchFn: Fetch = fetch): P
 }
 
 /**
- * True when the daemon took it (204). The answer has no body to read. An id that is not a session id is not sent: in
- * the path, '..' would make it POST /api/seen, which marks every session seen.
+ * True when the daemon took it (204). The answer has no body to read; `signedOut` hears a 401. An id that is not a
+ * session id is not sent: in the path, '..' would make it POST /api/seen, which marks every session seen.
  */
-export async function markSeen(sessionId: string, fetchFn: Fetch = fetch): Promise<boolean> {
+export async function markSeen(sessionId: string, fetchFn: Fetch = fetch, signedOut?: () => void): Promise<boolean> {
   if (!isSessionId(sessionId)) return false;
   try {
     const res = await fetchFn(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, { method: 'POST', credentials: 'same-origin' });
+    if (res.status === 401) signedOut?.();
     return res.ok;
   } catch {
     return false;

@@ -268,7 +268,7 @@ describe('App shell', () => {
     const { target } = app(undefined, { api: { focusSession: vi.fn(), markSeen } });
     click([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen'));
     await settle();
-    expect(markSeen).toHaveBeenCalledWith('sw-b2');
+    expect(markSeen).toHaveBeenCalledWith('sw-b2', undefined, expect.any(Function));
     expect(text(target.querySelector('.toast span'))).toBe('Marked as seen.');
   });
 
@@ -280,6 +280,23 @@ describe('App shell', () => {
     await settle();
     expect(target.querySelector('.toast')!.classList.contains('error')).toBe(true);
     expect(text(target.querySelector('.toast span'))).toBe('It is no longer waiting for review.');
+  });
+
+  it('says how to sign in again when Go or Mark as seen finds the browser signed out', async () => {
+    const focusSession = vi.fn(async () => ({ ok: false as const, status: 401, error: 'Signed out: run scranton-hq ui again' }));
+    const markSeen = vi.fn(async (_id: string, _fetch?: unknown, signedOut?: () => void) => {
+      signedOut?.();
+      return false;
+    });
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target } = app(undefined, { api: { focusSession, markSeen } });
+    click(target.querySelector('aside .actions button.primary'));
+    await settle();
+    click([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen'));
+    await settle();
+    const toasts = [...target.querySelectorAll('.toast')];
+    expect(toasts.map((t) => text(t.querySelector('span')))).toEqual(['Signed out: run scranton-hq ui again', 'Signed out: run scranton-hq ui again']);
+    expect(toasts.every((t) => t.classList.contains('error'))).toBe(true);
   });
 
   it('switches tmux from the desk panel', async () => {
