@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import App from '../App.svelte';
 import { THEME_KEY } from '../lib/theme';
 import { toHash, type Route } from '../lib/route';
-import { CHECKOUT, makeScene } from './helpers/fixtures';
+import { CHECKOUT, NOW, ORDERS, makeScene } from './helpers/fixtures';
 import { fakeStore, type FakeStore } from './helpers/fake-store';
 import { cleanup, click, render, text } from './helpers/render';
 
@@ -30,8 +30,15 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   document.documentElement.removeAttribute('data-theme');
 });
+
+/** Lets an awaited fake API answer, then updates the DOM. */
+async function settle(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+  flushSync();
+}
 
 describe('App shell', () => {
   it('opens on the building, watching no floor, with the tmux counter of the scene', () => {
@@ -146,5 +153,49 @@ describe('App shell', () => {
     const { store } = app();
     cleanup();
     expect(store.closed).toBe(true);
+  });
+
+  it('opens the desk of an attention chip', () => {
+    const { target, store, crumbs } = app();
+    click([...target.querySelectorAll('.attention button.open')].find((b) => b.querySelector('.who')?.textContent === 'orders-api-g7'));
+    expect(location.hash).toBe(toHash({ floor: ORDERS, desk: 'oa-g7' }));
+    expect(crumbs()).toBe('Building / 2 · orders-api / orders-api-g7');
+    expect(store.watched).toEqual([null, ORDERS]);
+  });
+
+  it('switches tmux from Go, and says what happened', async () => {
+    const focusSession = vi.fn(async () => ({ ok: true as const, pane: '%7', simulated: true }));
+    const { target } = app(undefined, { api: { focusSession, markSeen: vi.fn() } });
+    click(target.querySelector('.attention button.go'));
+    await settle();
+    expect(focusSession).toHaveBeenCalledWith('oa-c3');
+    expect(text(target.querySelector('.toast span'))).toBe('Demo: would switch tmux to %7');
+  });
+
+  it('shows why tmux could not switch', async () => {
+    const focusSession = vi.fn(async () => ({ ok: false as const, status: 409, error: 'No tmux client is attached' }));
+    const { target } = app(undefined, { api: { focusSession, markSeen: vi.fn() } });
+    click(target.querySelector('.attention button.go'));
+    await settle();
+    const toast = target.querySelector('.toast')!;
+    expect(text(toast.querySelector('span'))).toBe('No tmux client is attached');
+    expect(toast.classList.contains('error')).toBe(true);
+  });
+
+  it('keeps the waiting times ticking', () => {
+    vi.useFakeTimers();
+    let clock = NOW;
+    const { target } = app(undefined, { now: () => clock });
+    const time = () => text(target.querySelector('.attention .time'));
+    expect(time()).toBe('12m');
+    clock += 60_000;
+    vi.advanceTimersByTime(1000);
+    flushSync();
+    expect(time()).toBe('13m');
+  });
+
+  it('shows no attention bar before the first scene', () => {
+    const { target } = app(fakeStore({ connection: 'connecting' }));
+    expect(target.querySelector('.attention')).toBeNull();
   });
 });

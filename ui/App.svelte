@@ -1,21 +1,26 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
+  import type { AttentionEntry } from '../src/scene/types';
+  import { focusSession, markSeen } from './lib/api';
   import { parseHash, toHash, type Route } from './lib/route';
   import { browserStoreDeps, createClientStore, type ClientStore } from './lib/store';
   import { applyTheme, browserStorage, loadTheme, nextTheme, resolvedTheme, saveTheme, systemPrefersDark, watchSystemTheme } from './lib/theme';
   import { createToasts } from './lib/toast';
+  import AttentionBar from './components/AttentionBar.svelte';
   import Notice from './components/Notice.svelte';
   import Toast from './components/Toast.svelte';
   import TopBar, { type Crumb } from './components/TopBar.svelte';
 
   /**
-   * The page. It owns the live store, the route (the URL hash), the theme and the toasts.
+   * The page. It owns the live store, the route (the URL hash), the theme, the toasts and a one-second clock.
    * Every outside dependency is a prop with a browser default, so tests mount it with fakes.
    */
   interface Props {
     store?: ClientStore;
     storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
     prefersDark?: boolean;
+    api?: { focusSession: typeof focusSession; markSeen: typeof markSeen };
+    now?: () => number;
   }
   const props: Props = $props();
   // The dependencies are fixed for the page's life: read once, on purpose.
@@ -23,8 +28,10 @@
     store: props.store ?? createClientStore(browserStoreDeps()),
     storage: props.storage === undefined ? browserStorage() : props.storage,
     prefersDark: props.prefersDark ?? systemPrefersDark(),
+    api: props.api ?? { focusSession, markSeen },
+    now: props.now ?? Date.now,
   }));
-  const { store, storage } = deps;
+  const { store, storage, api, now } = deps;
   const toasts = createToasts();
 
   const initial = parseHash(location.hash);
@@ -33,10 +40,15 @@
   let route: Route = $state(initial);
   let theme = $state(loadTheme(storage));
   let systemDark = $state(deps.prefersDark);
+  let clock = $state(now());
 
   $effect(() => store.watchFloor(route.floor));
   $effect(() => applyTheme(document.documentElement, theme));
   $effect(() => watchSystemTheme((dark) => (systemDark = dark)));
+  $effect(() => {
+    const timer = setInterval(() => (clock = now()), 1000);
+    return () => clearInterval(timer);
+  });
   onDestroy(() => {
     store.close();
     toasts.clear();
@@ -88,6 +100,17 @@
     theme = nextTheme(theme);
     saveTheme(storage, theme);
   }
+
+  /** Switches tmux to the session's pane. The demo only says what it would do. */
+  async function focus(sessionId: string): Promise<void> {
+    const result = await api.focusSession(sessionId);
+    if (result.ok) toasts.show(result.simulated ? `Demo: would switch tmux to ${result.pane}` : `Switched tmux to ${result.pane}`);
+    else toasts.show(result.error, 'error');
+  }
+
+  function openEntry(entry: AttentionEntry): void {
+    navigate({ floor: entry.floorKey, desk: entry.sessionId });
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} onhashchange={onHashChange} />
@@ -103,6 +126,9 @@
     onTheme={toggleTheme}
   />
   <Notice connection={$store.connection} hasScene={scene !== null} />
+  {#if scene}
+    <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
+  {/if}
   <main class="main">
     <section class="stage" aria-label="Building"></section>
     <aside class="panel" aria-live="polite"></aside>
