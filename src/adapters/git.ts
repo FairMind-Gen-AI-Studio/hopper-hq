@@ -40,6 +40,10 @@ export async function resolveWorkspace(cwd: string, run: GitRunner = runGit): Pr
   // dir lives: a submodule's sits in the superproject's, --separate-git-dir puts it anywhere.
   const worktree = ownDir !== commonDir;
   // The main repository: the main checkout, else the directory that holds the common git dir, else a bare repository.
+  // Known limit: a linked worktree of a repository whose git dir sits apart from its main checkout (--separate-git-dir,
+  // a submodule) takes that git dir as its repository, while the main checkout takes itself. On a trunk branch the two
+  // show as two department floors of the same name. The layout is rare, and the worktree's git dir does not reliably
+  // say where the main checkout is.
   const mainRoot = !worktree ? root : GIT_DIR_NAMES.has(basename(commonDir)) ? dirname(commonDir) : commonDir;
   const branch = await run(cwd, ['symbolic-ref', '--short', '-q', 'HEAD']);
   return {
