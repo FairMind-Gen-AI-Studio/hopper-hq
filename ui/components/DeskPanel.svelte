@@ -1,6 +1,7 @@
 <script lang="ts">
   import { formatAgo } from '../../src/scene/text';
   import type { Desk, FloorDetail, Island } from '../../src/scene/types';
+  import { singleClick } from '../lib/click';
   import { plural, raisedBy, waitText } from '../lib/words';
   import StatePill from './StatePill.svelte';
 
@@ -26,7 +27,7 @@
   });
 </script>
 
-<button type="button" class="linkbtn back" onclick={onBack}>← Floor {floor.number} · {floor.name}</button>
+<button type="button" class="linkbtn back" onclick={singleClick(onBack)}>← Floor {floor.number} · {floor.name}</button>
 <div>
   <p class="eyebrow">{island.repo} · {where}</p>
   <div class="head-row">
@@ -64,11 +65,11 @@
   <dd>{desk.pane ?? 'none'}</dd>
 </dl>
 <div class="actions">
-  <button type="button" class="btn primary" disabled={!desk.focusable} onclick={() => onGo(desk.sessionId)}>
+  <button type="button" class="btn primary" disabled={!desk.focusable} onclick={singleClick(() => onGo(desk.sessionId))}>
     Go to pane{desk.pane ? ` ${desk.pane}` : ''}
   </button>
   {#if desk.state === 'done'}
-    <button type="button" class="btn" onclick={() => onSeen(desk.sessionId)}>Mark as seen</button>
+    <button type="button" class="btn" onclick={singleClick(() => onSeen(desk.sessionId))}>Mark as seen</button>
   {/if}
 </div>
 {#if cannotGo}<p class="p-note">{cannotGo}</p>{/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { formatAgo } from '../../src/scene/text';
   import type { AttentionEntry, BuildingScene } from '../../src/scene/types';
+  import { singleClick } from '../lib/click';
   import { raisedBy, waitText } from '../lib/words';
 
   /**
@@ -42,7 +43,7 @@
                 <span class="time">{formatAgo(now - entry.since)}</span>
               </button>
               {#if entry.focusable}
-                <button type="button" class="go" aria-label="Go to the tmux pane of {entry.name}" onclick={() => onGo(entry)}>Go</button>
+                <button type="button" class="go" aria-label="Go to the tmux pane of {entry.name}" onclick={singleClick(() => onGo(entry))}>Go</button>
               {/if}
             </li>
           {/each}

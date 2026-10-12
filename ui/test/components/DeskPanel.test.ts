@@ -74,6 +74,19 @@ describe('DeskPanel', () => {
     expect(onSeen).toHaveBeenCalledWith('sw-b2');
   });
 
+  it('ignores the second click of a double-click, aimed at the desk row this panel has just replaced', () => {
+    const { target, button, onBack, onGo, onSeen } = panel(CHECKOUT, 'sw-b2');
+    const press = (el: Element | null | undefined, detail: number) => el!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+    for (const el of [target.querySelector('.back'), button('Go to pane'), button('Mark as seen')]) press(el, 2);
+    expect(onBack).not.toHaveBeenCalled();
+    expect(onGo).not.toHaveBeenCalled();
+    expect(onSeen).not.toHaveBeenCalled();
+    // A single click acts, and so does a key press, whose click has detail 0.
+    press(button('Go to pane'), 1);
+    press(button('Go to pane'), 0);
+    expect(onGo).toHaveBeenCalledTimes(2);
+  });
+
   it('offers Mark as seen only when the session is done', () => {
     expect(panel(CHECKOUT, 'sw-a1').button('Mark as seen')).toBeUndefined();
   });

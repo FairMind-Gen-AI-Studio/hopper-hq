@@ -64,6 +64,13 @@ describe('AttentionBar', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
+  it('sends Go once for a double-click', () => {
+    const { chips, onGo } = bar();
+    const go = chips(0)[0]!.querySelector('button.go')!;
+    for (const detail of [1, 2]) go.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+    expect(onGo).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a hostile title as text', () => {
     const scene = makeScene();
     scene.attention.done[0]!.title = '<img src=x onerror=alert(1)>';
