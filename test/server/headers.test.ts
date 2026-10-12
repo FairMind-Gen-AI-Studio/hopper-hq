@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { IncomingHttpHeaders, Server } from 'node:http';
+import { connect } from 'node:net';
 import { basename } from 'node:path';
 import { Collector } from '../../src/collector.js';
 import { createApiServer } from '../../src/server/http.js';
@@ -55,7 +56,28 @@ describe('security headers', () => {
   });
 });
 
+/** Sends one request as raw text, for targets an HTTP client would not send, and resolves the whole answer. */
+function raw(target: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const sock = connect(port, '127.0.0.1', () => sock.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer ${TOKEN}\r\nConnection: close\r\n\r\n`));
+    let text = '';
+    sock.setEncoding('utf8');
+    sock.on('data', (c: string) => (text += c));
+    sock.on('end', () => resolve(text));
+    sock.on('error', reject);
+  });
+}
+
 describe('routing', () => {
+  it('answers 400 to a request target that is not a URL, with the security headers', async () => {
+    for (const target of ['http://[', 'http://127.0.0.1:99999/api/health']) {
+      const answer = await raw(target);
+      expect([target, answer.split('\r\n')[0]]).toEqual([target, 'HTTP/1.1 400 Bad Request']);
+      expect(answer).toContain('\r\nx-content-type-options: nosniff\r\n');
+      expect(answer).toContain('{"error":"Bad request target"}');
+    }
+  });
+
   it('answers 404 for an unknown path, with or without a token', async () => {
     expect((await call(port, { path: '/nope' })).status).toBe(404);
     expect((await call(port, { path: '/api/nope', headers: bearer(TOKEN) })).status).toBe(404);

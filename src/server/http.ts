@@ -173,7 +173,10 @@ async function handle(d: Deps, table: Route[], req: IncomingMessage, res: Server
   if (!allowedHost(req.headers.host, port)) return send(res, 403, { error: 'Host not allowed' });
   if (!allowedOrigin(req.headers.origin, port)) return send(res, 403, { error: 'Origin not allowed' });
 
-  const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+  // An absolute-form target ('GET http://… HTTP/1.1') can be any text.
+  const target = req.url ?? '/';
+  if (!URL.canParse(target, 'http://127.0.0.1')) return send(res, 400, { error: 'Bad request target' });
+  const url = new URL(target, 'http://127.0.0.1');
   const found = findRoute(table, req.method ?? 'GET', url.pathname);
   if (!found) return send(res, 404, { error: 'Not found' });
   const denied = authorize(found.route.auth, req, port, d.token, d.auth);
