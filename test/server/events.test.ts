@@ -131,6 +131,20 @@ describe('GET /api/events', () => {
     expect(floor.messages.filter(isEvent('scene'))).toHaveLength(1);
   });
 
+  it('renders once per flush, with each watched floor once', async () => {
+    const t = await setup({}, [working('S1', T0 - 1000, 'Edit a.ts'), working('S2', T0 - 900, 'Edit b.ts', '/w/shop-web')]);
+    const a = keyOf(t.collector, 'orders-api');
+    const b = keyOf(t.collector, 'shop-web');
+    for (const key of [a, a, b, null]) await sse(t.port, key === null ? '/api/events' : `/api/events?floor=${encodeURIComponent(key)}`);
+    const render = vi.spyOn(t.collector, 'render');
+    const scene = vi.spyOn(t.collector, 'scene');
+    const floor = vi.spyOn(t.collector, 'floor');
+    t.hub.flush();
+    expect(render.mock.calls).toEqual([[[a, b]]]);
+    expect(scene).not.toHaveBeenCalled();
+    expect(floor).not.toHaveBeenCalled();
+  });
+
   it('picks up states that change with time on the tick', async () => {
     const t = await setup({ tickMs: 40 }, [finished('S1', T0 - 1000)]);
     const s = await sse(t.port, '/api/events');
@@ -179,9 +193,9 @@ describe('GET /api/events', () => {
 /** A scene of about `bytes` characters: a different one at every read when `changing`, else always the same. */
 function heavySource(bytes: number, changing: boolean): SceneSource {
   let reads = 0;
+  const scene = () => ({ version: 1, floors: [], attention: { needsYou: [], done: [] }, pad: String(changing ? reads++ : 0).padEnd(bytes, '.') }) as unknown as BuildingScene;
   return {
-    scene: () => ({ version: 1, floors: [], attention: { needsYou: [], done: [] }, pad: String(changing ? reads++ : 0).padEnd(bytes, '.') }) as unknown as BuildingScene,
-    floor: () => null,
+    render: () => ({ scene: scene(), floors: new Map() }),
     onChange: () => () => {},
   };
 }
@@ -267,11 +281,10 @@ describe('a live view that stops reading', () => {
 function flakySource() {
   const state = { failing: false, reads: 0 };
   const source: SceneSource = {
-    scene: () => {
+    render: () => {
       if (state.failing) throw new Error('scene broke');
-      return { version: 1, floors: [], attention: { needsYou: [], done: [] }, reads: state.reads++ } as unknown as BuildingScene;
+      return { scene: { version: 1, floors: [], attention: { needsYou: [], done: [] }, reads: state.reads++ } as unknown as BuildingScene, floors: new Map() };
     },
-    floor: () => null,
     onChange: () => () => {},
   };
   return { state, source };

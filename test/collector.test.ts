@@ -302,6 +302,20 @@ describe('scene', () => {
     expect(c.scene().attention.needsYou.map((e) => e.sessionId)).toEqual(['demo-sw-a1']);
   });
 
+  it('renders the building and its floors from one reading of the clock', async () => {
+    let reads = 0;
+    const before = NOW + 4 * 60 * 60 * 1000 - 1;
+    const c = collector({ now: () => (reads++ === 0 ? before : before + 2) });
+    await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0 }));
+    reads = 0;
+    const { scene, floors } = c.render(['repo:/w/orders-api', 'repo:/w/nowhere']);
+    expect(reads).toBe(1);
+    expect(scene.attention.done.map((e) => e.sessionId)).toEqual(['S1']);
+    expect(floors.get('repo:/w/orders-api')!.islands[0]!.desks[0]!.state).toBe('done');
+    expect(floors.get('repo:/w/nowhere')).toBeNull();
+    expect([...floors.keys()]).toEqual(['repo:/w/orders-api', 'repo:/w/nowhere']);
+  });
+
   it('reports an ended session by id, and leaves it out of the building', async () => {
     const c = collector();
     await c.ingest(hook({ type: 'prompt', text: 'go' }));

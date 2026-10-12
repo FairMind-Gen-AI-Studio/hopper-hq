@@ -3,8 +3,8 @@ import type { BuildingScene, FloorDetail } from '../scene/types.js';
 
 /** What the hub reads. The Collector is one. */
 export interface SceneSource {
-  scene(): BuildingScene;
-  floor(key: string): FloorDetail | null;
+  /** The scene and each of `floors` in detail (null when there is no such floor), all at one moment. */
+  render(floors: readonly string[]): { scene: BuildingScene; floors: ReadonlyMap<string, FloorDetail | null> };
   onChange(fn: () => void): () => void;
 }
 
@@ -76,8 +76,9 @@ export class SceneHub {
    */
   attach(res: ServerResponse, floor: string | null): boolean {
     if (this.closed || this.clients.size >= this.o.maxClients) return false;
-    const scene = JSON.stringify(this.o.source.scene());
-    const detail = floor === null ? null : JSON.stringify(this.o.source.floor(floor));
+    const view = this.o.source.render(floor === null ? [] : [floor]);
+    const scene = JSON.stringify(view.scene);
+    const detail = floor === null ? null : JSON.stringify(view.floors.get(floor) ?? null);
     const client: Client = { res, floor, scene: null, detail: null };
     this.clients.add(client);
     res.on('close', () => this.detach(client));
@@ -96,10 +97,10 @@ export class SceneHub {
     let scene: string;
     const floors = new Map<string, string>();
     try {
-      scene = JSON.stringify(this.o.source.scene());
-      for (const c of this.clients) {
-        if (c.floor !== null && !floors.has(c.floor)) floors.set(c.floor, JSON.stringify(this.o.source.floor(c.floor)));
-      }
+      const keys = [...new Set([...this.clients].flatMap((c) => (c.floor === null ? [] : [c.floor])))];
+      const view = this.o.source.render(keys);
+      scene = JSON.stringify(view.scene);
+      for (const key of keys) floors.set(key, JSON.stringify(view.floors.get(key) ?? null));
     } catch (err) {
       // Flushes run from timers, where a throw would take the daemon down. Clients keep what they have; the next change or tick tries again.
       this.o.log(`scranton-hq could not build the live view: ${err instanceof Error ? err.message : String(err)}`);

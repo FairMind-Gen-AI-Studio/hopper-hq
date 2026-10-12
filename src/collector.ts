@@ -231,6 +231,15 @@ export class Collector {
     return buildFloorDetail(this.liveViews(), key, this.firstSeen);
   }
 
+  /** The building and the given floors (null for one nobody is on) from one reading of the clock: a session shows one state in all of them. */
+  render(floorKeys: readonly string[]): { scene: BuildingScene; floors: Map<string, FloorDetail | null> } {
+    const views = this.liveViews();
+    return {
+      scene: buildScene(views, this.firstSeen),
+      floors: new Map(floorKeys.map((key) => [key, buildFloorDetail(views, key, this.firstSeen)])),
+    };
+  }
+
   snapshot(): Snapshot {
     const views = this.liveViews();
     return { generatedAt: this.now(), floors: buildFloors(views, this.firstSeen), attention: buildAttention(views) };
