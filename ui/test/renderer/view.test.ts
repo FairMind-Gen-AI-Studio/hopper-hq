@@ -496,6 +496,27 @@ describe('the floor view', () => {
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH + QUARTER, 6);
   });
 
+  it('ends a turn or a reset exactly where it should, even right after a drag still gliding', () => {
+    const { renderer, env, view, canvas } = setup();
+    const floor = checkoutFloor();
+    view.setFloor(floor);
+    env.flush();
+    drag(canvas, -100, 0, 0);
+    env.step(16);
+    env.step(16);
+    view.rotate(1);
+    env.flush();
+    const turned = (cameraPose(renderer).azimuth - HOME_AZIMUTH) / QUARTER;
+    expect(turned).toBeCloseTo(Math.round(turned), 6);
+    drag(canvas, 120, 60, 2);
+    env.step(16);
+    view.resetView();
+    env.flush();
+    expect(cameraPose(renderer).target.x).toBeCloseTo(floorCenter(floor.size).x, 6);
+    expect(cameraPose(renderer).target.z).toBeCloseTo(floorCenter(floor.size).z, 6);
+    expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
+  });
+
   it('jumps instead of easing when motion is reduced', () => {
     const { renderer, env, view } = setup(dayTheme(true));
     view.setFloor(checkoutFloor());

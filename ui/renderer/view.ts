@@ -170,7 +170,16 @@ export function createFloorView(
     request();
   }
 
+  /**
+   * Starts a camera move. What is left of a drag's glide stops first, where the camera is, so none of it carries
+   * into the move.
+   */
   function start(next: Tween): void {
+    const held = pose();
+    controls.enableDamping = false;
+    controls.update();
+    controls.enableDamping = !reduced;
+    applyPose(held);
     tween = next;
     request();
   }
