@@ -87,6 +87,12 @@ describe('Collector', () => {
     });
   });
 
+  it('says a session needs you when its reason has no text left once cleaned', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'waiting', reason: { kind: 'input', text: '\u0007\u202E' }, agentId: null }));
+    expect(c.attentionSummary().items[0]!.reason).toEqual({ kind: 'input', text: 'Needs you' });
+  });
+
   it('notifies listeners until they unsubscribe', async () => {
     const c = collector();
     const fn = vi.fn();

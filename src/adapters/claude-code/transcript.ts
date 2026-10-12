@@ -13,7 +13,7 @@ const WRAPPERS = ['<command-', '<local-command', '<task-notification', '<system-
 function cleanPrompt(text: string): string | null {
   const t = text.trim();
   if (!t || WRAPPERS.some((w) => t.startsWith(w))) return null;
-  return truncate(t, 200);
+  return truncate(t, 200) || null;
 }
 
 /** The text a person typed, from a string or an array of content blocks. Null for wrappers and non-text. */
@@ -48,7 +48,8 @@ export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: s
   const base = { sessionId, ts: Number.isFinite(ts) ? ts : 0, source: 'fs' as const };
 
   if (e.type === 'ai-title') {
-    if (typeof e.aiTitle === 'string' && e.aiTitle.trim()) out.events.push({ ...base, type: 'title', title: truncate(e.aiTitle, 120) });
+    const title = truncate(typeof e.aiTitle === 'string' ? e.aiTitle : '', 120);
+    if (title) out.events.push({ ...base, type: 'title', title });
     return out;
   }
   if (e.isSidechain === true) return out;

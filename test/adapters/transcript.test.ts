@@ -25,6 +25,14 @@ describe('parseTranscriptLine', () => {
       .toEqual([{ sessionId: S, ts: 0, source: 'fs', type: 'title', title: 'Fix checkout' }]);
   });
 
+  it('drops a title or a prompt with no text left once cleaned', () => {
+    expect(parseTranscriptLine(line({ type: 'ai-title', aiTitle: '\u0007\u202E', sessionId: S }), S).events).toEqual([]);
+    expect(parseTranscriptLine(line({ type: 'ai-title', aiTitle: 'Fix\u0007 checkout', sessionId: S }), S).events)
+      .toEqual([{ sessionId: S, ts: 0, source: 'fs', type: 'title', title: 'Fix checkout' }]);
+    expect(promptText('\u0007\u001b')).toBeNull();
+    expect(parseTranscriptLine(line({ type: 'user', timestamp: T, sessionId: S, message: { role: 'user', content: '\u0007' } }), S).events).toEqual([]);
+  });
+
   it('reads a typed prompt with its timestamp, branch and cwd', () => {
     const r = parseTranscriptLine(line({ type: 'user', timestamp: T, cwd: '/w/shop', gitBranch: 'feat/x', sessionId: S, message: { role: 'user', content: 'Add idempotency keys' } }), S);
     expect(r).toEqual({

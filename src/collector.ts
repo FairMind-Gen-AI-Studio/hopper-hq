@@ -36,7 +36,7 @@ export interface AttentionSummary {
 
 function cleanReason(r: WaitReason): WaitReason {
   const detail = cleanOrNull(r.detail);
-  return { kind: r.kind, text: cleanText(r.text), ...(detail ? { detail } : {}) };
+  return { kind: r.kind, text: cleanText(r.text) || 'Needs you', ...(detail ? { detail } : {}) };
 }
 
 export interface CollectorOptions {

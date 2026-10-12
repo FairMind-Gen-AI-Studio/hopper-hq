@@ -83,6 +83,15 @@ describe('mapHookPayload edge cases', () => {
       .toEqual([expect.objectContaining({ type: 'waiting', agentId: 'a1' })]);
   });
 
+  it('cleans the text of a wait first, and falls back to a default when nothing is left', () => {
+    const reason = (extra: Record<string, unknown>) => (mapHookPayload({ ...p, ...extra }, NOW)[0] as { reason?: unknown }).reason;
+    expect(reason({ hook_event_name: 'PermissionRequest', tool_name: 'Ba\u001b[2Ksh\u202E' })).toEqual({ kind: 'permission', text: 'Ba[2Ksh', detail: 'Ba[2Ksh' });
+    expect(reason({ hook_event_name: 'PermissionRequest', tool_name: '\u0007\u202E' })).toEqual({ kind: 'permission', text: 'Permission' });
+    expect(reason({ hook_event_name: 'PermissionRequest', tool_name: 'x'.repeat(200) })).toMatchObject({ text: 'x'.repeat(119) + '\u2026' });
+    expect(reason({ hook_event_name: 'Notification', notification_type: 'permission_prompt', message: '\u0007 \u202E' })).toEqual({ kind: 'permission', text: 'Permission needed' });
+    expect(reason({ hook_event_name: 'Notification', notification_type: 'elicitation_dialog', message: '\u0000' })).toEqual({ kind: 'question', text: 'Input needed' });
+  });
+
   it('rejects payloads without a session or event name', () => {
     expect(mapHookPayload(null, NOW)).toEqual([]);
     expect(mapHookPayload('x', NOW)).toEqual([]);

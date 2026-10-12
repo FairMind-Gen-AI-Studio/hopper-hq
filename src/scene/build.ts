@@ -73,7 +73,7 @@ export function reasonOf(v: SessionView): SceneReason | null {
   const child = agentId ? v.children.find((c) => c.id === agentId) : undefined;
   return {
     kind: v.waitReason.kind,
-    text: cleanText(v.waitReason.text),
+    text: cleanText(v.waitReason.text) || 'Needs you',
     detail: cleanOrNull(v.waitReason.detail),
     agent: agentId ? { id: cleanText(agentId, KEY_MAX), type: child && child.type !== UNNAMED_AGENT ? cleanOrNull(child.type) : null } : null,
   };

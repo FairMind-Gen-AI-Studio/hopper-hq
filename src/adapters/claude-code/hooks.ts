@@ -57,18 +57,21 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
     case 'PostToolUse':
     case 'PostToolUseFailure':
       return [{ ...base, type: 'tool.finished', toolId, ok: name === 'PostToolUse', agentId }];
-    case 'PermissionRequest':
+    case 'PermissionRequest': {
+      // Cleaned first: a default stands in for a name with nothing left.
+      const tool = truncate(toolName, 120);
       return [{
         ...base,
         type: 'waiting',
-        reason: { kind: 'permission', text: toolName || 'Permission', ...(toolName ? { detail: toolLabel(toolName, p.tool_input, cwd || undefined) } : {}) },
+        reason: { kind: 'permission', text: tool || 'Permission', ...(tool ? { detail: toolLabel(toolName, p.tool_input, cwd || undefined) } : {}) },
         agentId,
       }];
+    }
     case 'Notification': {
       const type = str(p.notification_type);
-      const message = str(p.message);
-      if (type === 'permission_prompt') return [{ ...base, type: 'waiting', reason: { kind: 'permission', text: truncate(message || 'Permission needed', 120) }, agentId }];
-      if (QUESTION_NOTIFICATIONS.has(type)) return [{ ...base, type: 'waiting', reason: { kind: 'question', text: truncate(message || 'Input needed', 120) }, agentId }];
+      const message = truncate(str(p.message), 120);
+      if (type === 'permission_prompt') return [{ ...base, type: 'waiting', reason: { kind: 'permission', text: message || 'Permission needed' }, agentId }];
+      if (QUESTION_NOTIFICATIONS.has(type)) return [{ ...base, type: 'waiting', reason: { kind: 'question', text: message || 'Input needed' }, agentId }];
       return [];
     }
     case 'Stop':

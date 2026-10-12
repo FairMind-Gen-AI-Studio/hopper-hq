@@ -231,6 +231,11 @@ describe('untrusted text', () => {
   const strings = (x: unknown): string[] =>
     typeof x === 'string' ? [x] : Array.isArray(x) ? x.flatMap(strings) : x && typeof x === 'object' ? Object.entries(x).flatMap(([k, v]) => [k, ...strings(v)]) : [];
 
+  it('says a desk needs you when its reason has no text left once cleaned', () => {
+    const v = view('a', ws('/w/api', 'main'), 'needs_you', { waitReason: { kind: 'input', text: '\u0007\u202E' } });
+    expect(buildScene([v]).attention.needsYou[0]!.reason).toEqual({ kind: 'input', text: 'Needs you', detail: null, agent: null });
+  });
+
   it('cleans every string it emits', () => {
     const hostile = view('h\u0007', ws('/w/a\u001bpi', 'feat/x\u202E'), 'needs_you', {
       name: 'na\u0000me',

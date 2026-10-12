@@ -44,6 +44,7 @@ describe('waitingFromTool', () => {
     expect(waitingFromTool('AskUserQuestion', { questions: [{ question: 'Redis or Postgres?' }] }))
       .toEqual({ kind: 'question', text: 'Redis or Postgres?' });
     expect(waitingFromTool('AskUserQuestion', {})).toEqual({ kind: 'question', text: 'Question' });
+    expect(waitingFromTool('AskUserQuestion', { questions: [{ question: '\u0007\u202E' }] })).toEqual({ kind: 'question', text: 'Question' });
   });
   it('maps ExitPlanMode to a plan approval', () => {
     expect(waitingFromTool('ExitPlanMode', { plan: '...' })).toEqual({ kind: 'plan', text: 'Plan approval' });

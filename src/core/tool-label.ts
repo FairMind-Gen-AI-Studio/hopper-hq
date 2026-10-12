@@ -69,7 +69,7 @@ export function waitingFromTool(tool: string, input: unknown): WaitReason | null
   if (tool === 'AskUserQuestion') {
     const questions = asRecord(input).questions;
     const first = Array.isArray(questions) ? asRecord(questions[0]).question : undefined;
-    return { kind: 'question', text: truncate(str(first) || 'Question', 120) };
+    return { kind: 'question', text: truncate(str(first), 120) || 'Question' };
   }
   if (tool === 'ExitPlanMode') return { kind: 'plan', text: 'Plan approval' };
   return null;
