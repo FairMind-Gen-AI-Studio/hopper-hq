@@ -35,8 +35,16 @@ function pickClient(listing: string): string | null {
 /**
  * Switches the user's tmux client to a pane. The pane comes from a known session, never from a request.
  * Pane ids are per tmux server, so the same %N on the daemon's server can be another pane: when the session's tmux
- * session is known, the pane must be in it. When it is not known, the pane is trusted as before; two servers whose
- * sessions share a name (tmux names them 0, 1, … by default) and a pane id still look alike.
+ * session is known, the pane must be in it. When it is not known, the pane is trusted.
+ *
+ * Known limits:
+ * - Two servers whose sessions share a name (tmux names them 0, 1, … by default) and a pane id still look alike: the
+ *   switch goes to the daemon's server's pane. Checking that the session's process descends from `#{pane_pid}` would
+ *   tell them apart, whatever the names.
+ * - The name is the one Claude Code wrote when the session started. A session renamed since, a pane moved to another
+ *   session, or a window linked into several sessions (grouped ones too), for which tmux names only one, is refused as
+ *   'other_session' though the pane is right. Matching the pair in `list-panes -a -F '#{session_name} #{pane_id}'` would
+ *   accept the linked window.
  */
 export function tmuxFocusDriver(run: TmuxRunner = execTmux): FocusDriver {
   return {
