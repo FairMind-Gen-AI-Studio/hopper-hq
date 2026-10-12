@@ -1,12 +1,13 @@
 <script lang="ts">
   import { cleanText } from '../../src/scene/text';
   import type { FloorSummary } from '../../src/scene/types';
-  import { NAME_MAX, facadeOf, type Box, type Label } from '../facade/geometry';
+  import { MIN_SCALE, NAME_MAX, facadeOf, type Box, type Label } from '../facade/geometry';
   import { STATES, floorLabel, floorMeta, type Meta } from '../lib/words';
 
   /**
    * The building from outside: one window per desk, coloured by state, floors stacked on a lobby, newest on top.
-   * A floor is a button that goes inside; a window goes straight to its desk.
+   * A floor is a button that goes inside; a window goes straight to its desk. A building too big for the stage at
+   * MIN_SCALE is drawn at that scale, and the stage scrolls.
    */
   interface Props {
     /** Top to bottom, as the scene lists them. */
@@ -52,7 +53,15 @@
   {/if}
 {/snippet}
 
-<svg class="facade" viewBox={model.viewBox} preserveAspectRatio="xMidYMid meet" role="group" aria-label="Office building">
+<svg
+  class="facade"
+  viewBox={model.viewBox}
+  preserveAspectRatio="xMidYMid meet"
+  style:min-width="{Math.round(model.size.width * MIN_SCALE)}px"
+  style:min-height="{Math.round(model.size.height * MIN_SCALE)}px"
+  role="group"
+  aria-label="Office building"
+>
   <ellipse class="ground-shadow" cx={model.shadow.cx} cy={model.shadow.cy} rx={model.shadow.rx} ry={model.shadow.ry} />
   {@render solid(model.plinth, 'plinth')}
   <g class="lobby">

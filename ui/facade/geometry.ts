@@ -19,6 +19,8 @@ export const LABEL_W = 330;
 /** The longest floor name that room holds, in characters: a longer one ends in '…', and shows whole on hover. */
 export const NAME_MAX = 28;
 export const PAD = 24;
+/** The smallest scale the façade is drawn at: below it, floor names and counts get too small to read. */
+export const MIN_SCALE = 0.8;
 
 export type Point = [number, number];
 
@@ -97,6 +99,8 @@ export interface FacadeFloor {
 
 export interface FacadeModel {
   viewBox: string;
+  /** The viewBox's width and height. */
+  size: { width: number; height: number };
   /** Windows per floor. */
   width: number;
   shadow: { cx: number; cy: number; rx: number; ry: number };
@@ -211,9 +215,10 @@ export function facadeOf(floors: readonly FloorSummary[]): FacadeModel {
   b.add([shadow.cx - shadow.rx, shadow.cy - shadow.ry]);
   b.add([shadow.cx + shadow.rx, shadow.cy + shadow.ry]);
 
-  const viewBox = [b.x0 - PAD, b.y0 - PAD, b.x1 - b.x0 + 2 * PAD, b.y1 - b.y0 + 2 * PAD].map(r1).join(' ');
+  const [x, y, width, height] = [b.x0 - PAD, b.y0 - PAD, b.x1 - b.x0 + 2 * PAD, b.y1 - b.y0 + 2 * PAD].map(r1) as [number, number, number, number];
   return {
-    viewBox,
+    viewBox: `${x} ${y} ${width} ${height}`,
+    size: { width, height },
     width: W,
     shadow,
     plinth,

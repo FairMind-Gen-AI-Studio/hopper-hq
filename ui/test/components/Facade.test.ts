@@ -58,6 +58,18 @@ describe('Facade', () => {
     ]);
   });
 
+  it('never draws the building below 80% of its size, where its text gets too small to read: the stage scrolls instead', () => {
+    const many = makeScene().floors.map((f) => ({ ...f, windows: Array.from({ length: 40 }, (_, i) => ({ sessionId: `${f.key}-${i}`, state: 'working' as const })) }));
+    for (const floors of [makeScene().floors, many]) {
+      const { target } = facade(floors);
+      const svg = target.querySelector<SVGSVGElement>('svg.facade')!;
+      const [, , width, height] = svg.getAttribute('viewBox')!.split(' ').map(Number);
+      expect(svg.style.minWidth).toBe(`${Math.round(width! * 0.8)}px`);
+      expect(svg.style.minHeight).toBe(`${Math.round(height! * 0.8)}px`);
+      cleanup();
+    }
+  });
+
   it('ends a long floor name with an ellipsis, and shows it whole on hover', () => {
     const floors = makeScene().floors;
     floors[0]!.name = 'jira-1234-add-idempotency-keys-to-orders';
