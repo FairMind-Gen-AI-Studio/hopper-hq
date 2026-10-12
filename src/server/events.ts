@@ -18,7 +18,10 @@ export interface SceneHubOptions {
   tickMs?: number;
   /** Comment period that keeps idle connections open (default 25 s). */
   heartbeatMs?: number;
-  /** Output a client may leave unread before it is dropped (default 1 MiB). Every event carries full state: a client that reconnects has lost nothing. */
+  /**
+   * Output a client may leave unread before it is dropped (default 1 MiB), checked before each update and heartbeat. Every
+   * event carries full state: a client that reconnects has lost nothing.
+   */
   maxBufferedBytes?: number;
   /** Where a scene that cannot be built is reported (default stderr). */
   log?: (line: string) => void;
@@ -71,7 +74,8 @@ export class SceneHub {
   }
 
   /**
-   * Starts a stream on `res`. False when the hub is full or closed: the caller answers 503.
+   * Starts a stream on `res`. False when the hub is full or closed: the caller answers 503. False too when the client is
+   * dropped as it opens (see `keepsUp`): its stream is already closed, and nothing is left registered or running.
    * The payloads are built first: when the scene code throws, the error reaches the caller and nothing is registered.
    */
   attach(res: ServerResponse, floor: string | null): boolean {
@@ -83,8 +87,8 @@ export class SceneHub {
     this.clients.add(client);
     res.on('close', () => this.detach(client));
     res.writeHead(200, SSE_HEADERS);
-    this.write(client, 'retry: 3000\n\n');
-    this.send(client, scene, detail);
+    res.write('retry: 3000\n\n');
+    if (!this.send(client, scene, detail)) return false;
     this.startTimers();
     return true;
   }
@@ -119,26 +123,29 @@ export class SceneHub {
     for (const c of clients) c.res.end();
   }
 
-  private send(c: Client, scene: string, detail: string | null): void {
-    if (scene !== c.scene) {
-      if (!this.write(c, `event: scene\ndata: ${scene}\n\n`)) return;
-      c.scene = scene;
-    }
-    if (detail !== null && detail !== c.detail) {
-      if (!this.write(c, `event: floor\ndata: ${detail}\n\n`)) return;
-      c.detail = detail;
-    }
+  /** Sends a client what changed for it, as one update. False when the client is dropped instead (see `keepsUp`). */
+  private send(c: Client, scene: string, detail: string | null): boolean {
+    const sceneChanged = scene !== c.scene;
+    const detailChanged = detail !== null && detail !== c.detail;
+    if (!sceneChanged && !detailChanged) return true;
+    if (!this.keepsUp(c)) return false;
+    if (sceneChanged) c.res.write(`event: scene\ndata: ${scene}\n\n`);
+    if (detailChanged) c.res.write(`event: floor\ndata: ${detail}\n\n`);
+    c.scene = scene;
+    if (detail !== null) c.detail = detail;
+    return true;
   }
 
-  /** Writes to a client, unless it has stopped reading: then it is dropped, and the answer is false. */
-  private write(c: Client, chunk: string): boolean {
-    if (c.res.writableLength > this.o.maxBufferedBytes) {
-      this.detach(c);
-      c.res.destroy();
-      return false;
-    }
-    c.res.write(chunk);
-    return true;
+  /**
+   * Whether a client still reads what it is sent. One that has left more than the limit unread is dropped, and the answer
+   * is false. Asked once per update and per heartbeat, never between the events of one update: a client that reads keeps
+   * its stream however large one update is, and one that stopped holds at most the limit plus one update.
+   */
+  private keepsUp(c: Client): boolean {
+    if (c.res.writableLength <= this.o.maxBufferedBytes) return true;
+    this.detach(c);
+    c.res.destroy();
+    return false;
   }
 
   private schedule(): void {
@@ -154,7 +161,7 @@ export class SceneHub {
     if (this.tick) return;
     this.tick = setInterval(() => this.flush(), this.o.tickMs);
     this.heartbeat = setInterval(() => {
-      for (const c of this.clients) this.write(c, ': ping\n\n');
+      for (const c of this.clients) if (this.keepsUp(c)) c.res.write(': ping\n\n');
     }, this.o.heartbeatMs);
   }
 

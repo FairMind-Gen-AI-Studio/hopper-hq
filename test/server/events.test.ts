@@ -233,14 +233,16 @@ const until = async (ok: () => boolean) => {
   for (let i = 0; i < 300 && !ok(); i++) await sleep(10);
 };
 
-/** A response whose reader has stopped: everything written to it stays buffered. */
+/** A response whose reader has stopped: everything written to it stays buffered, and in `chunks`. Setting `writableLength` to 0 reads it all. */
 function stalledResponse() {
   const r = {
     writableLength: 0,
     destroyed: false,
+    chunks: [] as string[],
     writeHead: () => r,
     on: () => r,
     write: (chunk: string) => {
+      r.chunks.push(chunk);
       r.writableLength += Buffer.byteLength(chunk);
       return false;
     },
@@ -283,6 +285,40 @@ describe('a live view that stops reading', () => {
       expect(res.destroyed).toBe(true);
     } finally {
       hub.close();
+    }
+  });
+
+  it('is dropped at the next update when it has not read the last one, however large one update is', () => {
+    const hub = new SceneHub({ source: heavySource(256 * 1024, true), maxBufferedBytes: 64 * 1024, coalesceMs: 30, tickMs: LONG, heartbeatMs: LONG });
+    const reading = stalledResponse();
+    const stalled = stalledResponse();
+    try {
+      expect(hub.attach(reading as unknown as ServerResponse, 'repo:/w/x')).toBe(true);
+      expect(hub.attach(stalled as unknown as ServerResponse, 'repo:/w/x')).toBe(true);
+      expect(hub.size).toBe(2);
+      reading.writableLength = 0;
+      hub.flush();
+      expect(hub.size).toBe(1);
+      expect([reading.destroyed, stalled.destroyed]).toEqual([false, true]);
+      expect(reading.chunks.map((c) => c.split('\n')[0])).toEqual(['retry: 3000', 'event: scene', 'event: floor', 'event: scene']);
+    } finally {
+      hub.close();
+    }
+  });
+
+  it('is refused, with no timer left running, when it is past the limit as it opens', () => {
+    vi.useFakeTimers();
+    const hub = new SceneHub({ source: heavySource(1024, false), maxBufferedBytes: 64 * 1024 });
+    try {
+      const res = stalledResponse();
+      res.writableLength = 64 * 1024 + 1;
+      expect(hub.attach(res as unknown as ServerResponse, null)).toBe(false);
+      expect(res.destroyed).toBe(true);
+      expect(hub.size).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      hub.close();
+      vi.useRealTimers();
     }
   });
 });
