@@ -17,11 +17,14 @@ class FakeRenderer implements RendererLike {
   /** Frames that drew the shadow map too, as three decides it. */
   shadowDraws = 0;
   sizes: Array<[number, number]> = [];
+  ratios: number[] = [];
   disposed = 0;
   contextLost = 0;
   scene: Object3D | null = null;
   camera: Camera | null = null;
-  setPixelRatio(): void {}
+  setPixelRatio(ratio: number): void {
+    this.ratios.push(ratio);
+  }
   setSize(w: number, h: number): void {
     this.sizes.push([w, h]);
   }
@@ -50,6 +53,8 @@ class FakeEnv implements ViewEnv {
   isHidden = false;
   resized: (() => void) | null = null;
   watching = true;
+  ratio = 1;
+  ratioChanged: (() => void) | null = null;
   requestFrame(draw: (now: number) => void): number {
     this.queue.set(this.next, draw);
     return this.next++;
@@ -64,7 +69,13 @@ class FakeEnv implements ViewEnv {
     return this.isHidden;
   }
   pixelRatio(): number {
-    return 1;
+    return this.ratio;
+  }
+  watchPixelRatio(changed: () => void): () => void {
+    this.ratioChanged = changed;
+    return () => {
+      this.ratioChanged = null;
+    };
   }
   observeResize(_el: Element, changed: () => void): () => void {
     this.resized = changed;
@@ -681,6 +692,19 @@ describe('the floor view', () => {
     expect(renderer.sizes.at(-1)).toEqual([400, 300]);
   });
 
+  it('draws at the pixel ratio of the screen, also after the window moves to another one', () => {
+    const { renderer, env } = setup();
+    env.flush();
+    expect(renderer.ratios.at(-1)).toBe(1);
+    env.ratio = 2;
+    env.ratioChanged!();
+    expect(renderer.ratios.at(-1)).toBe(2);
+    expect(env.queue.size).toBe(1);
+    env.ratio = 3;
+    env.ratioChanged!();
+    expect(renderer.ratios.at(-1)).toBe(2);
+  });
+
   it('lets go of everything on dispose, once', () => {
     const { canvas, labels, renderer, env, view, events } = setup();
     view.setFloor(checkoutFloor());
@@ -695,6 +719,7 @@ describe('the floor view', () => {
     expect(env.queue.size).toBe(0);
     expect(env.timers.size).toBe(0);
     expect(env.watching).toBe(false);
+    expect(env.ratioChanged).toBeNull();
     expect(labels.children).toHaveLength(0);
     click(canvas, { x: 400, y: 250 });
     view.select('oa-c3');

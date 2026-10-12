@@ -41,6 +41,8 @@ export interface ViewEnv {
   now(): number;
   hidden(): boolean;
   pixelRatio(): number;
+  /** Calls `changed` when the pixel ratio changes (another screen, a page zoom); returns a function that stops watching. */
+  watchPixelRatio(changed: () => void): () => void;
   /** Calls `changed` when the element's size changes; returns a function that stops watching. */
   observeResize(el: Element, changed: () => void): () => void;
   /** Runs `run` once, `ms` milliseconds from now; returns a function that cancels it. */
@@ -54,6 +56,22 @@ export function browserEnv(): ViewEnv {
     now: () => performance.now(),
     hidden: () => document.visibilityState === 'hidden',
     pixelRatio: () => window.devicePixelRatio || 1,
+    watchPixelRatio(changed) {
+      if (typeof matchMedia === 'undefined') return () => {};
+      let query: MediaQueryList | null = null;
+      const onChange = () => {
+        watch();
+        changed();
+      };
+      // A query matches one ratio only: after each change, it watches for the next.
+      const watch = () => {
+        query?.removeEventListener('change', onChange);
+        query = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+        query.addEventListener('change', onChange);
+      };
+      watch();
+      return () => query?.removeEventListener('change', onChange);
+    },
     observeResize(el, changed) {
       if (typeof ResizeObserver === 'undefined') return () => {};
       const observer = new ResizeObserver(() => changed());
@@ -388,6 +406,7 @@ export function createFloorView(
   document.addEventListener('visibilitychange', onVisibility);
   controls.addEventListener('change', onControls);
   const stopResize = env.observeResize(canvas, resize);
+  const stopRatio = env.watchPixelRatio(resize);
   applyPose(homePose(size));
   resize();
 
@@ -479,6 +498,7 @@ export function createFloorView(
       cancelFrame();
       stopPanLater();
       stopResize();
+      stopRatio();
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('dblclick', onDoubleClick);
