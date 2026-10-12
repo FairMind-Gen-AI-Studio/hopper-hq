@@ -26,19 +26,27 @@ async function real(p: string): Promise<string> {
   }
 }
 
+/** Names of a git dir that sits in the directory it belongs to: a checkout's .git, or the '.bare' its worktrees sit beside. */
+const GIT_DIR_NAMES = new Set(['.git', '.bare']);
+
 export async function resolveWorkspace(cwd: string, run: GitRunner = runGit): Promise<Workspace> {
-  const out = await run(cwd, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir']);
+  const out = await run(cwd, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir']);
   if (!out) return { cwd, repoRoot: null, repoName: basename(cwd) || cwd, worktree: false, branch: null, root: null };
-  const [toplevel = cwd, common = ''] = out.split('\n');
-  const commonDir = await real(common || resolve(toplevel, '.git'));
-  const mainRoot = basename(commonDir) === '.git' ? dirname(commonDir) : commonDir;
+  const [toplevel = cwd, gitDir = '', common = ''] = out.split('\n');
   const root = await real(toplevel);
+  const ownDir = await real(gitDir || resolve(toplevel, '.git'));
+  const commonDir = await real(common || ownDir);
+  // A linked worktree has a git dir of its own inside the common one. Any other checkout is a main one, wherever its git
+  // dir lives: a submodule's sits in the superproject's, --separate-git-dir puts it anywhere.
+  const worktree = ownDir !== commonDir;
+  // The main repository: the main checkout, else the directory that holds the common git dir, else a bare repository.
+  const mainRoot = !worktree ? root : GIT_DIR_NAMES.has(basename(commonDir)) ? dirname(commonDir) : commonDir;
   const branch = await run(cwd, ['symbolic-ref', '--short', '-q', 'HEAD']);
   return {
     cwd,
     repoRoot: mainRoot,
-    repoName: basename(mainRoot),
-    worktree: root !== mainRoot,
+    repoName: mainRoot === commonDir ? basename(mainRoot).replace(/(.)\.git$/, '$1') : basename(mainRoot),
+    worktree,
     branch: branch || 'HEAD',
     root,
   };
