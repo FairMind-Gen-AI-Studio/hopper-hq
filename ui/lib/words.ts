@@ -1,7 +1,7 @@
-/** The UI's wording: one place for state names, their meaning, wait reasons and plurals. */
+/** The UI's wording: one place for state names, their meaning, wait reasons, floor metadata and plurals. */
 import type { WaitKind } from '../../src/core/types';
 import { reasonText } from '../../src/scene/text';
-import type { SceneReason, ShownState } from '../../src/scene/types';
+import type { FloorSummary, SceneReason, ShownState } from '../../src/scene/types';
 
 export const STATES: Record<ShownState, { label: string; description: string }> = {
   needs_you: { label: 'Needs you', description: 'Blocked on a permission, a question or a plan approval.' },
@@ -32,4 +32,33 @@ export function waitText(reason: SceneReason | null): string {
 export function raisedBy(reason: SceneReason | null): string | null {
   if (!reason?.agent) return null;
   return `raised by ${reason.agent.type ?? 'a subagent'}`;
+}
+
+export interface Meta {
+  text: string;
+  /** Colours the counts that matter: needs you, done, in a meeting, no signal. */
+  tone: 'needs' | 'done' | 'meeting' | 'nosignal' | null;
+}
+
+/** What a floor is ('2 repos · 4 sessions', 'Department · 5 sessions') and the counts worth a glance. */
+export function floorMeta(f: FloorSummary): Meta[] {
+  const sessions = plural(f.windows.length, 'session', 'sessions');
+  const metas: Meta[] = [{ text: f.kind === 'department' ? `Department · ${sessions}` : `${plural(f.repos.length, 'repo', 'repos')} · ${sessions}`, tone: null }];
+  if (f.shutters) metas.push({ text: 'shutters down', tone: null });
+  const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
+  if (needs) metas.push({ text: `● ${needs} ${needs === 1 ? 'needs' : 'need'} you`, tone: 'needs' });
+  if (done) metas.push({ text: `● ${done} done`, tone: 'done' });
+  if (meeting) metas.push({ text: `● ${meeting} in a meeting`, tone: 'meeting' });
+  if (quiet) metas.push({ text: `● ${quiet} no signal`, tone: 'nosignal' });
+  return metas;
+}
+
+/** A floor for a screen reader: 'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done'. */
+export function floorLabel(f: FloorSummary): string {
+  const parts = [plural(f.windows.length, 'session', 'sessions')];
+  const { needs_you: needs, done } = f.counts;
+  if (needs) parts.push(`${needs} ${needs === 1 ? 'needs' : 'need'} you`);
+  if (done) parts.push(`${done} done`);
+  if (f.shutters) parts.push('shutters down');
+  return `Floor ${f.number}, ${f.name}: ${parts.join(', ')}`;
 }

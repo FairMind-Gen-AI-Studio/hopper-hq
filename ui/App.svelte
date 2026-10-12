@@ -7,6 +7,7 @@
   import { applyTheme, browserStorage, loadTheme, nextTheme, resolvedTheme, saveTheme, systemPrefersDark, watchSystemTheme } from './lib/theme';
   import { createToasts } from './lib/toast';
   import AttentionBar from './components/AttentionBar.svelte';
+  import Facade from './components/Facade.svelte';
   import Notice from './components/Notice.svelte';
   import Toast from './components/Toast.svelte';
   import TopBar, { type Crumb } from './components/TopBar.svelte';
@@ -139,7 +140,20 @@
     <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
   {/if}
   <main class="main">
-    <section class="stage" aria-label="Building"></section>
+    <section class="stage" aria-label="Building">
+      {#if scene}
+        <!-- On a floor, the façade stays, with the open floor outlined. -->
+        <Facade
+          floors={scene.floors}
+          selected={route.floor}
+          onFloor={(key) => navigate({ floor: key, desk: null })}
+          onDesk={(key, id) => navigate({ floor: key, desk: id })}
+        />
+        <p class="hint">
+          {#if route.floor !== null}Esc goes back to the building.{:else if scene.floors.length > 0}Click a floor to go inside, or a window to open its desk.{:else}No sessions yet.{/if}
+        </p>
+      {/if}
+    </section>
     <aside class="panel" aria-live="polite"></aside>
   </main>
   <Toast {toasts} />
@@ -157,6 +171,7 @@
     background: linear-gradient(180deg, var(--sky), var(--bg));
     overflow: auto;
   }
+  .hint { position: absolute; left: 12px; bottom: 10px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
   .panel {
     min-height: 0;
     min-width: 0;

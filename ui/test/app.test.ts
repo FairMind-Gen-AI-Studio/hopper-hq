@@ -212,4 +212,33 @@ describe('App shell', () => {
     const { target } = app(fakeStore({ connection: 'connecting' }));
     expect(target.querySelector('.attention')).toBeNull();
   });
+
+  it('goes inside a floor, or straight to a desk, from the façade', () => {
+    const { target, crumbs } = app();
+    const floor = (n: number) => target.querySelectorAll('.stage g.floor')[n]!;
+    expect(text(target.querySelector('.stage .hint'))).toBe('Click a floor to go inside, or a window to open its desk.');
+    floor(3).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    flushSync();
+    expect(crumbs()).toBe('Building / 4 · checkout-v2');
+    expect(floor(3).classList.contains('selected')).toBe(true);
+    expect(text(target.querySelector('.stage .hint'))).toBe('Esc goes back to the building.');
+    target.querySelector('.stage polygon[data-desk="oa-g7"]')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    flushSync();
+    expect(location.hash).toBe(toHash({ floor: ORDERS, desk: 'oa-g7' }));
+  });
+
+  it('redraws the façade as the scene changes, down to an empty building', () => {
+    const store = fakeStore({ scene: makeScene() });
+    const { target } = app(store);
+    const scene = makeScene();
+    scene.floors = scene.floors.slice(0, 2);
+    store.set({ scene });
+    flushSync();
+    expect(target.querySelectorAll('.stage g.floor')).toHaveLength(2);
+    store.set({ scene: { ...scene, floors: [] } });
+    flushSync();
+    expect(target.querySelectorAll('.stage g.floor')).toHaveLength(0);
+    expect(target.querySelector('.stage svg')).not.toBeNull();
+    expect(text(target.querySelector('.stage .hint'))).toBe('No sessions yet.');
+  });
 });
