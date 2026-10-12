@@ -12,8 +12,14 @@ describe('cleanText', () => {
   });
 
   it('removes invisible format characters, but keeps the joiners that emoji and scripts need', () => {
-    expect(cleanText('ad\u200Bmin \u2060x\u00ADy \u{E0041}z')).toBe('admin xy z');
+    expect(cleanText('ad\u200Bmin \u2060x\u00ADy \u{E0001}z')).toBe('admin xy z');
     expect(cleanText('\u{1F469}\u200D\u{1F4BB} \u0645\u200C\u0646')).toBe('\u{1F469}\u200D\u{1F4BB} \u0645\u200C\u0646');
+  });
+
+  it('keeps the tag characters that draw a subdivision flag', () => {
+    const scotland = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}';
+    expect(cleanText(`go ${scotland}!`)).toBe(`go ${scotland}!`);
+    expect(cleanText(`${scotland}\u200B\u{E0001}`)).toBe(scotland);
   });
 
   it('replaces a lone surrogate with U+FFFD, so that the text is well formed and goes into a URL', () => {
