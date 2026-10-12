@@ -194,6 +194,29 @@ describe('cli start and demo', () => {
     expect(await run).toBe(0);
   });
 
+  it('start says so, and exits, when a daemon already runs on its data directory', async () => {
+    const c = capture();
+    const args = ['start', '--port', '0', '--no-watch', '--data-dir', dataDir, '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))];
+    expect(await main(args, { ...c.io, untilStopped: async () => {} })).toBe(1);
+    expect(c.err).toEqual([`scranton-hq is already running. Check with: scranton-hq status --data-dir ${dataDir}`]);
+    expect(await main(['status', '--format', 'json', '--data-dir', dataDir], capture().io)).toBe(0);
+  });
+
+  it('demo says so, and exits, when a demo already runs on its data directory', async () => {
+    const demoDir = await mkdtemp(join(tmpdir(), 'shq-demo-'));
+    const s = stopper();
+    const first = main(['demo', '--port', '0', '--data-dir', demoDir], { ...capture().io, untilStopped: s.untilStopped });
+    await s.started;
+    try {
+      const c = capture();
+      expect(await main(['demo', '--port', '0', '--data-dir', demoDir], { ...c.io, untilStopped: async () => {} })).toBe(1);
+      expect(c.err).toEqual([`A demo is already running on ${demoDir}. Pick another with --data-dir.`]);
+    } finally {
+      s.stop();
+    }
+    expect(await first).toBe(0);
+  });
+
   it('demo prints a sign-in link that works', async () => {
     const s = stopper();
     const c = capture();

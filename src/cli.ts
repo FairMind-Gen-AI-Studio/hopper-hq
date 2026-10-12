@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import type { AttentionSummary, Snapshot } from './collector.js';
 import { resolvePaths } from './config.js';
+import { DataDirInUseError } from './daemon-lock.js';
 
 export interface Io {
   out(line: string): void;
@@ -99,6 +100,9 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
 
 const dataDirOption = { 'data-dir': { type: 'string' } } as const;
 
+/** What to add to a command printed as a hint, so that it reaches the same data directory. */
+const dataDirFlag = (dataDir: string | undefined): string => (dataDir === undefined ? '' : ` --data-dir ${dataDir}`);
+
 async function cmdStart(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -113,6 +117,10 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       io.err(`Port ${port ?? 7337} is already in use. Is scranton-hq already running? Check with: scranton-hq status`);
+      return 1;
+    }
+    if (err instanceof DataDirInUseError) {
+      io.err(`scranton-hq is already running. Check with: scranton-hq status${dataDirFlag(values['data-dir'])}`);
       return 1;
     }
     throw err;
@@ -205,6 +213,10 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       io.err(`Port ${port} is already in use. Pick another with --port.`);
+      return 1;
+    }
+    if (err instanceof DataDirInUseError) {
+      io.err(`A demo is already running on ${dataDir}. Pick another with --data-dir.`);
       return 1;
     }
     throw err;

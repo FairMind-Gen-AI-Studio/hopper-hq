@@ -8,8 +8,9 @@ import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
 import { startDemo } from './adapters/demo.js';
 import { createGitResolver } from './adapters/git.js';
 import { Collector } from './collector.js';
-import { DEFAULT_PORT, resolvePaths } from './config.js';
+import { DEFAULT_PORT, resolvePaths, type Paths } from './config.js';
 import { removeDaemonFile, writeDaemonFile } from './daemon-file.js';
+import { lockDataDir, type DataDirLock } from './daemon-lock.js';
 import { loginUrl, UiAuth } from './server/auth.js';
 import { SceneHub } from './server/events.js';
 import { simulatedFocusDriver, tmuxFocusDriver } from './server/focus.js';
@@ -75,11 +76,23 @@ function listen(server: Server, port: number): Promise<number> {
   });
 }
 
+/** Starts the daemon, or throws DataDirInUseError when another one runs on the same data directory. */
 export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaemon> {
   silenceExperimentalWarnings();
-  const log = opts.log ?? ((line: string) => process.stderr.write(line + '\n'));
   const paths = resolvePaths(opts);
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
+  const lock = await lockDataDir(paths.dataDir);
+  try {
+    return await serve(opts, paths, lock);
+  } catch (err) {
+    lock.release();
+    throw err;
+  }
+}
+
+/** Runs the daemon on a data directory this process holds. */
+async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Promise<RunningDaemon> {
+  const log = opts.log ?? ((line: string) => process.stderr.write(line + '\n'));
   const token = await loadOrCreateToken(paths.dataDir);
   const ui = await loadUiBundle(opts.uiDir ?? fileURLToPath(new URL('./ui/', import.meta.url)), UI_LIMITS, log);
 
@@ -130,6 +143,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
         await collector.close();
       } finally {
         store.close();
+        // The directory first: `down` returns once the file is gone, and an `up` right after must find the directory free.
+        lock.release();
         await removeDaemonFile(paths.dataDir, process.pid);
       }
     },
