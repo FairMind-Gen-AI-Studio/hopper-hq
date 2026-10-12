@@ -111,3 +111,23 @@ test('draws nothing when nobody else needs you', async ($, on) => {
   expect(await ui.find({ type: 'Text' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('opens the building from the band, in tmux or not, and says how it went', async ($, on) => {
+  const ran: string[][] = []
+  const toasts: string[] = []
+  daemon(on, ATTENTION, { HOME: '/home/dev' }, ran)
+  on('ui.toast', async ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  const clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'scranton-hq', surface, component: 'AbovePrompt', props: BAND })
+    await ui.press({ key: 'building' })
+    await ui.unmount()
+  }
+  expect(ran).toEqual([['scranton-hq', 'up'], ['scranton-hq', 'up']])
+  expect(toasts).toEqual(['Opened the building in your browser.', 'Opened the building in your browser.'])
+})

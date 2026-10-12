@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, ProcessRunResult, Register } from 'claude-code'
 
 import type { Attention } from '../types'
 
@@ -11,6 +11,11 @@ const MAX_STRING = 400
 const MAX_QUEUE = 500
 const FLUSH_MS = 500
 const POLL_MS = 3000
+// `scranton-hq up` returns once the building is open: in at most about 20 seconds, when the daemon is slow to start.
+const UP_TIMEOUT_MS = 30_000
+const NOT_INSTALLED = 'scranton-hq is not installed, or not on your PATH'
+// C0 and C1 control characters, except tab and line feed.
+const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g
 
 const attention = atom({ plugin: 'scranton-hq', key: 'attention' } as const, null)
 
@@ -128,13 +133,44 @@ async function inSession($: EngineInterface, pane: string, session: string): Pro
   }
 }
 
+// Opens the building in the browser with `scranton-hq up`, which starts the daemon in the background when it is not
+// running. Resolves what to tell the person, or null when scranton-hq could not run. Never the sign-in link up prints:
+// a command's output is in the transcript, and the transcript reaches the model.
+async function openBuilding($: EngineInterface): Promise<string | null> {
+  let r: ProcessRunResult
+  try {
+    r = await $.process.run(['scranton-hq', 'up'], { timeoutMs: UP_TIMEOUT_MS })
+  } catch {
+    return null
+  }
+  if (r.exitCode === 0) return 'Opened the building in your browser.'
+  const why = r.stderr.replace(CONTROL, '').trim().slice(0, 2000)
+  return why ? `scranton-hq could not open the building:\n${why}` : 'scranton-hq could not open the building.'
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     sessionCwd = e.cwd
     $.clock.every(FLUSH_MS, () => void flush($))
     $.clock.every(POLL_MS, () => void poll($))
+    try {
+      await $.command.register({
+        name: 'scranton-hq',
+        description: 'Open the scranton-hq building in your browser, starting its daemon if needed',
+        immediate: true,
+      })
+    } catch {
+      // A host with no commands still gets the rest.
+    }
     return next(e)
   })
+
+  // /scranton-hq answers itself: no model turn, and nothing it could refuse.
+  on('command.run', { command: 'scranton-hq' }, async $ => {
+    const said = await openBuilding($)
+    if (said === null) $.ui.toast(NOT_INSTALLED)
+    return { text: said ?? `${NOT_INSTALLED}.` }
+  }).catch(() => ({ text: 'scranton-hq could not open the building.' }))
 
   on('prompt.submit', async ($, e, next) => {
     await enqueue($, { hook_event_name: 'UserPromptSubmit', prompt: e.text })
@@ -193,6 +229,7 @@ export const register: Register = on => {
         {first ? <Text color="red">◉ {waiting.length} waiting · {first.name ?? first.repo}: {first.reason?.text ?? 'needs you'} </Text> : null}
         {pane && inTmux ? <Button key="go" label="Go" onPress={() => jump($, pane, session)} /> : null}
         {done > 0 ? <Text color="green"> ✓ {done} done</Text> : null}
+        <Button key="building" label="Open building" onPress={async () => $.ui.toast((await openBuilding($)) ?? NOT_INSTALLED)} />
       </Box>
     )
   })
