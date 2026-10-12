@@ -6,14 +6,16 @@ const RAW = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u061C\u200E\u2
 
 describe('source files', () => {
   it('carry no raw control or bidi characters', () => {
-    for (const dir of ['src', 'test', 'ui']) {
+    // Every file and line at once, so that one run names them all.
+    const bad: string[] = [];
+    for (const dir of ['src', 'test', 'ui', 'mod']) {
       const root = new URL(`../${dir}/`, import.meta.url);
       for (const file of readdirSync(root, { recursive: true, encoding: 'utf8' })) {
-        if (!/\.(ts|tsx|snap|svelte)$/.test(file)) continue;
+        if (!/\.(ts|tsx|snap|svelte|js|css|html)$/.test(file) || file.split(/[\\/]/).includes('node_modules')) continue;
         const lines = readFileSync(new URL(file, root), 'utf8').split('\n');
-        const bad = lines.flatMap((line, i) => (RAW.test(line) ? [`${dir}/${file}:${i + 1}`] : []));
-        expect(bad).toEqual([]);
+        bad.push(...lines.flatMap((line, i) => (RAW.test(line) ? [`${dir}/${file}:${i + 1}`] : [])));
       }
     }
+    expect(bad).toEqual([]);
   });
 });
