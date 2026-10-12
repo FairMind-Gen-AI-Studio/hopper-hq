@@ -54,6 +54,13 @@ describe('App shell', () => {
     expect(text(target.querySelector('.tmux .visually-hidden'))).toBe('2 need you, 2 done');
   });
 
+  it('counts one session that needs you in the singular', () => {
+    const scene = makeScene();
+    scene.attention.needsYou = scene.attention.needsYou.slice(0, 1);
+    const { target } = app(fakeStore({ scene }));
+    expect(text(target.querySelector('.tmux .visually-hidden'))).toBe('1 needs you, 2 done');
+  });
+
   it('opens on the floor in the address, watching it from the start', () => {
     location.hash = toHash({ floor: CHECKOUT, desk: 'oa-c3' });
     const { store, crumbs } = app();

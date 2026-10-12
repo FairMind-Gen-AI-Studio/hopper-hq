@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { FloorSummary } from '../../src/scene/types';
-  import { STATES, STATE_ORDER, floorMeta, plural } from '../lib/words';
+  import { STATES, STATE_ORDER, floorMeta, needYou, plural } from '../lib/words';
 
   /** The floor directory, top to bottom as on the façade, and what the colours mean. */
   interface Props {
@@ -19,7 +19,8 @@
 </div>
 <p class="p-text">
   Each floor is a feature, even when its sessions work in different repos. Sessions without a feature sit in their repo's
-  department. Red windows are sessions waiting for you.
+  department. Each window is a session's desk, in the colour of its state: the legend below names them all. Sessions
+  waiting for you are also listed at the top.
 </p>
 {#if floors.length > 0}
   <ol class="directory">
@@ -29,7 +30,7 @@
           <span class="fl-num">{f.number}</span>
           <span class="fl-name">{f.name}</span>
           <span class="fl-counts">
-            {#if f.counts.needs_you}<span class="cnt-needs"><span aria-hidden="true">◉</span>{f.counts.needs_you}<span class="visually-hidden">{' need you'}</span></span>{/if}
+            {#if f.counts.needs_you}<span class="cnt-needs"><span aria-hidden="true">◉</span>{f.counts.needs_you}<span class="visually-hidden">{` ${needYou(f.counts.needs_you)}`}</span></span>{/if}
             {#if f.counts.done}<span class="cnt-done"><span aria-hidden="true">✓</span>{f.counts.done}<span class="visually-hidden">{' done'}</span></span>{/if}
             {#if f.shutters}<span class="cnt-shut">shut</span>{/if}
           </span>

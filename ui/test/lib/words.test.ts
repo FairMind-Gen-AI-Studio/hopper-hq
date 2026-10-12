@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STATES, STATE_ORDER, floorLabel, floorMeta, plural, raisedBy, waitText } from '../../lib/words';
+import { STATES, STATE_ORDER, floorLabel, floorMeta, needYou, plural, raisedBy, waitText } from '../../lib/words';
 import { makeScene } from '../helpers/fixtures';
 
 describe('words', () => {
@@ -14,6 +14,7 @@ describe('words', () => {
     expect(plural(1, 'floor', 'floors')).toBe('1 floor');
     expect(plural(0, 'floor', 'floors')).toBe('0 floors');
     expect(plural(3, 'session', 'sessions')).toBe('3 sessions');
+    expect(`1 ${needYou(1)}, 2 ${needYou(2)}, 0 ${needYou(0)}`).toBe('1 needs you, 2 need you, 0 need you');
   });
 
   it('says what a session waits for, and which subagent asked', () => {
@@ -34,7 +35,9 @@ describe('words', () => {
     expect(metas(search)).toEqual(['2 repos · 2 sessions', 'nosignal:● 1 no signal']);
     expect(metas(orders)).toEqual(['Department · 5 sessions', 'needs:● 1 needs you', 'done:● 1 done']);
     expect(metas(docs)).toEqual(['2 repos · 2 sessions', 'shutters down']);
-    expect(floorLabel(checkout!)).toBe('Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done');
+    // A screen reader hears every count the label shows.
+    expect(floorLabel(checkout!)).toBe('Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done, 1 in a meeting');
+    expect(floorLabel(search!)).toBe('Floor 3, search-ranking: 2 sessions, 1 no signal');
     expect(floorLabel(docs!)).toBe('Floor 1, docs-refresh: 2 sessions, shutters down');
     expect(floorLabel({ ...orders!, counts: { needs_you: 2 } })).toBe('Floor 2, orders-api: 5 sessions, 2 need you');
     expect(floorMeta({ ...orders!, counts: { needs_you: 2 } })[1]!.text).toBe('● 2 need you');

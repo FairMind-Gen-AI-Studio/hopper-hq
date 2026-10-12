@@ -32,7 +32,18 @@ describe('BuildingPanel', () => {
       'Department · 5 sessions',
       '2 repos · 2 sessions · docs-site, storefront-web',
     ]);
-    expect(rows().map((r) => text(r.querySelector('.fl-counts')))).toEqual(['◉1 need you ✓1 done', '', '◉1 need you ✓1 done', 'shut']);
+    expect(rows().map((r) => text(r.querySelector('.fl-counts')))).toEqual(['◉1 needs you ✓1 done', '', '◉1 needs you ✓1 done', 'shut']);
+    const floors = makeScene().floors;
+    floors[0]!.counts = { needs_you: 2 };
+    cleanup();
+    expect(text(panel(floors).rows()[0]!.querySelector('.fl-counts'))).toBe('◉2 need you');
+  });
+
+  it('explains the windows in words, not by colour alone', () => {
+    const { target } = panel();
+    expect(text(target.querySelector('.p-text'))).toBe(
+      "Each floor is a feature, even when its sessions work in different repos. Sessions without a feature sit in their repo's department. Each window is a session's desk, in the colour of its state: the legend below names them all. Sessions waiting for you are also listed at the top.",
+    );
   });
 
   it('goes to a floor', () => {

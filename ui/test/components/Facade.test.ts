@@ -20,8 +20,8 @@ describe('Facade', () => {
     expect([...target.querySelectorAll('g.floor')].map((g) => g.getAttribute('aria-label'))).toEqual([
       'Floor 1, docs-refresh: 2 sessions, shutters down',
       'Floor 2, orders-api: 5 sessions, 1 needs you, 1 done',
-      'Floor 3, search-ranking: 2 sessions',
-      'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done',
+      'Floor 3, search-ranking: 2 sessions, 1 no signal',
+      'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done, 1 in a meeting',
     ]);
     for (const g of target.querySelectorAll('g.floor')) {
       expect(g.getAttribute('role')).toBe('button');

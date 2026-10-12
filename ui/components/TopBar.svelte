@@ -10,6 +10,7 @@
 
 <script lang="ts">
   import { THEME_LABEL, nextTheme, type ThemePreference } from '../lib/theme';
+  import { needYou } from '../lib/words';
 
   interface Props {
     crumbs: Crumb[];
@@ -46,7 +47,7 @@
       <span class="k" aria-hidden="true">tmux</span>
       <span class="n" aria-hidden="true">◉{needsYou}</span>
       <span class="d" aria-hidden="true">✓{done}</span>
-      <span class="visually-hidden">{needsYou} need you, {done} done</span>
+      <span class="visually-hidden">{needsYou} {needYou(needsYou)}, {done} done</span>
     </span>
   </div>
 </header>

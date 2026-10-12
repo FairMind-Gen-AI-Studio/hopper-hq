@@ -20,6 +20,11 @@ export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** What follows a count of sessions waiting for you: '1 needs you', '2 need you'. */
+export function needYou(n: number): string {
+  return n === 1 ? 'needs you' : 'need you';
+}
+
 export const WAIT_KIND: Record<WaitKind, string> = { permission: 'Permission', question: 'Question', plan: 'Plan approval', input: 'Input' };
 
 /** What a session waits for: 'Permission: Bash (rm -rf dist)'. 'Needs you' when the reason is unknown. */
@@ -46,19 +51,21 @@ export function floorMeta(f: FloorSummary): Meta[] {
   const metas: Meta[] = [{ text: f.kind === 'department' ? `Department · ${sessions}` : `${plural(f.repos.length, 'repo', 'repos')} · ${sessions}`, tone: null }];
   if (f.shutters) metas.push({ text: 'shutters down', tone: null });
   const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
-  if (needs) metas.push({ text: `● ${needs} ${needs === 1 ? 'needs' : 'need'} you`, tone: 'needs' });
+  if (needs) metas.push({ text: `● ${needs} ${needYou(needs)}`, tone: 'needs' });
   if (done) metas.push({ text: `● ${done} done`, tone: 'done' });
   if (meeting) metas.push({ text: `● ${meeting} in a meeting`, tone: 'meeting' });
   if (quiet) metas.push({ text: `● ${quiet} no signal`, tone: 'nosignal' });
   return metas;
 }
 
-/** A floor for a screen reader: 'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done'. */
+/** A floor for a screen reader, with every count its label shows: 'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done'. */
 export function floorLabel(f: FloorSummary): string {
   const parts = [plural(f.windows.length, 'session', 'sessions')];
-  const { needs_you: needs, done } = f.counts;
-  if (needs) parts.push(`${needs} ${needs === 1 ? 'needs' : 'need'} you`);
+  const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
+  if (needs) parts.push(`${needs} ${needYou(needs)}`);
   if (done) parts.push(`${done} done`);
+  if (meeting) parts.push(`${meeting} in a meeting`);
+  if (quiet) parts.push(`${quiet} no signal`);
   if (f.shutters) parts.push('shutters down');
   return `Floor ${f.number}, ${f.name}: ${parts.join(', ')}`;
 }
