@@ -545,6 +545,23 @@ describe('the floor view', () => {
     expect(env.queue.size).toBe(1);
   });
 
+  it('draws nothing while its WebGL context is lost, and the floor and its shadows again once it is back', () => {
+    const { renderer, env, view, canvas } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.select('oa-c3');
+    expect(env.queue.size).toBe(1);
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    expect(env.queue.size).toBe(0);
+    view.select('sw-a1');
+    expect(env.queue.size).toBe(0);
+    const shadows = renderer.shadowDraws;
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(env.queue.size).toBe(1);
+    env.flush();
+    expect(renderer.shadowDraws).toBe(shadows + 1);
+  });
+
   it('resizes the drawing buffer when the canvas changes size, and keeps it while the canvas is hidden', () => {
     const { renderer, env } = setup();
     env.flush();

@@ -6,6 +6,7 @@
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
  * and while the controls settle or a tween runs. Nothing is drawn while the page is hidden. The shadow map is drawn
  * only when the shadows can change: a new floor, a new theme, or a wall that comes or goes as the camera turns.
+ * Nothing is drawn either while the WebGL context is lost; once the browser restores it, the floor is drawn again.
  */
 import { OrthographicCamera, PCFShadowMap, type Camera, type Object3D, type ShadowMapType } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -123,6 +124,7 @@ export function createFloorView(
   let reduced = theme.reducedMotion;
   let frame = 0;
   let disposed = false;
+  let lost = false;
   let down: { x: number; y: number } | null = null;
   /** What the last click selected, and when: the second click of a double-click and the double-click keep to it. */
   let clicked: { id: string | null; at: number } | null = null;
@@ -192,7 +194,12 @@ export function createFloorView(
   }
 
   function request(): void {
-    if (!frame && !disposed && !env.hidden()) frame = env.requestFrame(draw);
+    if (!frame && !disposed && !lost && !env.hidden()) frame = env.requestFrame(draw);
+  }
+
+  function cancelFrame(): void {
+    if (frame) env.cancelFrame(frame);
+    frame = 0;
   }
 
   function draw(now: number): void {
@@ -335,16 +342,25 @@ export function createFloorView(
   };
   const onVisibility = () => {
     if (!env.hidden()) request();
-    else if (frame) {
-      env.cancelFrame(frame);
-      frame = 0;
-    }
+    else cancelFrame();
+  };
+  // A lost context draws nothing. three restores its own state with the context, and starts an empty shadow map.
+  const onContextLost = () => {
+    lost = true;
+    cancelFrame();
+  };
+  const onContextRestored = () => {
+    lost = false;
+    renderer.shadowMap.needsUpdate = true;
+    request();
   };
 
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('click', onClick);
   canvas.addEventListener('dblclick', onDoubleClick);
   canvas.addEventListener('keydown', onKeyDown);
+  canvas.addEventListener('webglcontextlost', onContextLost);
+  canvas.addEventListener('webglcontextrestored', onContextRestored);
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
   host.labels.addEventListener('pointerdown', onTagPointerDown);
   host.labels.addEventListener('wheel', onTagWheel, { passive: false });
@@ -432,14 +448,15 @@ export function createFloorView(
     dispose() {
       if (disposed) return;
       disposed = true;
-      if (frame) env.cancelFrame(frame);
-      frame = 0;
+      cancelFrame();
       stopPanLater();
       stopResize();
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('dblclick', onDoubleClick);
       canvas.removeEventListener('keydown', onKeyDown);
+      canvas.removeEventListener('webglcontextlost', onContextLost);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored);
       host.labels.removeEventListener('pointerdown', onTagPointerDown);
       host.labels.removeEventListener('wheel', onTagWheel);
       host.labels.removeEventListener('contextmenu', onTagMenu);
