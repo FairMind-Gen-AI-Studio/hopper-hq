@@ -1,6 +1,13 @@
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig } from '@playwright/test';
+
+/**
+ * Where Playwright writes, and empties at every run: a directory of this checkout's own, named by a hash of its path, so
+ * a run in another checkout never empties or reads it. Nothing is written into the repository.
+ */
+const OUTPUT_DIR = join(tmpdir(), `scranton-hq-e2e-${createHash('sha256').update(import.meta.dirname).digest('hex').slice(0, 12)}`);
 
 /**
  * The browser smoke test, run by `npm run test:e2e` only: it is not part of `npm test` and does not run in CI.
@@ -10,8 +17,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: 'e2e',
   globalSetup: './e2e/global-setup.ts',
-  // Nothing is written into the repository.
-  outputDir: join(tmpdir(), 'scranton-hq-e2e'),
+  outputDir: OUTPUT_DIR,
   reporter: 'list',
   workers: 1,
   fullyParallel: false,
