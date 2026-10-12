@@ -27,9 +27,10 @@ const TYPES: Readonly<Record<string, string>> = {
 
 /**
  * Reads `index.html` and the regular files under `assets/` once, into memory. Files with other extensions and
- * symbolic links are skipped; loading stops at the limits. Null when there is no `index.html` (the UI is not built).
+ * symbolic links are skipped; loading stops at the limits, and `log` hears how many files were left out.
+ * Null when there is no `index.html` (the UI is not built).
  */
-export async function loadUiBundle(dir: string, limits = UI_LIMITS): Promise<UiBundle | null> {
+export async function loadUiBundle(dir: string, limits = UI_LIMITS, log: (line: string) => void = () => {}): Promise<UiBundle | null> {
   let index: Buffer;
   try {
     index = await readFile(join(dir, 'index.html'));
@@ -41,12 +42,18 @@ export async function loadUiBundle(dir: string, limits = UI_LIMITS): Promise<UiB
   const assets = join(dir, 'assets');
   const found = await readdir(assets, { recursive: true, withFileTypes: true }).catch(() => []);
   const paths = found.filter((e) => e.isFile() && TYPES[extname(e.name).toLowerCase()]).map((e) => join(e.parentPath, e.name)).sort();
+  let loaded = 0;
   for (const path of paths) {
     const { size } = await stat(path);
     if (files.size >= limits.files || bytes + size > limits.bytes) break;
     bytes += size;
     const urlPath = '/ui/assets/' + relative(assets, path).split(sep).join('/');
     files.set(urlPath, { body: await readFile(path), type: TYPES[extname(path).toLowerCase()]! });
+    loaded++;
+  }
+  const left = paths.length - loaded;
+  if (left > 0) {
+    log(`scranton-hq left ${left} UI file${left === 1 ? '' : 's'} out, over its limits of ${limits.files} files and ${limits.bytes} bytes: the browser view may not work.`);
   }
   return files;
 }

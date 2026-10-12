@@ -14,7 +14,7 @@ import { loginUrl, UiAuth } from './server/auth.js';
 import { SceneHub } from './server/events.js';
 import { simulatedFocusDriver, tmuxFocusDriver } from './server/focus.js';
 import { createApiServer } from './server/http.js';
-import { loadUiBundle } from './server/static.js';
+import { loadUiBundle, UI_LIMITS } from './server/static.js';
 import { Store } from './store/store.js';
 
 export interface DaemonOptions {
@@ -81,7 +81,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   const paths = resolvePaths(opts);
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
   const token = await loadOrCreateToken(paths.dataDir);
-  const ui = await loadUiBundle(opts.uiDir ?? fileURLToPath(new URL('./ui/', import.meta.url)));
+  const ui = await loadUiBundle(opts.uiDir ?? fileURLToPath(new URL('./ui/', import.meta.url)), UI_LIMITS, log);
 
   const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);

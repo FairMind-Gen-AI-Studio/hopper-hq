@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -50,13 +50,21 @@ describe('loadUiBundle', () => {
     expect(await loadUiBundle(join(tmpdir(), 'shq-no-such-dir'))).toBeNull();
   });
 
-  it('stops at the file and byte limits', async () => {
+  it('stops at the file and byte limits, and says how many files it left out', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'shq-ui-'));
     await mkdir(join(dir, 'assets'));
     await writeFile(join(dir, 'index.html'), 'x'.repeat(10));
     for (let i = 0; i < 5; i++) await writeFile(join(dir, 'assets', `f${i}.js`), 'y'.repeat(10));
-    expect((await loadUiBundle(dir, { files: 3, bytes: 1000 }))!.size).toBe(3);
-    expect((await loadUiBundle(dir, { files: 300, bytes: 35 }))!.size).toBe(3);
+    const log = vi.fn();
+    expect((await loadUiBundle(dir, { files: 3, bytes: 1000 }, log))!.size).toBe(3);
+    expect((await loadUiBundle(dir, { files: 300, bytes: 35 }, log))!.size).toBe(3);
+    expect(log.mock.calls).toEqual([
+      ['scranton-hq left 3 UI files out, over its limits of 3 files and 1000 bytes: the browser view may not work.'],
+      ['scranton-hq left 3 UI files out, over its limits of 300 files and 35 bytes: the browser view may not work.'],
+    ]);
+    log.mockClear();
+    expect((await loadUiBundle(dir, { files: 6, bytes: 60 }, log))!.size).toBe(6);
+    expect(log).not.toHaveBeenCalled();
   });
 });
 
