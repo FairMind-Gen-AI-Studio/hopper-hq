@@ -6,19 +6,20 @@ const DIR = new URL('../../src/scene/', import.meta.url);
 const SERVER_ONLY = new Set(['build.ts']);
 
 /**
- * Import specifiers that break the browser boundary: a shared scene module may import its siblings,
- * and `import type` from core/types.ts. Nothing else: no node: builtins, no packages, no other src/ module.
+ * Import specifiers that break the browser boundary: a shared scene module may import its shared siblings,
+ * and `import type` from core/types.ts. Nothing else: no server-only sibling, no subdirectory (it is not checked),
+ * no node: builtins, no packages, no other src/ module, and no dynamic import or require at all.
  */
 function violations(source: string): string[] {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const out: string[] = [];
-  for (const m of code.matchAll(/\b(?:import|export)\s+(type\s+)?(?:[^'";]*?\sfrom\s*)?['"]([^'"]+)['"]/g)) {
+  for (const m of code.matchAll(/\b(?:import|export)\b\s*(type\b\s*)?(?:[^'";]*?\bfrom\s*)?['"]([^'"]+)['"]/g)) {
     const spec = m[2]!;
-    if (spec.startsWith('./') && !spec.includes('..')) continue;
+    if (/^\.\/[\w.-]+\.js$/.test(spec) && !SERVER_ONLY.has(spec.slice(2).replace(/\.js$/, '.ts'))) continue;
     if (spec === '../core/types.js' && m[1]) continue;
     out.push(m[0]);
   }
-  for (const m of code.matchAll(/\b(?:import|require)\s*\(\s*['"][^'"]+['"]/g)) out.push(m[0]);
+  for (const m of code.matchAll(/\b(?:import|require)\s*\(/g)) out.push(m[0]);
   return out;
 }
 
@@ -31,6 +32,17 @@ describe('the browser boundary of src/scene', () => {
     expect(violations("import * as THREE from 'three';")).toHaveLength(1);
     expect(violations("const os = await import('node:os');")).toHaveLength(1);
     expect(violations("import type { Session } from '../core/types.js';\nimport { slotOf } from './palette.js';\nexport { cleanText } from './text.js';")).toEqual([]);
+  });
+
+  it('flags a server-only sibling, a module in a subdirectory, and imports written without spaces', () => {
+    expect(violations("import { buildScene } from './build.js';")).toHaveLength(1);
+    expect(violations("import './sub/x.js';")).toHaveLength(1);
+    expect(violations("import{toView}from'../core/view.js';")).toHaveLength(1);
+    expect(violations("import {toView}from '../core/view.js';")).toHaveLength(1);
+    expect(violations("export*from'node:fs';")).toHaveLength(1);
+    expect(violations('const fs = await import(`node:fs`);')).toHaveLength(1);
+    expect(violations("const os = require ('node:os');")).toHaveLength(1);
+    expect(violations("import type{Session}from'../core/types.js';\nexport{cleanText}from'./text.js';\nconst here = import.meta.url;")).toEqual([]);
   });
 
   it('keeps every shared scene module free of Node and server imports', () => {
