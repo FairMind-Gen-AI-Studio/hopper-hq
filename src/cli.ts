@@ -1,16 +1,27 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { mkdir, open, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import type { AttentionSummary, Snapshot } from './collector.js';
 import { resolvePaths } from './config.js';
 import { readDaemonFile } from './daemon-file.js';
 import { dataDirInUse, DataDirInUseError } from './daemon-lock.js';
+import { cleanText } from './scene/text.js';
 
 /** Time, for the commands that wait. */
 export interface Clock {
   now(): number;
   sleep(ms: number): Promise<void>;
+}
+
+/** A daemon started in the background. */
+export interface Background {
+  /** Resolves when its process ends, or could not start. */
+  exited: Promise<void>;
+  /** Ends its process. */
+  stop(): void;
 }
 
 export interface Io {
@@ -20,8 +31,10 @@ export interface Io {
   open?(url: string): Promise<void>;
   /** Resolves when a long-running command (start, demo) should stop. Default: SIGINT or SIGTERM. */
   untilStopped?(): Promise<void>;
-  /** For the commands that wait (down). Default: the real clock. */
+  /** For the commands that wait (up, down). Default: the real clock. */
   clock?: Clock;
+  /** Starts `scranton-hq start ARGS` in the background, its output appended to `log`. Default: a detached process. */
+  spawnDaemon?(args: string[], log: string): Promise<Background>;
 }
 
 /** Opens a URL with the desktop's opener (macOS, Linux). Failures are ignored: the link is printed anyway. */
@@ -34,6 +47,30 @@ function openInBrowser(url: string): Promise<void> {
 }
 
 const realClock: Clock = { now: Date.now, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) };
+
+/** This CLI's entry point, beside this module: dist/bin.js once built. */
+const BIN = fileURLToPath(new URL('./bin.js', import.meta.url));
+
+/**
+ * Runs `scranton-hq start ARGS` detached, in a session of its own, with its output appended to `log` and its working
+ * directory the log's. It outlives this command and the terminal, and shares no pipe with this process: whoever reads
+ * this command's output to its end, as the mod does, gets that end when this command exits.
+ */
+async function spawnDetached(args: string[], log: string): Promise<Background> {
+  const file = await open(log, 'a', 0o600);
+  try {
+    await file.chmod(0o600);
+    const child = spawn(process.execPath, [BIN, 'start', ...args], { cwd: dirname(log), detached: true, stdio: ['ignore', file.fd, file.fd] });
+    const exited = new Promise<void>((resolve) => {
+      child.once('exit', () => resolve());
+      child.once('error', () => resolve());
+    });
+    child.unref();
+    return { exited, stop: () => void child.kill() };
+  } finally {
+    await file.close();
+  }
+}
 
 function untilSignal(): Promise<void> {
   return new Promise((resolve) => {
@@ -52,6 +89,7 @@ const stdio: Io = {
 export const HELP = `scranton-hq: watch your coding-agent sessions work
 
 Usage:
+  scranton-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR]
   scranton-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch]
   scranton-hq down [--data-dir DIR]
   scranton-hq status [--format text|tmux|json] [--data-dir DIR]
@@ -75,6 +113,8 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
   const [cmd, ...args] = argv;
   try {
     switch (cmd) {
+      case 'up':
+        return await cmdUp(args, io);
       case 'start':
         return await cmdStart(args, io);
       case 'down':
@@ -117,13 +157,86 @@ const dataDirOption = { 'data-dir': { type: 'string' } } as const;
 /** What to add to a command printed as a hint, so that it reaches the same data directory. */
 const dataDirFlag = (dataDir: string | undefined): string => (dataDir === undefined ? '' : ` --data-dir ${dataDir}`);
 
+/** The --port value, when given: a whole number from 0 to 65535. */
+function portOption(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError(`Invalid port: ${value}`);
+  return port;
+}
+
+/**
+ * Opens the building whether or not the daemon runs: a daemon that answers is used as it is; otherwise one is started in
+ * the background, and up waits until it answers. A second daemon on the data directory would find it taken, and exit.
+ */
+async function cmdUp(args: string[], io: Io): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { port: { type: 'string' }, 'no-open': { type: 'boolean', default: false }, 'claude-dir': { type: 'string' }, ...dataDirOption },
+  });
+  const port = portOption(values.port);
+  const dataDir = resolve(resolvePaths({ dataDir: values['data-dir'] }).dataDir);
+  const openLink = !values['no-open'];
+  const { callDaemon } = await import('./client.js');
+  const answers = async () => (await callDaemon<unknown>(dataDir, 'GET', '/api/health', 500))?.ok === true;
+  if (await answers()) {
+    io.err('scranton-hq is already running.');
+    return signIn(dataDir, openLink, io);
+  }
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  const log = join(dataDir, 'daemon.log');
+  const from = (await stat(log).catch(() => null))?.size ?? 0;
+  const startArgs = ['--data-dir', dataDir];
+  if (port !== undefined) startArgs.push('--port', String(port));
+  if (values['claude-dir'] !== undefined) startArgs.push('--claude-dir', resolve(values['claude-dir']));
+  const daemon = await (io.spawnDaemon ?? spawnDetached)(startArgs, log);
+  let ended = false;
+  void daemon.exited.then(() => (ended = true));
+  const clock = io.clock ?? realClock;
+  const until = clock.now() + WAIT_MS;
+  while (!(await answers())) {
+    // When another up started a daemon first, this one's exits, while the other holds the directory as it starts.
+    if (ended && !(await held(dataDir))) return failed(io, 'scranton-hq stopped while starting.', log, from);
+    if (clock.now() >= until) {
+      if (!ended) daemon.stop();
+      return failed(io, 'scranton-hq did not answer within 10 seconds.', log, from);
+    }
+    await clock.sleep(POLL_MS);
+  }
+  io.err(`Started scranton-hq in the background. Its log is ${log}`);
+  io.err(`Stop it with: scranton-hq down${dataDirFlag(values['data-dir'] === undefined ? undefined : dataDir)}`);
+  return signIn(dataDir, openLink, io);
+}
+
+/** Says why up failed, with what the daemon wrote to its log on the way. */
+async function failed(io: Io, why: string, log: string, from: number): Promise<number> {
+  io.err(why);
+  for (const line of await logSince(log, from)) io.err(`  ${line}`);
+  io.err(`Its log is ${log}`);
+  return 1;
+}
+
+/** The lines written to the log from byte `from` on, at most its last 4 KiB, each cleaned for the terminal. */
+async function logSince(log: string, from: number): Promise<string[]> {
+  const file = await open(log, 'r').catch(() => null);
+  if (!file) return [];
+  try {
+    const { size } = await file.stat();
+    const length = Math.min(size - from, 4096);
+    if (length <= 0) return [];
+    const { buffer, bytesRead } = await file.read(Buffer.alloc(length), 0, length, size - length);
+    return buffer.subarray(0, bytesRead).toString('utf8').split('\n').map((line) => cleanText(line, 300)).filter((line) => line !== '');
+  } finally {
+    await file.close();
+  }
+}
+
 async function cmdStart(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({
     args,
     options: { port: { type: 'string' }, 'claude-dir': { type: 'string' }, ...dataDirOption, 'no-watch': { type: 'boolean', default: false } },
   });
-  const port = values.port === undefined ? undefined : Number(values.port);
-  if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) throw new UsageError(`Invalid port: ${values.port}`);
+  const port = portOption(values.port);
   const { startDaemon } = await import('./daemon.js');
   let daemon;
   try {
@@ -145,7 +258,7 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
   return 0;
 }
 
-/** How long `down` waits for the daemon to stop, and how often it looks. */
+/** How long up waits for the daemon to answer and down for it to stop, and how often they look. */
 const WAIT_MS = 10_000;
 const POLL_MS = 100;
 
@@ -212,7 +325,7 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
     return 0;
   }
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('scranton-hq is not running. Start it with: scranton-hq up');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -229,7 +342,7 @@ async function cmdLs(args: string[], io: Io): Promise<number> {
   const { callDaemon } = await import('./client.js');
   const r = await callDaemon<Snapshot>(dataDir, 'GET', '/api/building');
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('scranton-hq is not running. Start it with: scranton-hq up');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -249,7 +362,7 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   if (id) {
     const r = await callDaemon<unknown>(dataDir, 'POST', `/api/sessions/${encodeURIComponent(id)}/seen`);
     if (!r) {
-      io.err('scranton-hq is not running. Start it with: scranton-hq start');
+      io.err('scranton-hq is not running. Start it with: scranton-hq up');
       return 1;
     }
     if (r.status === 404) {
@@ -261,7 +374,7 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   }
   const r = await callDaemon<{ marked: number }>(dataDir, 'POST', '/api/seen');
   if (!r || !r.data) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('scranton-hq is not running. Start it with: scranton-hq up');
     return 1;
   }
   const n = r.data.marked;
@@ -302,10 +415,15 @@ const LOGIN_URL = /^http:\/\/127\.0\.0\.1:\d{1,5}\/ui\/login\?code=[0-9a-f]{48}$
 async function cmdUi(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { 'no-open': { type: 'boolean', default: false }, ...dataDirOption } });
   const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
+  return signIn(dataDir, !values['no-open'], io);
+}
+
+/** Prints a one-time sign-in link to the building of the daemon on `dataDir`, and opens it in the browser when asked. */
+async function signIn(dataDir: string, openLink: boolean, io: Io): Promise<number> {
   const { callDaemon } = await import('./client.js');
   const r = await callDaemon<{ url?: unknown; expiresAt?: unknown }>(dataDir, 'POST', '/api/ui/login-code');
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('scranton-hq is not running. Start it with: scranton-hq up');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -321,6 +439,6 @@ async function cmdUi(args: string[], io: Io): Promise<number> {
   const minutes = Math.max(1, Math.round((expiresAt - Date.now()) / 60_000));
   io.err(`This link signs your browser in. It works once, within ${minutes} minute${minutes === 1 ? '' : 's'}:`);
   io.out(url);
-  if (!values['no-open'] && io.open) await io.open(url);
+  if (openLink && io.open) await io.open(url);
   return 0;
 }
