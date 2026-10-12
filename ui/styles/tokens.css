@@ -1,0 +1,105 @@
+/*
+ * Day and night tokens, shared by the page, the SVG façade and the 3D floor (outline §2.11).
+ * Day is :root. Night applies when the system asks for dark and the toggle does not force day, or when the toggle forces night.
+ * Renderer tokens (scene, bot, lights, states, repo and feature slots, numbers) are listed in full in every block:
+ * Part D reads them with getComputedStyle, and its built-in defaults copy the day values.
+ */
+:root {
+  color-scheme: light;
+
+  /* Page and façade */
+  --bg: #E3E8EE;
+  --sky: #F2F5F8;
+  --fg: #18202B;
+  --muted: #566173;
+  --panel: #FBFCFD;
+  --line: #D0D8E1;
+  --hover: #EEF2F6;
+  --halo: #F2F5F8;
+  --shade: #1C2531;
+  --edge: #1C253124;
+  --shadow: #1C25312E;
+  --wall: #F3F4F3;
+  --slab: #C9D1DA;
+  --roof: #D3D9E0;
+  --plinth: #AEB8C3;
+  --win-off: #A9B8C8;
+  --win-back: #CFE0EF;
+  --shutter: #B7BEC7;
+  --win-filter: none;
+  --needs-ink: #B92D2D;
+  --done-ink: #137A53;
+  --working-ink: #9E6C05;
+  --meeting-ink: #5141C2;
+  --nosignal-ink: #8F5E14;
+  --badge-fg: #FFFFFF;
+  --tmux-bg: #1B2230;
+  --tmux-fg: #C9D1DF;
+  --tmux-needs: #FF6B6B;
+  --tmux-done: #46D69A;
+  --sign-bg: #20263A;
+  --sign-fg: #F3F5FA;
+
+  /* Type: the bundled faces (fonts.css), then the system's */
+  --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* 3D floor */
+  --scene-floor: #E5E1EA; --scene-wall: #EEE8E0; --scene-base: #D3CBC2; --scene-desk: #EFE8DA; --scene-leg: #3A3F4B;
+  --scene-chair: #7C8DB0; --scene-monitor: #23262E; --scene-key: #D9DCE3; --scene-plant: #4E9A5A; --scene-pot: #C46E4F;
+  --scene-elevator: #A9B0BC; --scene-frame: #5C6170; --scene-paper: #FFFFFF;
+  --bot-shell: #D5DAE1; --bot-visor: #7FE7FF; --window-glow: #CFE4F7; --lamp-glow: #FFE2A8;
+  --hemi-sky: #FFFFFF; --hemi-ground: #B9B2C4; --sun: #FFF4E5; --accent: #2C59C9;
+
+  /* States */
+  --s-working: #E8B030; --s-needs: #D63A3A; --s-done: #1C9A6A; --s-meeting: #6857DB; --s-nosignal: #C88A35;
+
+  /* Colour slots: repo = rug and robot body, feature = tie (src/scene/palette.ts) */
+  --repo-0: #3FB8B0; --repo-1: #E58FB9; --repo-2: #7C8FE8; --repo-3: #F2A65A; --repo-4: #7FBF6A; --repo-5: #B88BE0; --repo-6: #4FA3D9; --repo-7: #B7967A;
+  --feature-0: #2E3A59; --feature-1: #7A2E4D; --feature-2: #1F5C4A; --feature-3: #8A4B14; --feature-4: #3D2E7A; --feature-5: #0F5A73; --feature-6: #5E5410; --feature-7: #7A1F1F;
+  --feature-none: #4A5163;
+
+  /* Light intensities */
+  --visor-int: 1; --window-int: 0.45; --lamp-int: 0.6; --screen-int: 0.9; --hemi-int: 1.15; --sun-int: 1.7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0D1320; --sky: #18223A; --fg: #E6EAF2; --muted: #9AA5B9; --panel: #141B2A; --line: #27314A; --hover: #1B2436; --halo: #141C2E;
+    --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --roof: #283146; --plinth: #1B2232;
+    --win-off: #18202F; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
+    --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
+
+    --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
+    --scene-chair: #4F5B7A; --scene-monitor: #0E1015; --scene-key: #6B7080; --scene-plant: #2F6B3B; --scene-pot: #7E4532;
+    --scene-elevator: #5E6575; --scene-frame: #2A2E3A; --scene-paper: #E4E7EE;
+    --bot-shell: #7E8796; --bot-visor: #8FF0FF; --window-glow: #2A3A6E; --lamp-glow: #FFC870;
+    --hemi-sky: #8EA2D8; --hemi-ground: #1A1D2A; --sun: #9DB4FF; --accent: #7EA4FF;
+    --s-working: #FFD27A; --s-needs: #FF5A5F; --s-done: #3DD68C; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A;
+    --repo-0: #3FB8B0; --repo-1: #E58FB9; --repo-2: #7C8FE8; --repo-3: #F2A65A; --repo-4: #7FBF6A; --repo-5: #B88BE0; --repo-6: #4FA3D9; --repo-7: #B7967A;
+    --feature-0: #2E3A59; --feature-1: #7A2E4D; --feature-2: #1F5C4A; --feature-3: #8A4B14; --feature-4: #3D2E7A; --feature-5: #0F5A73; --feature-6: #5E5410; --feature-7: #7A1F1F;
+    --feature-none: #4A5163;
+    --visor-int: 1.8; --window-int: 0.9; --lamp-int: 2.4; --screen-int: 2; --hemi-int: 0.6; --sun-int: 0.55;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0D1320; --sky: #18223A; --fg: #E6EAF2; --muted: #9AA5B9; --panel: #141B2A; --line: #27314A; --hover: #1B2436; --halo: #141C2E;
+  --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --roof: #283146; --plinth: #1B2232;
+  --win-off: #18202F; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
+  --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
+
+  --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
+  --scene-chair: #4F5B7A; --scene-monitor: #0E1015; --scene-key: #6B7080; --scene-plant: #2F6B3B; --scene-pot: #7E4532;
+  --scene-elevator: #5E6575; --scene-frame: #2A2E3A; --scene-paper: #E4E7EE;
+  --bot-shell: #7E8796; --bot-visor: #8FF0FF; --window-glow: #2A3A6E; --lamp-glow: #FFC870;
+  --hemi-sky: #8EA2D8; --hemi-ground: #1A1D2A; --sun: #9DB4FF; --accent: #7EA4FF;
+  --s-working: #FFD27A; --s-needs: #FF5A5F; --s-done: #3DD68C; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A;
+  --repo-0: #3FB8B0; --repo-1: #E58FB9; --repo-2: #7C8FE8; --repo-3: #F2A65A; --repo-4: #7FBF6A; --repo-5: #B88BE0; --repo-6: #4FA3D9; --repo-7: #B7967A;
+  --feature-0: #2E3A59; --feature-1: #7A2E4D; --feature-2: #1F5C4A; --feature-3: #8A4B14; --feature-4: #3D2E7A; --feature-5: #0F5A73; --feature-6: #5E5410; --feature-7: #7A1F1F;
+  --feature-none: #4A5163;
+  --visor-int: 1.8; --window-int: 0.9; --lamp-int: 2.4; --screen-int: 2; --hemi-int: 0.6; --sun-int: 0.55;
+}

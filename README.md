@@ -109,3 +109,5 @@ scranton-hq is an independent project and is not affiliated with or endorsed by 
 ## License
 
 [Apache-2.0](LICENSE)
+
+The browser UI bundles the Archivo, IBM Plex Sans and IBM Plex Mono typefaces, under the SIL Open Font License 1.1: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
