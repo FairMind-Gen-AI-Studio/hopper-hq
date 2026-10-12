@@ -44,12 +44,12 @@ describe('focusSession', () => {
 });
 
 describe('markSeen', () => {
-  it('posts to the session, its id escaped, with the cookie, and reads no body', async () => {
+  it('posts to the session, with the cookie, and reads no body', async () => {
     const response = answer(204, undefined);
     const json = vi.spyOn(response, 'json');
     const fetch = vi.fn(async () => response);
-    expect(await markSeen('a/b c', fetch)).toBe(true);
-    expect(fetch).toHaveBeenCalledWith('/api/sessions/a%2Fb%20c/seen', { method: 'POST', credentials: 'same-origin' });
+    expect(await markSeen('7c1e9b2a-41d3-4f0e-a5b6-0c2d8e9f1a37', fetch)).toBe(true);
+    expect(fetch).toHaveBeenCalledWith('/api/sessions/7c1e9b2a-41d3-4f0e-a5b6-0c2d8e9f1a37/seen', { method: 'POST', credentials: 'same-origin' });
     expect(json).not.toHaveBeenCalled();
   });
 
@@ -60,5 +60,16 @@ describe('markSeen', () => {
         throw new TypeError('Failed to fetch');
       }),
     ).toBe(false);
+  });
+});
+
+describe('session ids', () => {
+  it('sends nothing for an id that is not a session id: /api/sessions/../seen is /api/seen, which marks every session seen', async () => {
+    const fetch = vi.fn(async () => answer(204, undefined));
+    for (const id of ['..', '.', '', 'a/b', 'a b', '%2e%2e', '\ud800', 'x'.repeat(257)]) {
+      expect(await markSeen(id, fetch), id).toBe(false);
+      expect(await focusSession(id, fetch), id).toEqual({ ok: false, status: 0, error: 'No such session' });
+    }
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

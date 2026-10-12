@@ -3,14 +3,18 @@
  * session as seen. Same-origin requests with the sign-in cookie; the browser adds the Origin header the daemon checks.
  * Paths are absolute: the page lives under /ui/.
  */
-import { cleanText } from '../../src/scene/text';
+import { cleanText, isSessionId } from '../../src/scene/text';
 
 export type FocusResult = { ok: true; pane: string; simulated: boolean } | { ok: false; status: number; error: string };
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
-/** Never rejects: a daemon that is down or answers something unexpected gives an error result to show. */
+/**
+ * Never rejects: a daemon that is down or answers something unexpected gives an error result to show. An id that is
+ * not a session id (src/scene/text.ts) names no session, and is not sent.
+ */
 export async function focusSession(sessionId: string, fetchFn: Fetch = fetch): Promise<FocusResult> {
+  if (!isSessionId(sessionId)) return { ok: false, status: 0, error: 'No such session' };
   let res: Response;
   try {
     res = await fetchFn('/api/focus', {
@@ -28,8 +32,12 @@ export async function focusSession(sessionId: string, fetchFn: Fetch = fetch): P
   return { ok: false, status: res.status, error: error || `The daemon answered ${res.status}` };
 }
 
-/** True when the daemon took it (204). The answer has no body to read. */
+/**
+ * True when the daemon took it (204). The answer has no body to read. An id that is not a session id is not sent: in
+ * the path, '..' would make it POST /api/seen, which marks every session seen.
+ */
 export async function markSeen(sessionId: string, fetchFn: Fetch = fetch): Promise<boolean> {
+  if (!isSessionId(sessionId)) return false;
   try {
     const res = await fetchFn(`/api/sessions/${encodeURIComponent(sessionId)}/seen`, { method: 'POST', credentials: 'same-origin' });
     return res.ok;
