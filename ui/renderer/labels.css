@@ -62,6 +62,13 @@
   background: var(--fv-state);
 }
 
+/* A long name ends in an ellipsis; the tag's tooltip carries it whole. */
+.fv-name {
+  max-width: 18ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .fv-st-working { --fv-state: var(--s-working, #e8b030); }
 .fv-st-done { --fv-state: var(--s-done, #1c9a6a); }
 .fv-st-in_meeting { --fv-state: var(--s-meeting, #6857db); }

@@ -208,6 +208,14 @@ describe('the label layer', () => {
     expect(rule('.fv-tag:hover,\n.fv-tag:focus-visible,\n.fv-tag.fv-sel')).toContain('z-index: 1;');
   });
 
+  it('cuts a long name short with an ellipsis, and keeps it whole in the tooltip', () => {
+    expect(rule('.fv-name')).toContain('max-width: 18ch;');
+    expect(rule('.fv-name')).toContain('overflow: hidden;');
+    expect(rule('.fv-name')).toContain('text-overflow: ellipsis;');
+    const long = 'n'.repeat(200);
+    expect(tagTitle({ ...desksOf(checkoutFloor())[0]!, name: long }).startsWith(long + ' · ')).toBe(true);
+  });
+
   it('removes its labels on dispose', () => {
     const { root, labels } = layer();
     labels.sync(checkoutFloor());
