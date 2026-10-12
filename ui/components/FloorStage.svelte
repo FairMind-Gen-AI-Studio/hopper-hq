@@ -131,6 +131,9 @@
   {:else}
     <canvas bind:this={canvas} aria-label="Floor {floor.number}, {floor.name}, in 3D"></canvas>
     <div bind:this={labels}></div>
+    {#if !view}
+      <p class="loading" role="status">Loading the 3D floor…</p>
+    {/if}
     <div class="tools">
       <button type="button" class="tool" title="Turn left (Q)" aria-label="Turn left" disabled={!view} onclick={() => view?.rotate(-1)}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7" /><path d="M4 4v5h5" /></svg>
@@ -140,7 +143,9 @@
       </button>
       <button type="button" class="tool" title="Reset view (R)" aria-label="Reset view" disabled={!view} onclick={() => view?.resetView()}>Reset view</button>
     </div>
-    <p class="hint">Drag to turn · scroll to zoom · right-drag to pan · double-click a desk for its pane</p>
+    {#if view}
+      <p class="hint">Drag to turn · scroll to zoom · right-drag to pan · double-click a desk for its pane</p>
+    {/if}
   {/if}
 </div>
 
@@ -164,6 +169,7 @@
   .tool:disabled { opacity: .5; cursor: default; }
   .tool svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .hint { position: absolute; right: 12px; bottom: 10px; margin: 0; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .loading { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); pointer-events: none; }
   .no-webgl { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; text-align: center; color: var(--muted); }
   .load-failed { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center; }
   .load-failed p { margin: 0; max-width: 46ch; }

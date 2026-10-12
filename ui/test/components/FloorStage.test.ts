@@ -48,6 +48,17 @@ describe('FloorStage', () => {
     expect(target.querySelector('.no-webgl')).toBeNull();
   });
 
+  it('says the floor is loading until the view is up, and only then how to move around it', async () => {
+    const { target } = stage();
+    const loading = target.querySelector('.loading');
+    expect(text(loading)).toBe('Loading the 3D floor…');
+    expect(loading?.getAttribute('role')).toBe('status');
+    expect(target.querySelector('.hint')).toBeNull();
+    await settle();
+    expect(target.querySelector('.loading')).toBeNull();
+    expect(text(target.querySelector('.hint'))).toBe('Drag to turn · scroll to zoom · right-drag to pan · double-click a desk for its pane');
+  });
+
   it('reads the theme colours from the page', async () => {
     document.documentElement.style.setProperty('--scene-floor', '#123456');
     try {
