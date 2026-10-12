@@ -221,8 +221,11 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
     const answer = await focus;
     expect(answer.request().postDataJSON()).toEqual({ sessionId: id });
     expect(answer.status()).toBe(200);
-    expect(await answer.json()).toMatchObject({ simulated: true });
-    await expect(toast).toHaveText(/^Demo: would switch tmux to %\d+$/);
+    const { pane, simulated } = (await answer.json()) as { pane: string; simulated: boolean };
+    expect(simulated).toBe(true);
+    expect(pane).toMatch(/^%\d+$/);
+    // The pane the daemon answered for that desk, not just any pane.
+    await expect(toast).toHaveText(`Demo: would switch tmux to ${pane}`);
     await expect.poll(() => route(page).desk).toBe(id);
     await expect(page.locator(`button.fv-tag[data-session="${id}"]`)).toHaveClass(/\bfv-sel\b/);
     await expect(page.locator('aside h2')).toHaveText(name);
