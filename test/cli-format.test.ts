@@ -52,6 +52,14 @@ describe('formatBuilding', () => {
     expect(lines[2]).toMatch(/^ {2}● working\s+storefront-web\s+5s\s+Build the address step$/);
     expect(formatBuilding({ generatedAt: NOW, floors: [], attention: { needsYou: [], done: [] } })).toBe('No sessions yet.');
   });
+
+  it('describes a session by its title, else its latest prompt, else its first one, like every other view', () => {
+    const at = (extra: object) => toView({ ...newSession('S1', NOW - 60_000, WS), state: 'working', stateSince: NOW - 5000, lastEventAt: NOW - 5000, ...extra }, NOW);
+    const line = (v: ReturnType<typeof at>) =>
+      formatBuilding({ generatedAt: NOW, floors: [{ key: 'repo:/w', kind: 'department', name: 'orders-api', repos: ['orders-api'], sessions: [v], counts: {}, openedAt: 0, dormant: false }], attention: { needsYou: [], done: [] } }).split('\n')[1];
+    expect(line(at({ title: '\u0007', lastPrompt: 'Fix the build', firstPrompt: 'Start' }))).toMatch(/\s5s\s+Fix the build$/);
+    expect(line(at({ title: '', lastPrompt: ' ', firstPrompt: 'Start' }))).toMatch(/\s5s\s+Start$/);
+  });
 });
 
 describe('untrusted text', () => {

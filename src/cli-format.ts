@@ -1,6 +1,6 @@
 import type { AttentionSummary, Snapshot } from './collector.js';
 import type { SessionState } from './core/types.js';
-import { cleanText, formatAgo, reasonText, STATE_LABEL } from './scene/text.js';
+import { cleanText, formatAgo, reasonText, STATE_LABEL, taskTitle } from './scene/text.js';
 
 export { formatAgo };
 
@@ -38,7 +38,7 @@ export function formatBuilding(s: Snapshot): string {
   for (const f of s.floors) {
     out.push(`${cleanText(f.name)}  (${f.kind === 'feature' ? `feature · ${f.repos.map((r) => cleanText(r)).join(', ')}` : 'department'})`);
     for (const v of f.sessions) {
-      const detail = v.effectiveState === 'needs_you' ? reasonText(v.waitReason) : (v.title ?? v.lastPrompt ?? v.firstPrompt ?? '');
+      const detail = v.effectiveState === 'needs_you' ? reasonText(v.waitReason) : (taskTitle(v) ?? '');
       const repo = cleanText(v.workspace.repoName) + (v.workspace.worktree ? '*' : '');
       out.push(`  ${MARK[v.effectiveState]} ${pad(STATE_LABEL[v.effectiveState], 10)} ${pad(repo, 22)} ${pad(formatAgo(s.generatedAt - v.effectiveSince), 5)} ${cleanText(detail, 60)}${pane(v.tmuxPane)}`);
     }
