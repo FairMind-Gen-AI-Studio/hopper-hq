@@ -5,6 +5,7 @@ import { connect, type Socket } from 'node:net';
 import { basename } from 'node:path';
 import { Collector } from '../../src/collector.js';
 import type { RawEvent } from '../../src/core/types.js';
+import { KEY_MAX } from '../../src/scene/text.js';
 import type { BuildingScene } from '../../src/scene/types.js';
 import { UiAuth } from '../../src/server/auth.js';
 import { SceneHub, type SceneHubOptions, type SceneSource } from '../../src/server/events.js';
@@ -92,6 +93,15 @@ describe('GET /api/events', () => {
     const floor = await unknown.take();
     expect(floor.event).toBe('floor');
     expect(floor.data).toBe('null');
+  });
+
+  it('streams a floor key longer than any floor has as no such floor', async () => {
+    const t = await setup();
+    const s = await sse(t.port, `/api/events?floor=${'x'.repeat(2 * KEY_MAX + 1)}`);
+    expect(s.status).toBe(200);
+    await s.take(isEvent('scene'));
+    const floor = await s.take();
+    expect([floor.event, floor.data]).toEqual(['floor', 'null']);
   });
 
   it('accepts the browser cookie, and refuses other sites and the unsigned', async () => {

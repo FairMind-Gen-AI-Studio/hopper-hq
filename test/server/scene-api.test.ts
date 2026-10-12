@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Server } from 'node:http';
 import { basename } from 'node:path';
 import { Collector } from '../../src/collector.js';
+import { KEY_MAX } from '../../src/scene/text.js';
 import { UiAuth } from '../../src/server/auth.js';
 import { createApiServer } from '../../src/server/http.js';
 import { bearer, call, close, listen } from '../helpers/http.js';
@@ -52,8 +53,9 @@ describe('GET /api/floor', () => {
     expect(r.json.islands[0].desks[0].sessionId).toBe('S1');
   });
 
-  it('answers 400 without a key, or with one longer than 512 characters', async () => {
-    for (const path of ['/api/floor', '/api/floor?key=', `/api/floor?key=${'x'.repeat(513)}`]) {
+  it('answers 400 without a key, or with one longer than any floor key, 512 characters', async () => {
+    expect(2 * KEY_MAX).toBe(512);
+    for (const path of ['/api/floor', '/api/floor?key=', `/api/floor?key=${'x'.repeat(2 * KEY_MAX + 1)}`]) {
       const r = await call(port, { path, headers: bearer(TOKEN) });
       expect(r.status).toBe(400);
       expect(r.json.error).toEqual(expect.any(String));
@@ -61,7 +63,7 @@ describe('GET /api/floor', () => {
   });
 
   it('answers 404 for a floor nobody is on', async () => {
-    for (const key of ['repo:/nowhere', 'x'.repeat(512)]) {
+    for (const key of ['repo:/nowhere', 'x'.repeat(2 * KEY_MAX)]) {
       const r = await call(port, { path: `/api/floor?key=${encodeURIComponent(key)}`, headers: bearer(TOKEN) });
       expect(r).toMatchObject({ status: 404, json: { error: 'No such floor' } });
     }

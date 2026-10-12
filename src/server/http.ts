@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createRequire } from 'node:module';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
+import { KEY_MAX } from '../scene/text.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
 import { SceneHub } from './events.js';
 import { simulatedFocusDriver, type FocusDriver } from './focus.js';
@@ -200,8 +201,8 @@ async function postHooks(d: Deps, { req, res }: Ctx): Promise<void> {
   return send(res, 204);
 }
 
-/** Floor keys are 'feature:' or 'repo:' plus a name or a path; nothing longer is one. */
-const MAX_KEY = 512;
+/** Every floor key is cut to KEY_MAX code points, at most twice as many UTF-16 code units: nothing longer is a floor. */
+const MAX_KEY = 2 * KEY_MAX;
 
 function getFloor(d: Deps, { res, url }: Ctx): void {
   const key = url.searchParams.get('key');
@@ -211,7 +212,11 @@ function getFloor(d: Deps, { res, url }: Ctx): void {
   send(res, 200, floor);
 }
 
-/** Opens a live view: the scene, plus the floor named by `?floor=` (null while there is no such floor). Changing floor means opening a new stream. */
+/**
+ * Opens a live view: the scene, plus the floor named by `?floor=` (null while there is no such floor). Changing floor means
+ * opening a new stream. A key longer than MAX_KEY is no such floor either, not an error: the key comes from the page's
+ * address, and EventSource gives up on any status but 200.
+ */
 function getEvents(d: Deps, { res, url }: Ctx): void {
   if (!d.hub.attach(res, url.searchParams.get('floor') || null)) send(res, 503, { error: 'Too many live views' });
 }
