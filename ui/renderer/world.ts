@@ -2,7 +2,8 @@
  * Where things stand on a floor, in world units. Pure maths: no three.js objects and no DOM.
  * One grid cell is one metre. Grid x is world x (east), grid y is world z (south), and world y points up.
  */
-import type { Desk, GridRect, Pose } from '../../src/scene/types';
+import { SEATS_MAX } from '../../src/scene/layout';
+import type { Desk, GridRect, MeetingRoom, Pose } from '../../src/scene/types';
 
 /** Wall height and thickness. */
 export const WALL_H = 2.6;
@@ -91,6 +92,69 @@ export function labelAnchor(desk: Desk): Point3 {
 /** The point an island's placard stands on: the rug's south-west corner. */
 export function placardAnchor(rect: GridRect): Point3 {
   return { x: rect.x + 0.2, y: 0.02, z: rect.y + rect.h - 0.15 };
+}
+
+/**
+ * A meeting room fills its cells (prototypes/floor-3d-mockup.html): glass partitions along its edges, a door in the
+ * middle of the west one, a whiteboard on the north one, and a table a little south of the middle, with SEATS_MAX
+ * seats along its long sides and a head seat at its west end.
+ */
+export const PARTITION_H = 2.2;
+export const PARTITION_T = 0.06;
+export const DOOR_W = 1.6;
+/** The table's length (west to east) and depth, and how far south of the room's centre it stands. */
+export const TABLE = { w: 4.4, d: 1.3, south: 0.3 } as const;
+/** A seat's distance from the table's edge, and the gap between two seats along a side. */
+export const SEAT_OUT = 0.45;
+export const SEAT_GAP = 1;
+/** The whiteboard's size, and the height of its centre. */
+export const BOARD = { w: 3.4, h: 1.2, y: 1.5 } as const;
+
+export function tableCenter(rect: GridRect): Point {
+  return { x: rect.x + rect.w / 2, z: rect.y + rect.h / 2 + TABLE.south };
+}
+
+/**
+ * The seats around the table, in the order agents take them: a north seat, then the south seat facing it, from the
+ * head end east. North seats face south and south seats face north, across the table.
+ */
+export function seatSpots(rect: GridRect): Spot[] {
+  const t = tableCenter(rect);
+  const pairs = SEATS_MAX / 2;
+  const out: Spot[] = [];
+  for (let k = 0; k < pairs; k++) {
+    const x = t.x + (k - (pairs - 1) / 2) * SEAT_GAP;
+    out.push({ x, z: t.z - TABLE.d / 2 - SEAT_OUT, facing: 0 }, { x, z: t.z + TABLE.d / 2 + SEAT_OUT, facing: Math.PI });
+  }
+  return out;
+}
+
+/** The head seat: the host's, at the west end of the table, facing east along it. */
+export function headSpot(rect: GridRect): Spot {
+  const t = tableCenter(rect);
+  return { x: t.x - TABLE.w / 2 - SEAT_OUT, z: t.z, facing: Math.PI / 2 };
+}
+
+/** Where the door in the west partition starts and ends, north to south. */
+export function doorGap(rect: GridRect): { from: number; to: number } {
+  const mid = rect.y + rect.h / 2;
+  return { from: mid - DOOR_W / 2, to: mid + DOOR_W / 2 };
+}
+
+/** The top of the whiteboard, in the middle of the north partition: its overlay hangs from here. */
+export function boardAnchor(rect: GridRect): Point3 {
+  return { x: rect.x + rect.w / 2, y: BOARD.y + BOARD.h / 2, z: rect.y + PARTITION_T + 0.05 };
+}
+
+/** The room's tag hangs over its door. */
+export function roomTagAnchor(rect: GridRect): Point3 {
+  const door = doorGap(rect);
+  return { x: rect.x + PARTITION_T / 2, y: PARTITION_H + 0.25, z: (door.from + door.to) / 2 };
+}
+
+/** What tells rooms apart: two sessions may name the same run, and each gets a room. */
+export function roomKey(room: Pick<MeetingRoom, 'hostSessionId' | 'runId'>): string {
+  return JSON.stringify([room.hostSessionId, room.runId]);
 }
 
 export function floorCenter(size: { w: number; h: number }): Point {

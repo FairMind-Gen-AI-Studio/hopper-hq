@@ -1,23 +1,37 @@
 import { describe, expect, it } from 'vitest';
+import { SEATS_MAX } from '../../../src/scene/layout';
 import {
+  BOARD,
   CAMERA_DISTANCE,
+  DOOR_W,
   FRAME_MARGIN,
   HOME_AZIMUTH,
   LABEL_Y,
+  PARTITION_H,
+  PARTITION_T,
   POLAR,
+  TABLE,
   azimuthOf,
+  boardAnchor,
   cameraOffset,
   cellToWorld,
   deskAnchor,
+  doorGap,
   floorCenter,
   frustumFor,
+  headSpot,
   labelAnchor,
   placardAnchor,
   robotSpot,
+  roomKey,
+  roomTagAnchor,
   seatSpot,
+  seatSpots,
   shadowExtent,
   standSpot,
+  tableCenter,
   visibleWalls,
+  type Point,
 } from '../../renderer/world';
 import { makeDesk } from './fixtures';
 
@@ -116,6 +130,84 @@ describe('world maths', () => {
   it('sizes the sun shadow to the floor', () => {
     expect(shadowExtent({ w: 22, h: 12 })).toBe(14);
     expect(shadowExtent({ w: 16, h: 30 })).toBe(18);
+  });
+});
+
+describe('meeting rooms', () => {
+  /** The demo's room: east of the islands, at the top of the wing. */
+  const ROOM = { x: 22, y: 2, w: 8, h: 6 };
+  const inside = (p: Point) => p.x > ROOM.x && p.x < ROOM.x + ROOM.w && p.z > ROOM.y && p.z < ROOM.y + ROOM.h;
+
+  it('stands the table in the middle of the room, a little south of its centre, away from the whiteboard', () => {
+    const t = tableCenter(ROOM);
+    expect(t.x).toBe(26);
+    expect(t.z).toBeGreaterThan(5);
+    expect(t.z - TABLE.d / 2).toBeGreaterThan(ROOM.y + 1.5);
+    expect(t.z + TABLE.d / 2).toBeLessThan(ROOM.y + ROOM.h - 1.5);
+    expect(t.x - TABLE.w / 2).toBeGreaterThan(ROOM.x + 1.5);
+    expect(t.x + TABLE.w / 2).toBeLessThan(ROOM.x + ROOM.w - 1);
+  });
+
+  it('seats four agents on the north side and four on the south, in facing pairs from the head end, each facing the table', () => {
+    const t = tableCenter(ROOM);
+    const seats = seatSpots(ROOM);
+    expect(seats).toHaveLength(SEATS_MAX);
+    const north = seats.filter((s) => s.z < t.z);
+    const south = seats.filter((s) => s.z > t.z);
+    expect([north.length, south.length]).toEqual([4, 4]);
+    // North seats look south across the table, south seats look north.
+    for (const s of north) expect([s.facing, s.z]).toEqual([0, t.z - TABLE.d / 2 - 0.45]);
+    for (const s of south) expect([s.facing, s.z]).toEqual([Math.PI, t.z + TABLE.d / 2 + 0.45]);
+    // Agents take a north seat, then the one facing it, from the west end east.
+    expect(seats.map((s) => (s.z < t.z ? 'N' : 'S')).join('')).toBe('NSNSNSNS');
+    for (let k = 0; k < 4; k++) expect(seats[2 * k]!.x).toBe(seats[2 * k + 1]!.x);
+    expect(north.map((s) => s.x)).toEqual([24.5, 25.5, 26.5, 27.5]);
+    for (const s of seats) {
+      expect(inside(s)).toBe(true);
+      expect(Math.abs(s.x - t.x)).toBeLessThan(TABLE.w / 2);
+    }
+  });
+
+  it('puts the head seat at the west end of the table, facing east along it', () => {
+    const t = tableCenter(ROOM);
+    const head = headSpot(ROOM);
+    expect(head).toEqual({ x: t.x - TABLE.w / 2 - 0.45, z: t.z, facing: Math.PI / 2 });
+    expect(inside(head)).toBe(true);
+    for (const s of seatSpots(ROOM)) expect(head.x).toBeLessThan(s.x - 1);
+  });
+
+  it('opens the door in the middle of the west partition, clear of the head seat', () => {
+    const door = doorGap(ROOM);
+    expect((door.from + door.to) / 2).toBe(ROOM.y + ROOM.h / 2);
+    expect(door.to - door.from).toBeCloseTo(DOOR_W, 10);
+    expect(door.from).toBeGreaterThan(ROOM.y);
+    expect(door.to).toBeLessThan(ROOM.y + ROOM.h);
+    expect(headSpot(ROOM).x - ROOM.x).toBeGreaterThan(1);
+  });
+
+  it('hangs the whiteboard on the inside of the north partition, and its overlay from the top of the board', () => {
+    const a = boardAnchor(ROOM);
+    expect(a.x).toBe(ROOM.x + ROOM.w / 2);
+    expect(a.y).toBe(BOARD.y + BOARD.h / 2);
+    expect(a.y).toBeLessThan(PARTITION_H);
+    expect(a.z).toBeGreaterThan(ROOM.y + PARTITION_T);
+    expect(a.z).toBeLessThan(ROOM.y + 0.2);
+    expect(BOARD.w).toBeLessThan(ROOM.w);
+  });
+
+  it('hangs the room tag over the door', () => {
+    const door = doorGap(ROOM);
+    const a = roomTagAnchor(ROOM);
+    expect(a.z).toBe((door.from + door.to) / 2);
+    expect(a.x).toBeCloseTo(ROOM.x + PARTITION_T / 2, 10);
+    expect(a.y).toBeGreaterThan(PARTITION_H);
+  });
+
+  it('keys a room by its host and its run, so the rooms of one run under two hosts stay apart', () => {
+    const a = { hostSessionId: 'host-a', runId: 'wf_0000aaaa-001' };
+    expect(roomKey(a)).toBe(roomKey({ ...a }));
+    expect(roomKey(a)).not.toBe(roomKey({ ...a, hostSessionId: 'host-b' }));
+    expect(roomKey({ hostSessionId: 'a b', runId: 'c' })).not.toBe(roomKey({ hostSessionId: 'a', runId: 'b c' }));
   });
 });
 
