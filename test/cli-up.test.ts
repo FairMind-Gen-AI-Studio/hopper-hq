@@ -5,10 +5,12 @@ import { writeSync } from 'node:fs';
 import { appendFile, mkdtemp, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { main, type Background, type Clock, type Io } from '../src/cli.js';
-import { readDaemonFile } from '../src/daemon-file.js';
+import { readDaemonFile, writeDaemonFile } from '../src/daemon-file.js';
 import { lockDataDir } from '../src/daemon-lock.js';
+import { close, listen } from './helpers/http.js';
 
 // No test here starts a process: the default way up starts the daemon is this mock, and the other tests stand in for it.
 vi.mock('node:child_process', async (importOriginal) => ({ ...(await importOriginal<typeof import('node:child_process')>()), spawn: vi.fn() }));
@@ -88,6 +90,26 @@ describe('up', () => {
       expect(opened).toHaveLength(1);
     } finally {
       await bg.stopAll();
+    }
+  });
+
+  it('says so when the daemon that answers is older than up, and starts nothing', async () => {
+    const dataDir = await tmp('shq-up-');
+    const server = createServer((req, res) => res.writeHead(req.url === '/api/health' ? 200 : 404, { 'content-type': 'application/json' }).end('{}'));
+    const port = await listen(server);
+    await writeDaemonFile(dataDir, { port, token: 't'.repeat(48), pid: 4242, startedAt: 0 });
+    const bg = background();
+    try {
+      const c = capture();
+      expect(await main(['up', '--no-open', '--data-dir', dataDir], { ...c.io, spawnDaemon: bg.spawnDaemon })).toBe(1);
+      expect(c.err).toEqual([
+        'scranton-hq is already running.',
+        'This scranton-hq daemon (process 4242) is older than the up command. Stop it with Ctrl-C where it runs, then run scranton-hq up again.',
+      ]);
+      expect(c.out).toEqual([]);
+      expect(bg.calls).toEqual([]);
+    } finally {
+      await close(server);
     }
   });
 

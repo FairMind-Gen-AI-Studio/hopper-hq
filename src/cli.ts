@@ -181,7 +181,7 @@ async function cmdUp(args: string[], io: Io): Promise<number> {
   const answers = async () => (await callDaemon<unknown>(dataDir, 'GET', '/api/health', 500))?.ok === true;
   if (await answers()) {
     io.err('scranton-hq is already running.');
-    return signIn(dataDir, openLink, io);
+    return signIn(dataDir, openLink, io, 'up');
   }
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
   const log = join(dataDir, 'daemon.log');
@@ -205,7 +205,7 @@ async function cmdUp(args: string[], io: Io): Promise<number> {
   }
   io.err(`Started scranton-hq in the background. Its log is ${log}`);
   io.err(`Stop it with: scranton-hq down${dataDirFlag(values['data-dir'] === undefined ? undefined : dataDir)}`);
-  return signIn(dataDir, openLink, io);
+  return signIn(dataDir, openLink, io, 'up');
 }
 
 /** Says why up failed, with what the daemon wrote to its log on the way. */
@@ -415,15 +415,20 @@ const LOGIN_URL = /^http:\/\/127\.0\.0\.1:\d{1,5}\/ui\/login\?code=[0-9a-f]{48}$
 async function cmdUi(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({ args, options: { 'no-open': { type: 'boolean', default: false }, ...dataDirOption } });
   const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
-  return signIn(dataDir, !values['no-open'], io);
+  return signIn(dataDir, !values['no-open'], io, 'ui');
 }
 
 /** Prints a one-time sign-in link to the building of the daemon on `dataDir`, and opens it in the browser when asked. */
-async function signIn(dataDir: string, openLink: boolean, io: Io): Promise<number> {
+async function signIn(dataDir: string, openLink: boolean, io: Io, command: 'up' | 'ui'): Promise<number> {
   const { callDaemon } = await import('./client.js');
   const r = await callDaemon<{ url?: unknown; expiresAt?: unknown }>(dataDir, 'POST', '/api/ui/login-code');
   if (!r) {
     io.err('scranton-hq is not running. Start it with: scranton-hq up');
+    return 1;
+  }
+  if (r.status === 404) {
+    const pid = (await readDaemonFile(dataDir))?.pid;
+    io.err(`This scranton-hq daemon${pid === undefined ? '' : ` (process ${pid})`} is older than the ${command} command. Stop it with Ctrl-C where it runs, then run scranton-hq up again.`);
     return 1;
   }
   if (!r.ok || !r.data) {
