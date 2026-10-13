@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseTranscriptLine, promptText } from '../../src/adapters/claude-code/transcript.js';
+import { launchText, resultEntry } from '../helpers/workflows.js';
 
 const S = 'S1';
 const T = '2026-10-10T10:00:00.000Z';
@@ -74,6 +75,44 @@ describe('parseTranscriptLine', () => {
   it('uses the cwd hint when the line has none', () => {
     const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/w/shop/README.md' } }] } }), S, '/w/shop');
     expect(r.events[0]).toMatchObject({ label: 'Read README.md' });
+  });
+
+  it("turns an assistant entry's last text into its answer, cleaned and cut, before its tool uses", () => {
+    const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, message: { content: [
+      { type: 'text', text: 'Looking at the tests first.' },
+      { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } },
+      { type: 'text', text: 'All green:\n42 tests\u0007 pass.' },
+    ] } }), S);
+    expect(r.events).toEqual([
+      { sessionId: S, ts: TS, source: 'fs', type: 'answer', text: 'All green: 42 tests pass.' },
+      { sessionId: S, ts: TS, source: 'fs', type: 'tool.started', toolId: 't1', tool: 'Bash', label: 'Bash: npm test', agentId: null },
+    ]);
+    const long = parseTranscriptLine(line({ type: 'assistant', timestamp: T, message: { content: [{ type: 'text', text: 'x'.repeat(2500) }] } }), S);
+    expect((long.events[0] as { text: string }).text).toHaveLength(2000);
+    for (const content of [[{ type: 'thinking', thinking: 'hmm' }], [{ type: 'text', text: ' \u0007 ' }], [{ type: 'text', text: 42 }], 'plain string']) {
+      expect(parseTranscriptLine(line({ type: 'assistant', timestamp: T, message: { content } }), S).events).toEqual([]);
+    }
+    expect(parseTranscriptLine(line({ type: 'assistant', isSidechain: true, timestamp: T, message: { content: [{ type: 'text', text: 'from a subagent' }] } }), S).events).toEqual([]);
+  });
+
+  it('reads a Workflow launch from its result, as a string or as text blocks, and makes no event of it', () => {
+    const scriptPath = '/home/dev/.claude/projects/-home-dev-shop/11111111-1111-4111-8111-111111111111/workflows/scripts/checkout-verify-wf_0000aaaa-001.js';
+    const text = launchText({ runId: 'wf_0000aaaa-001', summary: 'Verify split\u0007 payments end to end', scriptPath });
+    const launch = { runId: 'wf_0000aaaa-001', summary: 'Verify split payments end to end', scriptPath };
+    const r = parseTranscriptLine(line(resultEntry(text)), S);
+    expect(r.events).toEqual([{ sessionId: S, ts: Date.parse('2026-10-10T10:00:30.000Z'), source: 'fs', type: 'tool.finished', toolId: 'toolu_06ABCDEFGHIJKLMNOPQRSTUV', ok: true, agentId: null }]);
+    expect(r.launches).toEqual([launch]);
+    const [head, ...rest] = text.split('\nRun ID: ');
+    expect(parseTranscriptLine(line(resultEntry([{ type: 'text', text: head }, { type: 'image' }, { type: 'text', text: `Run ID: ${rest.join('')}` }])), S).launches).toEqual([launch]);
+  });
+
+  it('skips a launch without a valid run id, a result that only mentions one, and lines without Summary or Script file', () => {
+    const parsed = (content: unknown) => parseTranscriptLine(line(resultEntry(content)), S);
+    expect(parsed(launchText({ runId: 'wf_a/b', summary: 'x' })).launches).toBeUndefined();
+    expect(parsed(`The tool said:\n${launchText({ runId: 'wf_0000aaaa-002', summary: 'x' })}`).launches).toBeUndefined();
+    expect(parsed('ok')).not.toHaveProperty('launches');
+    expect(parsed(launchText({ runId: 'wf_0000aaaa-003' })).launches).toEqual([{ runId: 'wf_0000aaaa-003', summary: null, scriptPath: null }]);
+    expect(parsed(launchText({ runId: 'wf_0000aaaa-004', summary: ' \u0007 ' })).launches).toEqual([{ runId: 'wf_0000aaaa-004', summary: null, scriptPath: null }]);
   });
 
   it('ignores sidechain entries, bad JSON and unknown entry types', () => {

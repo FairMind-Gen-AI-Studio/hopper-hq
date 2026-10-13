@@ -1,11 +1,24 @@
+import { ANSWER_MAX } from '../../core/reducer.js';
 import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
+import { cleanOrNull } from '../../scene/text.js';
+
+/** A workflow run the session launched, as the Workflow tool's result names it. */
+export interface WorkflowLaunch {
+  runId: string;
+  /** The Summary line, cleaned; null when there is none. */
+  summary: string | null;
+  /** Where Claude Code keeps a copy of the run's script, as the result says; null when it does not. */
+  scriptPath: string | null;
+}
 
 export interface ParsedLine {
   events: RawEvent[];
   ts?: number;
   branch?: string;
   cwd?: string;
+  /** Workflow runs the line's tool results launched. No event says so: the adapter decides what they are. */
+  launches?: WorkflowLaunch[];
 }
 
 const WRAPPERS = ['<command-', '<local-command', '<task-notification', '<system-reminder', '<bash-', '<user-prompt-submit-hook'];
@@ -28,7 +41,18 @@ export function promptText(content: unknown): string | null {
   return null;
 }
 
-type Block = { type?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; is_error?: unknown };
+type Block = { type?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; is_error?: unknown; content?: unknown; text?: unknown };
+
+const isText = (b: Block): b is Block & { text: string } => !!b && b.type === 'text' && typeof b.text === 'string';
+
+/** A Workflow tool's result: the run it launched. Null for any other result, and for a launch without a valid run id. */
+function launchOf(content: unknown): WorkflowLaunch | null {
+  const text = typeof content === 'string' ? content : Array.isArray(content) ? (content as Block[]).filter(isText).map((b) => b.text).join('\n') : '';
+  if (!text.startsWith('Workflow launched')) return null;
+  const runId = /^Run ID: (wf_[A-Za-z0-9_-]{1,64})$/m.exec(text)?.[1];
+  if (!runId) return null;
+  return { runId, summary: cleanOrNull(/^Summary: (.*)$/m.exec(text)?.[1], 200), scriptPath: /^Script file: (.+)$/m.exec(text)?.[1] ?? null };
+}
 
 export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: string): ParsedLine {
   let e: Record<string, unknown>;
@@ -63,6 +87,8 @@ export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: s
     const results = blocks.filter((b) => b && b.type === 'tool_result');
     for (const b of results) {
       out.events.push({ ...base, type: 'tool.finished', toolId: typeof b.tool_use_id === 'string' ? b.tool_use_id : null, ok: b.is_error !== true, agentId: null });
+      const launch = launchOf(b.content);
+      if (launch) (out.launches ??= []).push(launch);
     }
     if (results.length === 0) {
       const text = promptText(content);
@@ -72,6 +98,10 @@ export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: s
   }
 
   if (e.type === 'assistant' && Array.isArray(content)) {
+    // The reply so far is the entry's last text: the reducer keeps the latest one.
+    const last = (content as Block[]).filter(isText).at(-1);
+    const answer = last ? truncate(last.text, ANSWER_MAX) : '';
+    if (answer) out.events.push({ ...base, type: 'answer', text: answer });
     for (const b of content as Block[]) {
       if (!b || b.type !== 'tool_use' || typeof b.name !== 'string') continue;
       const wait = waitingFromTool(b.name, b.input);
