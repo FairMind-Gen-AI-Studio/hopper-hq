@@ -84,7 +84,8 @@ async function call($: EngineInterface, method: string, path: string, body?: str
 }
 
 async function send($: EngineInterface) {
-  if (queue.length === 0) return
+  // The summarizer's session never posts, even what it queued before it read its environment.
+  if (summarizer || queue.length === 0) return
   const batch = queue.splice(0, queue.length)
   const r = await call($, 'POST', '/api/hooks', JSON.stringify(batch))
   // Retry only what can succeed later: no daemon, a stale token, a server error. A refused batch is dropped.

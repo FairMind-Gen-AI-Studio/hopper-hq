@@ -93,6 +93,35 @@ test("forwards nothing and draws no band in the summarizer's own session, and st
   expect(ran).toEqual([['scranton-hq', 'up']])
 })
 
+test("posts nothing from the summarizer's own session, even what it queued before it knew", async ($, on) => {
+  const fetched: string[] = []
+  let release!: () => void
+  const known = new Promise<void>(resolve => (release = resolve))
+  // The session starts reading its environment; a prompt comes before the answer does.
+  on('env.get', async ($, e) => {
+    if (e.name === 'SCRANTON_HQ_SUMMARIZER') await known
+    return { value: ({ HOME: '/home/dev', SCRANTON_HQ_SUMMARIZER: '1' } as Record<string, string>)[e.name] }
+  })
+  mock.clock(on)
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async ($, e) => {
+    fetched.push(`${e.init?.method ?? 'GET'} ${e.url}`)
+    return { value: { status: 204, ok: true, headers: {}, text: '' } }
+  })
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+  on('session.end', async ($, e) => ({ sessionId: e.sessionId }))
+
+  const started = $.session.start(START)
+  await $.prompt.submit({ text: 'Write one status line', wait: false, origin: { kind: 'composer' } })
+  release()
+  await started
+  await $.session.end({ reason: 'other', sessionId: 'S-OWN', resume: { id: 'S-OWN' } })
+
+  expect(fetched).toEqual([])
+})
+
 test('forwards what a spawn says of its task, and the workflow run of a script agent', async ($, on) => {
   const posts: Post[] = []
   daemon(on, posts)
