@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvent, markSeen, normalizeSession } from '../../src/core/reducer.js';
+import { ANSWER_MAX, applyEvent, markSeen, MAX_RECENT_ACTIONS, normalizeSession } from '../../src/core/reducer.js';
 import type { Session } from '../../src/core/types.js';
 import { ev, seen, WS } from '../helpers/events.js';
 
@@ -224,6 +224,38 @@ describe('applyEvent', () => {
   it('records branch changes', () => {
     expect(run(seen(), ev('branch', 1100, { branch: 'feat/other' })).workspace.branch).toBe('feat/other');
     expect(run(seen(), ev('branch', 1100, { branch: null })).workspace.branch).toBe('feat/checkout-v2');
+  });
+});
+
+describe('what a summary reads', () => {
+  it('keeps the latest reply by its time, cleaned and cut to ANSWER_MAX code points, and changes nothing else', () => {
+    const working = run(seen(), ev('prompt', 1100, { text: 'x' }));
+    let s = applyEvent(working, ev('answer', 1300, { text: 'Tests\u0007 pass.\nShipping next.' }))!;
+    expect(s).toMatchObject({ lastAnswer: 'Tests pass. Shipping next.', lastAnswerAt: 1300, state: 'working', lastEventAt: 1100 });
+    s = applyEvent(s, ev('answer', 1200, { text: 'An older reply' }))!;
+    expect(s.lastAnswer).toBe('Tests pass. Shipping next.');
+    s = applyEvent(s, ev('answer', 1400, { text: '\u0007 \u202E' }))!;
+    expect(s.lastAnswerAt).toBe(1300);
+    s = applyEvent(s, ev('answer', 1400, { text: '\u{1F600}'.repeat(ANSWER_MAX + 5) }))!;
+    expect(ANSWER_MAX).toBe(2000);
+    expect(Array.from(s.lastAnswer!)).toHaveLength(ANSWER_MAX);
+    expect(s.lastAnswer!.endsWith('\u2026')).toBe(true);
+  });
+
+  it('records when the user last sent a prompt, whatever order prompts arrive in', () => {
+    const s = run(seen(), ev('prompt', 1200, { text: 'second' }), ev('prompt', 1100, { text: 'first' }), ev('prompt', 1300, { text: null }));
+    expect(s).toMatchObject({ lastPromptAt: 1200, lastPrompt: 'second' });
+    expect(applyEvent(s, ev('prompt', 1400, { text: 'third' }))).toMatchObject({ lastPromptAt: 1400 });
+    expect(run(seen()).lastPromptAt).toBeNull();
+  });
+
+  it("keeps the main agent's last MAX_RECENT_ACTIONS actions, oldest first, without a repeat in a row", () => {
+    const tool = (ts: number, label: string, agentId: string | null = null) => ev('tool.started', ts, { toolId: `t${ts}`, tool: 'Read', label, agentId });
+    let s = run(seen(), tool(1100, 'Read a.ts'), tool(1110, 'Read a.ts'), tool(1120, 'Edit a.ts'), tool(1130, 'Grep useCart', 'a1'), tool(1050, 'Read late.ts'), tool(1140, 'Read a.ts'));
+    expect(MAX_RECENT_ACTIONS).toBe(10);
+    expect(s.recentActions).toEqual(['Read a.ts', 'Edit a.ts', 'Read a.ts']);
+    for (let i = 1; i <= 12; i++) s = applyEvent(s, tool(1200 + i, `Bash: step ${i}`))!;
+    expect(s.recentActions).toEqual(Array.from({ length: 10 }, (_, i) => `Bash: step ${i + 3}`));
   });
 });
 

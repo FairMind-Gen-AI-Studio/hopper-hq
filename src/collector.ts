@@ -194,7 +194,8 @@ export class Collector {
       this.dropped++;
       return;
     }
-    this.o.store?.appendEvent(e);
+    // A reply's text lives in the session row only, never in the event log.
+    if (e.type !== 'answer') this.o.store?.appendEvent(e);
     if (created || next !== prev) {
       this.sessions.set(next.id, next);
       // The event that first puts a session on a floor opens it: a new session, a branch switch, a replayed old event.

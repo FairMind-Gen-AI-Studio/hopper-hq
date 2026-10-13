@@ -1,3 +1,4 @@
+import { truncate } from './tool-label.js';
 import type { ChildAgent, CollectorEvent, EventOf, RunAgent, Session, SessionState, WorkflowRun, Workspace } from './types.js';
 
 const MAX_CHILDREN = 50;
@@ -7,6 +8,10 @@ export const MAX_RUNS = 10;
 export const MAX_RUN_AGENTS = 64;
 /** A workflow run id: 'wf_' and a short id of letters, digits, '_' and '-'. Anything else names no run. */
 export const RUN_ID = /^wf_[A-Za-z0-9_-]{1,64}$/;
+/** The main agent's last tool labels kept per session. */
+export const MAX_RECENT_ACTIONS = 10;
+/** The longest last answer kept, in code points. */
+export const ANSWER_MAX = 2000;
 
 export function newSession(id: string, ts: number, workspace: Workspace): Session {
   return {
@@ -261,7 +266,16 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
       const ended = withRun(s, e.runId, e.ts, (r) => ({ ...stopAgents(r, e.ts), status: e.status, endedAt: e.ts, onDisk: r.onDisk || e.source === 'fs' }));
       return settleMeeting(ended, e.ts);
     }
+    case 'answer': {
+      // The mod and the transcript both report replies: the latest one wins.
+      const text = truncate(e.text, ANSWER_MAX);
+      if (!text || (s.lastAnswerAt !== null && e.ts < s.lastAnswerAt)) return s;
+      return { ...s, lastAnswer: text, lastAnswerAt: e.ts };
+    }
   }
+
+  // When the user last asked something counts whatever the order prompts arrive in.
+  if (e.type === 'prompt' && e.text) s = { ...s, lastPromptAt: Math.max(s.lastPromptAt ?? 0, e.ts) };
 
   if (!isNewer(s, e)) {
     if (e.type === 'prompt' && e.text && !s.firstPrompt) return { ...s, firstPrompt: e.text };
@@ -289,6 +303,7 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
         openTool: { id: e.toolId, label: e.label, startedAt: e.ts },
         lastAction: e.label,
         lastActionAt: e.ts,
+        recentActions: s.recentActions.at(-1) === e.label ? s.recentActions : [...s.recentActions, e.label].slice(-MAX_RECENT_ACTIONS),
       };
     case 'tool.finished': {
       const closes = s.openTool && (e.toolId === null || s.openTool.id === e.toolId);

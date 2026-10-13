@@ -182,6 +182,18 @@ describe('Collector', () => {
     store.close();
   });
 
+  it('keeps a reply in the session row and never in the event log', async () => {
+    const store = await Store.open(':memory:');
+    const c = collector({ store });
+    await c.ingest(hook({ type: 'prompt', text: 'go' }));
+    await c.ingest(hook({ type: 'answer', text: 'All green: 42 tests pass.' }));
+    await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0 }));
+    await c.close();
+    expect(store.recentEvents('S1').map((e) => e.type)).toEqual(['prompt', 'turn.finished']);
+    expect(store.loadSessions()[0]).toMatchObject({ lastAnswer: 'All green: 42 tests pass.', lastAnswerAt: NOW, lastPromptAt: NOW });
+    store.close();
+  });
+
   it('restores subagents as not running, and a meeting only they held as done since it began', async () => {
     const store = await Store.open(':memory:');
     const child = { id: 'a1', type: 'Explore', description: 'Find callers', running: true, lastAction: 'Grep useCart', updatedAt: NOW - 5000 };
