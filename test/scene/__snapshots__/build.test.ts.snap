@@ -19,7 +19,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       "islands": [
         {
           "branch": "feat/checkout-v2",
-          "color": 1,
+          "color": 2,
           "desks": [
             {
               "activity": {
@@ -46,7 +46,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               },
               "robot": {
                 "badge": "needs",
-                "body": 1,
+                "body": 2,
                 "pose": "waving",
                 "tie": 4,
               },
@@ -69,7 +69,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         },
         {
           "branch": "feat/checkout-v2",
-          "color": 1,
+          "color": 7,
           "desks": [
             {
               "activity": null,
@@ -87,7 +87,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               },
               "robot": {
                 "badge": "meeting",
-                "body": 1,
+                "body": 7,
                 "pose": "still",
                 "tie": 4,
               },
@@ -209,7 +209,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       "islands": [
         {
           "branch": "feat/search-ranking",
-          "color": 6,
+          "color": 5,
           "desks": [
             {
               "activity": {
@@ -231,9 +231,9 @@ exports[`the demo building > matches the snapshot 1`] = `
               },
               "robot": {
                 "badge": "typing",
-                "body": 6,
+                "body": 5,
                 "pose": "typing",
-                "tie": 6,
+                "tie": 1,
               },
               "sessionId": "demo-ss-e5",
               "since": 1791709200004,
@@ -282,7 +282,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       "islands": [
         {
           "branch": "main",
-          "color": 1,
+          "color": 2,
           "desks": [
             {
               "activity": {
@@ -304,7 +304,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               },
               "robot": {
                 "badge": "typing",
-                "body": 1,
+                "body": 2,
                 "pose": "typing",
                 "tie": null,
               },
@@ -334,7 +334,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               },
               "robot": {
                 "badge": "needs",
-                "body": 1,
+                "body": 2,
                 "pose": "waving",
                 "tie": null,
               },
