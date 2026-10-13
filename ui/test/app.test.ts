@@ -651,6 +651,15 @@ describe('App floor in 3D', () => {
     }
   });
 
+  it('opens a run from the meeting rooms of the floor panel, the way around a floor without WebGL', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const store = fakeStore({ scene: makeScene() }, (key) => (key === CHECKOUT ? checkoutWithRoom() : makeFloor(key)));
+    const { target } = app(store, { renderer: fakeRenderer({ fail: new WebGLUnavailableError() }).load });
+    await settle();
+    click(target.querySelector('aside section.meetings .row-btn'));
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, run: RUN }));
+  });
+
   it('keeps the floor reachable from the panel when the browser has no WebGL', async () => {
     location.hash = toHash({ floor: CHECKOUT, desk: null });
     const { target } = app(undefined, { renderer: fakeRenderer({ fail: new WebGLUnavailableError() }).load });

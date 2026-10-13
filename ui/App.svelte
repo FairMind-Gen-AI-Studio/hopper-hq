@@ -283,8 +283,10 @@
             {summary}
             {floor}
             selected={route.desk}
+            now={clock}
             onDesk={(id) => navigate({ floor: route.floor, desk: id, run: null })}
             onBack={() => navigate({ floor: null, desk: null, run: null })}
+            onRun={(runId) => navigate({ floor: route.floor, desk: null, run: runId })}
           />
         {/if}
       </aside>

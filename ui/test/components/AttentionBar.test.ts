@@ -78,4 +78,21 @@ describe('AttentionBar', () => {
     expect(text(chips(1)[0]!.querySelector('.what'))).toBe('<img src=x onerror=alert(1)>');
     expect(target.querySelector('img')).toBeNull();
   });
+
+  it('shows where each session stands under its chip, with its age, and says when a prompt came after it', () => {
+    const plain = bar().chips(0)[0]!;
+    const classes = [plain.className, plain.querySelector('button.open')!.className];
+    expect(plain.querySelector('.sub')).toBeNull();
+    cleanup();
+    const scene = makeScene();
+    scene.attention.needsYou[0]!.summary = { text: 'Idempotency keys are in; waits for permission to rebuild dist', at: NOW - 13 * 60_000, stale: true };
+    scene.attention.done[1]!.summary = { text: 'Copy is rewritten and ready for review', at: NOW - 17 * 60_000, stale: false };
+    const { chips } = bar(scene.attention);
+    const subs = [chips(0)[0]!, chips(1)[1]!].map((c) => c.querySelector('.sub')!);
+    expect(subs.map(text)).toEqual(['Idempotency keys are in; waits for permission to rebuild dist · 13m ago (older than the last prompt)', 'Copy is rewritten and ready for review · 17m ago']);
+    expect(subs.map((s) => s.classList.contains('stale'))).toEqual([true, false]);
+    expect(chips(0)[1]!.querySelector('.sub')).toBeNull();
+    // A chip with a line is the same chip: its size does not depend on it.
+    expect([chips(0)[0]!.className, chips(0)[0]!.querySelector('button.open')!.className]).toEqual(classes);
+  });
 });

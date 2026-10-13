@@ -1,20 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FloorPanel from '../../components/FloorPanel.svelte';
 import type { FloorDetail } from '../../../src/scene/types';
-import { CHECKOUT, DOCS, ORDERS, makeFloor, makeScene } from '../helpers/fixtures';
+import { CHECKOUT, DOCS, NOW, ORDERS, makeFloor, makeScene } from '../helpers/fixtures';
 import { cleanup, click, render, text } from '../helpers/render';
+import { RUN, checkoutWithRoom } from '../helpers/rooms';
 
 afterEach(cleanup);
 
 const summaryOf = (key: string) => makeScene().floors.find((f) => f.key === key);
 
-function panel(key: string, floor: FloorDetail | null | undefined = makeFloor(key), selected: string | null = null) {
+function panel(key: string, floor: FloorDetail | null | undefined = makeFloor(key), selected: string | null = null, now = NOW) {
   const onDesk = vi.fn();
   const onBack = vi.fn();
-  const target = render(FloorPanel, { summary: summaryOf(key), floor, selected, onDesk, onBack });
+  const onRun = vi.fn();
+  const target = render(FloorPanel, { summary: summaryOf(key), floor, selected, now, onDesk, onBack, onRun });
   const islands = () => [...target.querySelectorAll('section.island')];
-  return { target, onDesk, onBack, islands };
+  /** The meeting rooms' rows: name, counts and phase. */
+  const rooms = () =>
+    [...target.querySelectorAll('section.meetings .row-btn')].map((r) => `${text(r.querySelector('.r-name'))} | ${text(r.querySelector('.r-state'))} | ${text(r.querySelector('.r-task'))}`);
+  return { target, onDesk, onBack, onRun, islands, rooms };
 }
+
+const MIN = 60_000;
 
 describe('FloorPanel', () => {
   it('heads the panel with the floor number, kind and size', () => {
@@ -72,7 +79,7 @@ describe('FloorPanel', () => {
   });
 
   it('shows the floor loading, from its summary', () => {
-    const target = render(FloorPanel, { summary: summaryOf(CHECKOUT), floor: undefined, selected: null, onDesk: vi.fn(), onBack: vi.fn() });
+    const target = render(FloorPanel, { summary: summaryOf(CHECKOUT), floor: undefined, selected: null, now: NOW, onDesk: vi.fn(), onBack: vi.fn(), onRun: vi.fn() });
     expect(text(target.querySelector('.p-title'))).toBe('checkout-v2');
     expect(text(target.querySelector('.p-sub'))).toBe('3 repos on this feature · 4 sessions');
     expect(text(target.querySelector('.p-note'))).toBe('Loading the floor…');
@@ -81,7 +88,7 @@ describe('FloorPanel', () => {
 
   it('says when the floor is gone, and offers the way back', () => {
     const onBack = vi.fn();
-    const target = render(FloorPanel, { summary: undefined, floor: null, selected: null, onDesk: vi.fn(), onBack });
+    const target = render(FloorPanel, { summary: undefined, floor: null, selected: null, now: NOW, onDesk: vi.fn(), onBack, onRun: vi.fn() });
     expect(text(target.querySelector('.p-title'))).toBe('Not in the building');
     expect(text(target.querySelector('.p-text'))).toBe('This floor is empty now: its sessions have ended or moved to another floor.');
     click(target.querySelector('.back'));
@@ -98,5 +105,48 @@ describe('FloorPanel', () => {
     expect(text(islands()[0]!.querySelector('.path'))).toBe('<img src=x onerror=alert(1)>');
     expect(text(islands()[0]!.querySelector('.r-name'))).toBe('<b>bold</b>');
     expect(target.querySelector('img, script, b')).toBeNull();
+  });
+
+  it('gives each desk row the line of where it stands, with its age, and says when a prompt came after it', () => {
+    const floor = makeFloor(CHECKOUT)!;
+    const [a1, b2] = floor.islands[2]!.desks;
+    a1!.summary = { text: 'Builds the address step while two helpers check the form', at: NOW - 3 * MIN, stale: true };
+    b2!.summary = { text: 'Copy is rewritten and ready for review', at: NOW - 2 * MIN, stale: false };
+    const { islands } = panel(CHECKOUT, floor);
+    const lines = [...islands()[2]!.querySelectorAll('.row-btn')].map((r) => r.querySelector('.r-sum'));
+    expect(lines.map((l) => text(l))).toEqual([
+      'Builds the address step while two helpers check the form · 3m ago (older than the last prompt)',
+      'Copy is rewritten and ready for review · 2m ago',
+    ]);
+    expect(lines.map((l) => l!.classList.contains('stale'))).toEqual([true, false]);
+    expect(islands()[0]!.querySelector('.r-sum')).toBeNull();
+  });
+
+  it("lists the floor's meeting rooms after its islands, and opens one", () => {
+    const { target, rooms, onRun } = panel(CHECKOUT, checkoutWithRoom());
+    const section = target.querySelector('section.meetings')!;
+    expect(text(section.querySelector('h3'))).toBe('Meeting rooms');
+    expect([...target.querySelectorAll('section')].at(-1)).toBe(section);
+    expect(rooms()).toEqual(['checkout-verify | 2 running · 1 done | Phase: Build']);
+    click(section.querySelector('.row-btn'));
+    expect(onRun).toHaveBeenCalledWith(RUN);
+    cleanup();
+    expect(panel(CHECKOUT).target.querySelector('section.meetings')).toBeNull();
+  });
+
+  it('names a room without a name or a phase plainly, keeps two hosts of one run apart, and counts the runs without a room', () => {
+    const floor = checkoutWithRoom();
+    const room = floor.rooms[0]!;
+    floor.rooms.push({ ...room, hostSessionId: 'sw-a1', name: null, phases: [], counts: { running: 1, finished: 0 } });
+    floor.rooms.push({ ...room, runId: 'wf_0000aaaa-002', name: '<b>bold</b>', phases: [{ title: 'Plan', state: 'upcoming' }] });
+    floor.roomsMore = 2;
+    const { target, rooms } = panel(CHECKOUT, floor);
+    expect(rooms()).toEqual(['checkout-verify | 2 running · 1 done | Phase: Build', `${RUN} | 1 running · 0 done | No phase yet`, '<b>bold</b> | 2 running · 1 done | No phase yet']);
+    expect(text(target.querySelector('section.meetings .p-note'))).toBe('+2 runs without a room');
+    expect(target.querySelector('b')).toBeNull();
+    floor.rooms = [];
+    floor.roomsMore = 1;
+    cleanup();
+    expect(text(panel(CHECKOUT, floor).target.querySelector('section.meetings .p-note'))).toBe('+1 run without a room');
   });
 });

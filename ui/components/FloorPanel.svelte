@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { FloorDetail, FloorSummary } from '../../src/scene/types';
-  import { STATES, plural } from '../lib/words';
+  import type { FloorDetail, FloorSummary, MeetingRoom } from '../../src/scene/types';
+  import { STATES, plural, runCounts, summaryAge } from '../lib/words';
 
   /**
-   * One floor as a list: an island per checkout (its placard: repo, branch, path) and a row per desk. It is also
-   * what a browser without WebGL uses to get around a floor.
+   * One floor as a list: an island per checkout (its placard: repo, branch, path) and a row per desk, then a row per
+   * meeting room. It is also what a browser without WebGL uses to get around a floor.
    */
   interface Props {
     /** From the building scene: number and name while the detail loads. */
@@ -13,15 +13,23 @@
     floor: FloorDetail | null | undefined;
     /** The desk the route points at. The page shows a desk on the floor in its own panel, so here it can only have left. */
     selected: string | null;
+    /** For the ages of the summary lines. */
+    now: number;
     onDesk: (sessionId: string) => void;
     onBack: () => void;
+    onRun: (runId: string) => void;
   }
-  let { summary, floor, selected, onDesk, onBack }: Props = $props();
+  let { summary, floor, selected, now, onDesk, onBack, onRun }: Props = $props();
 
   const head = $derived(floor ?? summary);
   const sessions = $derived(floor ? floor.islands.reduce((n, i) => n + i.desks.length, 0) : (summary?.windows.length ?? 0));
   /** The route names a desk that is not on the floor any more. */
   const missing = $derived(selected !== null && !!floor && !floor.islands.some((i) => i.desks.some((d) => d.sessionId === selected)));
+
+  function phaseOf(room: MeetingRoom): string {
+    const current = room.phases.find((p) => p.state === 'current');
+    return current ? `Phase: ${current.title}` : 'No phase yet';
+  }
 </script>
 
 <div>
@@ -65,12 +73,35 @@
               <span class="r-name">{desk.name}</span>
               <span class="r-state">{STATES[desk.state].label}</span>
               <span class="r-task">{desk.title ?? 'No task yet'}</span>
+              {#if desk.summary}
+                <span class="r-sum" class:stale={desk.summary.stale}>{desk.summary.text} · {summaryAge(desk.summary, now)}</span>
+              {/if}
             </button>
           </li>
         {/each}
       </ul>
     </section>
   {/each}
+  {#if floor.rooms.length > 0 || floor.roomsMore > 0}
+    <section class="meetings">
+      <h3 class="p-h3">Meeting rooms</h3>
+      <ul class="rows">
+        {#each floor.rooms as room (`${room.hostSessionId}/${room.runId}`)}
+          <li>
+            <button type="button" class="row-btn sw-in_meeting" onclick={() => onRun(room.runId)}>
+              <span class="dot" aria-hidden="true"></span>
+              <span class="r-name">{room.name ?? room.runId}</span>
+              <span class="r-state">{runCounts(room.counts)}</span>
+              <span class="r-task">{phaseOf(room)}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+      {#if floor.roomsMore > 0}
+        <p class="p-note">+{plural(floor.roomsMore, 'run', 'runs')} without a room</p>
+      {/if}
+    </section>
+  {/if}
 {/if}
 
 <style>
@@ -99,4 +130,7 @@
   .r-name { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
   .r-task { grid-column: 2; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
   .r-state { grid-row: span 2; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .r-sum { grid-column: 2 / -1; font-size: 12.5px; overflow-wrap: anywhere; }
+  .r-sum.stale { color: var(--muted); }
+  .meetings .rows { margin-top: 4px; }
 </style>

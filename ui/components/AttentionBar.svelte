@@ -2,13 +2,14 @@
   import { formatAgo } from '../../src/scene/text';
   import type { AttentionEntry, BuildingScene } from '../../src/scene/types';
   import { singleClick } from '../lib/click';
-  import { raisedBy, waitText } from '../lib/words';
+  import { raisedBy, summaryAge, waitText } from '../lib/words';
 
   /**
    * The attention queue, visible at every level: who needs you (longest wait first) and what is done, to review
-   * (oldest first), in the order the scene gives. A chip opens its desk; Go switches tmux to its pane.
-   * The bar keeps one height, two rows of chips, and scrolls past them: a bar that grew as sessions finished would move
-   * the stage under the pointer, between the two clicks of a double-click.
+   * (oldest first), in the order the scene gives. A chip opens its desk; Go switches tmux to its pane. Under its name, a
+   * chip says where the session stands, once a summary line has been written.
+   * The bar keeps one height, two rows of chips with their lines, and scrolls past them: a bar that grew as sessions
+   * finished would move the stage under the pointer, between the two clicks of a double-click.
    */
   interface Props {
     attention: BuildingScene['attention'];
@@ -43,6 +44,9 @@
                 <span class="who">{entry.name}</span>
                 <span class="what">{what(entry)}</span>
                 <span class="time">{formatAgo(now - entry.since)}</span>
+                {#if entry.summary}
+                  <span class="sub" class:stale={entry.summary.stale}><span class="s-text">{entry.summary.text}</span> <span class="s-age">· {summaryAge(entry.summary, now)}</span></span>
+                {/if}
               </button>
               {#if entry.focusable}
                 <button type="button" class="go" aria-label="Go to the tmux pane of {entry.name}" onclick={singleClick(() => onGo(entry))}>Go</button>
@@ -66,8 +70,8 @@
     align-content: flex-start;
     gap: 8px 22px;
     min-width: 0;
-    /* Two rows of chips, with room around them for a focus ring the scrolling would otherwise cut. */
-    height: 80px;
+    /* Three rows of chips, or two with their summary lines, with room around them for a focus ring the scrolling would otherwise cut. */
+    height: 117px;
     margin: -4px;
     padding: 4px;
     overflow-y: auto;
@@ -88,9 +92,10 @@
   }
   .needs .chip { border-color: color-mix(in oklab, var(--s-needs) 50%, var(--line)); }
   .open {
-    display: inline-flex;
+    display: inline-grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 8px;
+    gap: 1px 8px;
     min-width: 0;
     padding: 5px 10px 5px 9px;
     border: 0;
@@ -106,6 +111,11 @@
   .who { font-weight: 600; white-space: nowrap; font-family: var(--font-mono); font-size: 12.5px; }
   .what { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; min-width: 0; }
   .time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+  /* The summary line: no width of its own, so the chip is as wide as its first line, and the line is cut to it. */
+  .sub { grid-column: 2 / -1; width: 0; min-width: 100%; display: flex; gap: 4px; font-size: 12px; line-height: 18px; color: var(--muted); white-space: nowrap; }
+  .s-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .s-age { flex: none; }
+  .stale .s-text { opacity: .65; }
   .needs .time { color: var(--needs-ink); font-weight: 600; }
   .go {
     border: 0;
