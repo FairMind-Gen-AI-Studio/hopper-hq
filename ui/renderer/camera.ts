@@ -1,6 +1,6 @@
 /**
  * The floor camera's moves as plain maths: quarter turns around the vertical axis, the zoom and tilt limits, the home
- * view, the pan to a desk, and eased tweens between poses.
+ * view, the pan to a desk, the moves of held arrow keys, and eased tweens between poses.
  */
 import { HOME_AZIMUTH, POLAR, floorCenter, type Point } from './world';
 
@@ -10,6 +10,13 @@ export const MAX_ZOOM = 3.2;
 export const MIN_POLAR = 0.2;
 export const MAX_POLAR = 1.3;
 export const QUARTER = Math.PI / 2;
+/**
+ * How far held arrow keys carry the camera each second: across the ground, this share of the view's height; with
+ * Shift, round the vertical axis and up or down, these angles.
+ */
+export const KEY_PAN = 0.6;
+export const KEY_TURN = QUARTER;
+export const KEY_TILT = 0.6;
 /** A pan to a desk zooms in to at least DESK_ZOOM, and stops DESK_PULL of the way back toward the floor's centre. */
 export const DESK_ZOOM = 1.25;
 export const DESK_PULL = 0.35;
@@ -29,6 +36,10 @@ export interface CameraPose {
 
 export function clampZoom(zoom: number): number {
   return Number.isFinite(zoom) ? Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) : 1;
+}
+
+export function clampPolar(polar: number): number {
+  return Number.isFinite(polar) ? Math.min(MAX_POLAR, Math.max(MIN_POLAR, polar)) : POLAR;
 }
 
 /** The nearest step: the home azimuth plus a whole number of quarter turns. */
@@ -59,6 +70,40 @@ export function deskPose(from: CameraPose, spot: Point, size: { w: number; h: nu
     azimuth: from.azimuth,
     polar: from.polar,
     zoom: clampZoom(Math.max(from.zoom, DESK_ZOOM)),
+  };
+}
+
+/** The arrows held: ahead (up) and back (down), right and left; each -1, 0 or 1. */
+export interface KeyMove {
+  forward: number;
+  right: number;
+}
+
+/**
+ * Where held arrows carry the camera in `seconds`: across the ground, ahead being the way the camera looks, or, with
+ * `turn` (Shift), round the vertical axis (left the way Q turns) and up toward straight down or down toward the
+ * ground. `shown` is the view's height in world units: a move covers the same share of it at every zoom.
+ */
+export function keyPose(from: CameraPose, move: KeyMove, turn: boolean, seconds: number, shown: number): CameraPose {
+  if (turn) {
+    return {
+      ...from,
+      azimuth: from.azimuth + move.right * KEY_TURN * seconds,
+      polar: move.forward === 0 ? from.polar : clampPolar(from.polar - move.forward * KEY_TILT * seconds),
+    };
+  }
+  const length = Math.hypot(move.forward, move.right);
+  if (length === 0) return from;
+  const step = (KEY_PAN * shown * seconds) / length;
+  const s = Math.sin(from.azimuth);
+  const c = Math.cos(from.azimuth);
+  // Ahead on the ground is (-sin, -cos), away from the camera; the right of the screen is (cos, -sin).
+  return {
+    ...from,
+    target: {
+      x: from.target.x + (-move.forward * s + move.right * c) * step,
+      z: from.target.z + (-move.forward * c - move.right * s) * step,
+    },
   };
 }
 

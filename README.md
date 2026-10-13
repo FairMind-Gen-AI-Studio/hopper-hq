@@ -87,6 +87,7 @@ The page's address names the floor, and the desk or the run on screen: a link op
 | R | Resets the view. |
 | Enter | With the floor or the selected desk's or room's label focused, goes to that desk's pane, or for a room to the pane of the session that started its run. |
 | Drag, scroll, right-drag | Turns and tilts, zooms and pans the floor. |
+| Arrows, Shift + arrows | Once you have clicked the floor, move across it; with Shift, turn and tilt it. A focused label keeps the arrows for moving to the next one, and the side panel for scrolling. |
 
 The theme button cycles through system, day and night. A browser without WebGL still lists a floor's desks and meeting rooms in the side panel. When the page can no longer follow the building, because the daemon was updated since it loaded, it says so and asks you to reload it.
 

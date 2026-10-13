@@ -1,17 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   DESK_PULL,
+  KEY_PAN,
+  KEY_TILT,
+  KEY_TURN,
   MAX_POLAR,
   MAX_ZOOM,
   MIN_POLAR,
   MIN_ZOOM,
   QUARTER,
   Tween,
+  clampPolar,
   clampZoom,
   deskPose,
   easeInOut,
   homeAzimuthNear,
   homePose,
+  keyPose,
   lerpPose,
   snapAzimuth,
   stepAzimuth,
@@ -35,6 +40,46 @@ describe('camera moves', () => {
     expect(MIN_POLAR).toBeLessThan(POLAR);
     expect(MAX_POLAR).toBeGreaterThan(POLAR);
     expect(MAX_POLAR).toBeLessThan(Math.PI / 2 - 0.2);
+    expect(clampPolar(0)).toBe(MIN_POLAR);
+    expect(clampPolar(2)).toBe(MAX_POLAR);
+    expect(clampPolar(0.7)).toBe(0.7);
+    expect(clampPolar(Number.NaN)).toBe(POLAR);
+  });
+
+  it('carries the camera across the ground with the arrows, the way it looks, the same share of the view at every zoom', () => {
+    // Azimuth 0 looks north, toward -z: ahead is -z, and the right of the screen is +x.
+    const from = { target: { x: 10, z: 10 }, azimuth: 0, polar: POLAR, zoom: 1 };
+    const ahead = keyPose(from, { forward: 1, right: 0 }, false, 1, 20);
+    expect(ahead.target.x).toBeCloseTo(10, 10);
+    expect(ahead.target.z).toBeCloseTo(10 - KEY_PAN * 20, 10);
+    expect([ahead.azimuth, ahead.polar, ahead.zoom]).toEqual([0, POLAR, 1]);
+    const right = keyPose(from, { forward: 0, right: 1 }, false, 0.5, 20);
+    expect(right.target.x).toBeCloseTo(10 + KEY_PAN * 10, 10);
+    expect(right.target.z).toBeCloseTo(10, 10);
+    const back = keyPose(from, { forward: -1, right: 0 }, false, 1, 4);
+    expect(back.target.z).toBeCloseTo(10 + KEY_PAN * 4, 10);
+    // Two arrows at once go no faster than one.
+    const diagonal = keyPose(from, { forward: 1, right: -1 }, false, 1, 20);
+    expect(Math.hypot(diagonal.target.x - 10, diagonal.target.z - 10)).toBeCloseTo(KEY_PAN * 20, 10);
+    expect(diagonal.target.x).toBeLessThan(10);
+    // A quarter turn on, the camera looks west, toward -x.
+    const turned = keyPose({ ...from, azimuth: QUARTER }, { forward: 1, right: 0 }, false, 1, 20);
+    expect(turned.target.x).toBeCloseTo(10 - KEY_PAN * 20, 10);
+    expect(turned.target.z).toBeCloseTo(10, 10);
+    expect(keyPose(from, { forward: 0, right: 0 }, false, 1, 20)).toEqual(from);
+  });
+
+  it('turns and tilts with Shift and the arrows, left the way Q turns, up toward straight down, within the tilt limits', () => {
+    const from = { target: { x: 10, z: 10 }, azimuth: HOME_AZIMUTH, polar: POLAR, zoom: 2 };
+    const left = keyPose(from, { forward: 0, right: -1 }, true, 0.5, 20);
+    expect(left.azimuth).toBeCloseTo(HOME_AZIMUTH - KEY_TURN * 0.5, 10);
+    expect(left.azimuth).toBeLessThan(HOME_AZIMUTH);
+    expect([left.target, left.polar, left.zoom]).toEqual([from.target, POLAR, 2]);
+    const up = keyPose(from, { forward: 1, right: 0 }, true, 0.5, 20);
+    expect(up.polar).toBeCloseTo(POLAR - KEY_TILT * 0.5, 10);
+    expect(up.azimuth).toBe(HOME_AZIMUTH);
+    expect(keyPose(from, { forward: 1, right: 0 }, true, 60, 20).polar).toBe(MIN_POLAR);
+    expect(keyPose(from, { forward: -1, right: 0 }, true, 60, 20).polar).toBe(MAX_POLAR);
   });
 
   it('snaps to the nearest quarter turn from home, and steps one quarter on from there', () => {

@@ -4,7 +4,7 @@
  * drive it with stand-ins; mountFloorView passes the real WebGLRenderer.
  *
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
- * and while the controls settle or a tween runs. Nothing is drawn while the page is hidden. The shadow map is drawn
+ * and while the controls settle, a tween runs or an arrow key is held. Nothing is drawn while the page is hidden. The shadow map is drawn
  * only when the shadows can change: a new floor, a new theme, or a wall that comes or goes as the camera turns.
  * Nothing is drawn either while the WebGL context is lost; once the browser restores it, the floor is drawn again.
  */
@@ -12,7 +12,23 @@ import { OrthographicCamera, PCFShadowMap, type Camera, type Object3D, type Shad
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MIN_SIZE } from '../../src/scene/layout';
 import type { FloorDetail } from '../../src/scene/types';
-import { MAX_POLAR, MAX_ZOOM, MIN_POLAR, MIN_ZOOM, PAN_MS, RESET_MS, ROTATE_MS, Tween, clampZoom, deskPose, homePose, stepAzimuth, type CameraPose } from './camera';
+import {
+  MAX_POLAR,
+  MAX_ZOOM,
+  MIN_POLAR,
+  MIN_ZOOM,
+  PAN_MS,
+  RESET_MS,
+  ROTATE_MS,
+  Tween,
+  clampZoom,
+  deskPose,
+  homePose,
+  keyPose,
+  stepAzimuth,
+  type CameraPose,
+  type KeyMove,
+} from './camera';
 import { FloorScene } from './floor-scene';
 import type { FloorView, Target } from './index';
 import { LabelLayer } from './labels';
@@ -92,6 +108,15 @@ export const DRAG_PX = 6;
  * so it is still under the pointer for the second click of a double-click.
  */
 export const DOUBLE_CLICK_MS = 400;
+/** The longest step a held arrow takes in one frame, in milliseconds: a late frame does not jump the camera. */
+export const KEY_STEP_MS = 50;
+/** What each arrow adds to the move while it is held. */
+const ARROWS: Readonly<Record<string, KeyMove>> = {
+  ArrowUp: { forward: 1, right: 0 },
+  ArrowDown: { forward: -1, right: 0 },
+  ArrowLeft: { forward: 0, right: -1 },
+  ArrowRight: { forward: 0, right: 1 },
+};
 
 type Listener = (target: Target | null) => void;
 
@@ -153,6 +178,10 @@ export function createFloorView(
   let press: PointerEvent | null = null;
   /** The last press on a tag went on to the canvas as a drag. */
   let relayed = false;
+  /** The arrows held on the canvas, whether Shift turns them into a turn and a tilt, and when they last moved the camera. */
+  const held = new Set<string>();
+  let turning = false;
+  let keyAt = 0;
 
   function pose(): CameraPose {
     const t = controls.target;
@@ -240,6 +269,15 @@ export function createFloorView(
     camera.updateProjectionMatrix();
   }
 
+  function heldMove(): KeyMove {
+    const move = { forward: 0, right: 0 };
+    for (const k of held) {
+      move.forward += ARROWS[k]!.forward;
+      move.right += ARROWS[k]!.right;
+    }
+    return move;
+  }
+
   function request(): void {
     if (!frame && !disposed && !lost && !env.hidden()) frame = env.requestFrame(draw);
   }
@@ -256,6 +294,12 @@ export function createFloorView(
       applyPose(tween.at(now));
       if (tween.done(now)) tween = null;
       else again = true;
+    }
+    if (held.size) {
+      // A turn asked for while an arrow is held runs first; the arrow takes over again once it ends.
+      if (!tween) applyPose(keyPose(pose(), heldMove(), turning, Math.min(now - keyAt, KEY_STEP_MS) / 1000, (camera.top - camera.bottom) / camera.zoom));
+      keyAt = now;
+      again = true;
     }
     if (controls.update()) again = true;
     // The controls do not report the last, smallest steps of a glide, but those still move the camera.
@@ -383,15 +427,41 @@ export function createFloorView(
     );
   };
   const onTagMenu = (e: Event) => e.preventDefault();
+  /**
+   * Enter activates the selected desk or room. An arrow held moves the camera across the floor, and with Shift turns and
+   * tilts it; like a press, it takes the camera from any move under way. Arrows with Ctrl, Cmd or Alt are the browser's.
+   */
   const onKeyDown = (e: KeyboardEvent) => {
+    turning = e.shiftKey;
     if (e.key === 'Enter' && selected !== null && world.focusPoint(selected) !== null) {
       e.preventDefault();
       emit('activate', selected);
+      return;
     }
+    // macOS sends no keyup for a key let go while Cmd is down: a shortcut stops the arrows.
+    if (e.ctrlKey || e.metaKey || e.altKey) {
+      held.clear();
+      return;
+    }
+    if (!(e.key in ARROWS)) return;
+    e.preventDefault();
+    if (!held.size) keyAt = env.now();
+    held.add(e.key);
+    tween = null;
+    stopPanLater();
+    request();
   };
+  const onKeyUp = (e: KeyboardEvent) => {
+    turning = e.shiftKey;
+    held.delete(e.key);
+  };
+  const stopKeys = () => held.clear();
   const onVisibility = () => {
     if (!env.hidden()) request();
-    else cancelFrame();
+    else {
+      stopKeys();
+      cancelFrame();
+    }
   };
   // A lost context draws nothing. three restores its own state with the context, and starts an empty shadow map.
   const onContextLost = () => {
@@ -408,6 +478,8 @@ export function createFloorView(
   canvas.addEventListener('click', onClick);
   canvas.addEventListener('dblclick', onDoubleClick);
   canvas.addEventListener('keydown', onKeyDown);
+  canvas.addEventListener('keyup', onKeyUp);
+  canvas.addEventListener('blur', stopKeys);
   canvas.addEventListener('webglcontextlost', onContextLost);
   canvas.addEventListener('webglcontextrestored', onContextRestored);
   if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
@@ -418,6 +490,7 @@ export function createFloorView(
   document.addEventListener('pointerup', onPointerEnd);
   document.addEventListener('pointercancel', onPointerEnd);
   document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('blur', stopKeys);
   controls.addEventListener('change', onControls);
   const stopResize = env.observeResize(canvas, resize);
   const stopRatio = env.watchPixelRatio(resize);
@@ -519,6 +592,8 @@ export function createFloorView(
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('dblclick', onDoubleClick);
       canvas.removeEventListener('keydown', onKeyDown);
+      canvas.removeEventListener('keyup', onKeyUp);
+      canvas.removeEventListener('blur', stopKeys);
       canvas.removeEventListener('webglcontextlost', onContextLost);
       canvas.removeEventListener('webglcontextrestored', onContextRestored);
       host.labels.removeEventListener('pointerdown', onTagPointerDown);
@@ -528,6 +603,7 @@ export function createFloorView(
       document.removeEventListener('pointerup', onPointerEnd);
       document.removeEventListener('pointercancel', onPointerEnd);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', stopKeys);
       controls.removeEventListener('change', onControls);
       controls.dispose();
       listeners.select.clear();

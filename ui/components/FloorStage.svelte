@@ -153,7 +153,7 @@
       <button type="button" class="tool" title="Reset view (R)" aria-label="Reset view" disabled={!view} onclick={() => view?.resetView()}>Reset view</button>
     </div>
     {#if view}
-      <p class="hint">Drag to turn and tilt · scroll to zoom · right-drag to pan · double-click a desk or a room for its pane</p>
+      <p class="hint">Drag to turn and tilt · scroll to zoom · right-drag or arrows to pan · double-click a desk or a room for its pane</p>
     {/if}
   {/if}
 </div>

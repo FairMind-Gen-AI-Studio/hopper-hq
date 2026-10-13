@@ -197,6 +197,11 @@ function drag(canvas: HTMLCanvasElement, dx: number, dy: number, button: number)
   document.dispatchEvent(new PointerEvent('pointerup', at(W / 2 + dx, H / 2 + dy)));
 }
 
+/** A key pressed or let go on the canvas; returns false when the view took it (preventDefault). */
+function key(canvas: HTMLCanvasElement, type: 'keydown' | 'keyup', name: string, mods: KeyboardEventInit = {}): boolean {
+  return canvas.dispatchEvent(new KeyboardEvent(type, { key: name, bubbles: true, cancelable: true, ...mods }));
+}
+
 function deskPoint(renderer: FakeRenderer, id: string): { x: number; y: number } {
   const desk = desksOf(checkoutFloor()).find((d) => d.sessionId === id)!;
   const a = deskAnchor(desk.rect);
@@ -797,6 +802,140 @@ describe('the floor view', () => {
     env.flush();
     expect(cameraPose(renderer).polar).toBeCloseTo(POLAR, 6);
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
+  });
+
+  it('moves across the floor while an arrow is held on it, and draws on demand again once it is let go', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const before = cameraPose(renderer);
+    expect(key(canvas, 'keydown', 'ArrowUp')).toBe(false);
+    for (let i = 0; i < 10; i++) env.step(16);
+    const ahead = cameraPose(renderer);
+    // From home the camera looks north-west: ahead, both x and z fall.
+    expect(ahead.target.x).toBeLessThan(before.target.x - 0.5);
+    expect(ahead.target.z).toBeLessThan(before.target.z - 0.5);
+    expect(ahead.target.x - before.target.x).toBeCloseTo(ahead.target.z - before.target.z, 6);
+    expect([ahead.azimuth, ahead.polar, ahead.zoom].map((v) => v.toFixed(6))).toEqual([before.azimuth, before.polar, before.zoom].map((v) => v.toFixed(6)));
+    // A held key repeats: it neither speeds the camera up nor stops it.
+    expect(key(canvas, 'keydown', 'ArrowUp', { repeat: true })).toBe(false);
+    key(canvas, 'keyup', 'ArrowUp');
+    env.flush();
+    const stopped = cameraPose(renderer);
+    expect(env.queue.size).toBe(0);
+    key(canvas, 'keydown', 'ArrowRight');
+    for (let i = 0; i < 10; i++) env.step(16);
+    key(canvas, 'keyup', 'ArrowRight');
+    env.flush();
+    const right = cameraPose(renderer);
+    // The right of the screen, from home: x grows and z falls.
+    expect(right.target.x).toBeGreaterThan(stopped.target.x + 0.5);
+    expect(right.target.z).toBeLessThan(stopped.target.z - 0.5);
+    expect(env.queue.size).toBe(0);
+  });
+
+  it('turns and tilts while Shift and an arrow are held, within the tilt limits, and moves again once Shift is let go', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    key(canvas, 'keydown', 'Shift', { shiftKey: true });
+    key(canvas, 'keydown', 'ArrowRight', { shiftKey: true });
+    for (let i = 0; i < 10; i++) env.step(16);
+    key(canvas, 'keyup', 'ArrowRight', { shiftKey: true });
+    env.flush();
+    // The way E turns.
+    const turned = cameraPose(renderer);
+    expect(turned.azimuth).toBeGreaterThan(HOME_AZIMUTH + 0.1);
+    expect(turned.polar).toBeCloseTo(POLAR, 6);
+    key(canvas, 'keydown', 'ArrowUp', { shiftKey: true });
+    for (let i = 0; i < 200; i++) env.step(16);
+    const top = cameraPose(renderer);
+    expect(top.polar).toBeCloseTo(MIN_POLAR, 6);
+    expect(top.azimuth).toBeCloseTo(turned.azimuth, 6);
+    expect(top.target.x).toBeCloseTo(turned.target.x, 6);
+    key(canvas, 'keyup', 'Shift');
+    for (let i = 0; i < 10; i++) env.step(16);
+    const moved = cameraPose(renderer);
+    expect(Math.hypot(moved.target.x - top.target.x, moved.target.z - top.target.z)).toBeGreaterThan(0.5);
+    expect(moved.polar).toBeCloseTo(MIN_POLAR, 6);
+    key(canvas, 'keyup', 'ArrowUp');
+    key(canvas, 'keydown', 'ArrowDown', { shiftKey: true });
+    for (let i = 0; i < 300; i++) env.step(16);
+    key(canvas, 'keyup', 'ArrowDown', { shiftKey: true });
+    env.flush();
+    expect(cameraPose(renderer).polar).toBeCloseTo(MAX_POLAR, 6);
+  });
+
+  it('stops at the edge of the floor while an arrow is held', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    const { w, h } = checkoutFloor().size;
+    view.setFloor(checkoutFloor());
+    env.flush();
+    key(canvas, 'keydown', 'ArrowLeft');
+    for (let i = 0; i < 600; i++) env.step(16);
+    key(canvas, 'keyup', 'ArrowLeft');
+    env.flush();
+    const t = cameraPose(renderer).target;
+    expect(t.x > -1e-6 && t.x < w + 1e-6 && t.z > -1e-6 && t.z < h + 1e-6).toBe(true);
+    expect(Math.min(t.x, t.z, w - t.x, h - t.z)).toBeCloseTo(0, 6);
+  });
+
+  it('leaves arrows with Ctrl, Cmd or Alt to the browser, and stops when the floor or the window loses the focus or the page hides', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const home = cameraPose(renderer);
+    for (const mods of [{ metaKey: true }, { ctrlKey: true }, { altKey: true }]) {
+      expect(key(canvas, 'keydown', 'ArrowLeft', mods)).toBe(true);
+    }
+    env.flush();
+    expect(cameraPose(renderer)).toEqual(home);
+    const halts = [
+      () => canvas.dispatchEvent(new FocusEvent('blur')),
+      () => window.dispatchEvent(new FocusEvent('blur')),
+      // A key let go while Cmd is down sends no keyup on macOS: Cmd stops the move.
+      () => key(canvas, 'keydown', 'Meta', { metaKey: true }),
+    ];
+    for (const halt of halts) {
+      key(canvas, 'keydown', 'ArrowUp');
+      env.step(16);
+      env.step(16);
+      halt();
+      env.flush();
+      const at = cameraPose(renderer);
+      for (let i = 0; i < 5; i++) env.step(16);
+      expect(cameraPose(renderer)).toEqual(at);
+      expect(env.queue.size).toBe(0);
+    }
+  });
+
+  it('takes the camera from a turn under way when an arrow is pressed', () => {
+    const { renderer, env, view, canvas } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.rotate(1);
+    for (let i = 0; i < 10; i++) env.step(16);
+    key(canvas, 'keydown', 'ArrowUp');
+    env.step(16);
+    key(canvas, 'keyup', 'ArrowUp');
+    env.flush();
+    const turned = (cameraPose(renderer).azimuth - HOME_AZIMUTH) / QUARTER;
+    expect(turned).toBeGreaterThan(0.01);
+    expect(turned).toBeLessThan(0.99);
+  });
+
+  it('keeps the arrows for moving between tags while a tag has the focus', () => {
+    const { renderer, env, view, labels } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const home = cameraPose(renderer);
+    const tag = labels.querySelector('[data-session="sw-b2"]') as HTMLElement;
+    tag.focus();
+    tag.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect(document.activeElement).not.toBe(tag);
+    expect(document.activeElement?.closest('[data-session], [data-run]')).not.toBeNull();
+    env.flush();
+    expect(cameraPose(renderer)).toEqual(home);
   });
 
   it('turns about the ground point at the centre of the view when dragged, also after a pan up or down', () => {

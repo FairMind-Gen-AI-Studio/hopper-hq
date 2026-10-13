@@ -58,7 +58,7 @@ describe('FloorStage', () => {
     expect(target.querySelector('.hint')).toBeNull();
     await settle();
     expect(target.querySelector('.loading')).toBeNull();
-    expect(text(target.querySelector('.hint'))).toBe('Drag to turn and tilt · scroll to zoom · right-drag to pan · double-click a desk or a room for its pane');
+    expect(text(target.querySelector('.hint'))).toBe('Drag to turn and tilt · scroll to zoom · right-drag or arrows to pan · double-click a desk or a room for its pane');
   });
 
   it('reads the theme colours from the page', async () => {
