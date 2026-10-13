@@ -81,14 +81,14 @@ describe('startDaemon', () => {
 });
 
 describe('startDaemon and the sessions it saved', () => {
-  /** A data directory that holds one session, saved while it was working an hour ago, and a Claude directory with no session file. */
+  /** A data directory that holds one session, saved while it was working an hour ago, from a session file, and a Claude directory with no session file. */
   async function leftBehind(): Promise<{ dataDir: string; claudeDir: string }> {
     const dataDir = await tmp('shq-data-');
     const claudeDir = await tmp('shq-claude-');
     await mkdir(join(claudeDir, 'sessions'));
     const store = await Store.open(join(dataDir, 'scranton.db'));
     const cwd = '/w/alpha';
-    store.saveSessions([{ ...newSession('S1', Date.now() - 60 * 60_000, { cwd, repoRoot: cwd, repoName: 'alpha', worktree: false, branch: 'main' }), state: 'working' }], Date.now());
+    store.saveSessions([{ ...newSession('S1', Date.now() - 60 * 60_000, { cwd, repoRoot: cwd, repoName: 'alpha', worktree: false, branch: 'main' }), state: 'working', pid: 4242 }], Date.now());
     store.close();
     return { dataDir, claudeDir };
   }

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodeProjectDir, FsAdapter, type FsAdapterOptions } from '../../src/adapters/claude-code/fs-adapter.js';
@@ -104,6 +104,72 @@ describe('FsAdapter', () => {
     await a.poll();
     await a.poll();
     expect(reports).toEqual([['S1']]);
+  });
+
+  describe('a scan that could not read', () => {
+    const failures: Array<[string, (a: { dir: string }) => Promise<void>, Partial<FsAdapterOptions>]> = [
+      ['a missing sessions directory', async ({ dir }) => rm(dir, { recursive: true, force: true }), {}],
+      ['a sessions path that is not a directory', async ({ dir }) => { await rm(dir, { recursive: true, force: true }); await writeFile(dir, 'x'); }, {}],
+      ['a probe that could not run ps', async () => {}, { probe: async () => null }],
+    ];
+
+    for (const [name, breakIt, extra] of failures) {
+      it(`ends nothing and reports nothing on the first scan after ${name}, and reports on the first scan that reads`, async () => {
+        await writeSession(SESSION);
+        const dir = join(root, 'sessions');
+        const reports: string[][] = [];
+        const a = adapter({ ...extra, onFirstScan: (live) => reports.push([...live]) });
+        const saved = await readFile(join(dir, '4242.json'), 'utf8');
+        await breakIt({ dir });
+        await a.poll();
+        expect(events).toEqual([]);
+        expect(reports).toEqual([]);
+        await rm(dir, { recursive: true, force: true });
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, '4242.json'), saved);
+        const healthy = adapter({ onFirstScan: (live) => reports.push([...live]) });
+        await healthy.poll();
+        await healthy.poll();
+        expect(reports).toEqual([['S1']]);
+      });
+    }
+
+    it('ends no tracked session when a later scan could not read', async () => {
+      await writeSession(SESSION);
+      let probing = true;
+      const dir = join(root, 'sessions');
+      const a = adapter({ probe: async (pids) => (probing ? new Map(pids.map((p) => [p, T0 - 1000])) : null) });
+      await a.poll();
+      events.length = 0;
+      probing = false;
+      await a.poll();
+      expect(events).toEqual([]);
+      probing = true;
+      const saved = await readFile(join(dir, '4242.json'), 'utf8');
+      await rm(dir, { recursive: true });
+      await a.poll();
+      expect(events).toEqual([]);
+      await mkdir(dir);
+      await writeFile(join(dir, '4242.json'), saved);
+      await a.poll();
+      expect(events.filter((e) => e.type === 'session.ended')).toEqual([]);
+    });
+
+    it('still ends a tracked session once a scan that read finds it gone', async () => {
+      await writeSession(SESSION);
+      const a = adapter();
+      await a.poll();
+      events.length = 0;
+      await rm(join(root, 'sessions', '4242.json'));
+      await a.poll();
+      expect(events.map((e) => e.type)).toEqual(['session.ended']);
+    });
+
+    it('reports an empty live set when the sessions directory exists and is empty', async () => {
+      const reports: string[][] = [];
+      await adapter({ onFirstScan: (live) => reports.push([...live]) }).poll();
+      expect(reports).toEqual([[]]);
+    });
   });
 
   it('ignores a file whose pid now belongs to a newer process', async () => {

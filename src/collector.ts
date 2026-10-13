@@ -66,7 +66,7 @@ export class Collector {
   private readonly occupants = new Map<string, number>();
   /** Floors opened or forgotten since the last save. */
   private readonly dirtyFloors = new Set<string>();
-  /** Local sessions restored from the store that no source has reported since: whether their process still runs is not known yet. */
+  /** Local sessions restored from the store that a session file once showed (they have a pid) and that no source has reported since: whether their process still runs is not known yet. */
   private readonly unconfirmed = new Set<string>();
   private readonly now: () => number;
   private readonly log: (line: string) => void;
@@ -88,7 +88,7 @@ export class Collector {
       }
       this.sessions.set(s.id, s);
       this.seq = Math.max(this.seq, s.lastSeq + 1);
-      if (s.location === 'local' && s.state !== 'ended') this.unconfirmed.add(s.id);
+      if (s.location === 'local' && s.state !== 'ended' && s.pid !== null) this.unconfirmed.add(s.id);
     }
     // Their rows stay in the store, which keeps every session: say how many, once.
     if (skipped > 0) this.log(`scranton-hq skipped ${skipped === 1 ? '1 saved session whose id is' : `${skipped} saved sessions whose ids are`} not valid`);
@@ -163,8 +163,9 @@ export class Collector {
 
   /**
    * Ends the sessions restored from the store that no source has reported since and that `live` does not hold: their
-   * process exited while the daemon was down, so no adapter saw them go, and they would hold their floors for good. Each
-   * ends as of its last event, so anything newer still wins. Only the first call finds any.
+   * process exited while the daemon was down, so no adapter saw them go, and they would hold their floors for good. Only
+   * sessions a session file showed (with a pid) are judged: one seen only through hooks is left to its own end event.
+   * Each ends as of its last event, so anything newer still wins. Only the first call finds any.
    */
   endGone(live: ReadonlySet<string>): void {
     const gone = [...this.unconfirmed].filter((id) => !live.has(id));

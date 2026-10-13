@@ -182,12 +182,15 @@ describe('Collector', () => {
     store.close();
   });
 
-  it('ends the sessions it restored that nothing has reported since and whose process is gone, as of their last event', async () => {
+  it('ends the sessions it restored from a session file that nothing has reported since and whose process is gone, as of their last event', async () => {
     const store = await Store.open(':memory:');
     const a = collector({ store });
-    await a.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A1', cwd: '/w/alpha', ts: NOW }));
-    await a.ingest(hook({ type: 'prompt', text: 'b', sessionId: 'B1', cwd: '/w/beta', ts: NOW + 10 }));
-    await a.ingest(hook({ type: 'prompt', text: 'c', sessionId: 'C1', cwd: '/w/gamma', ts: NOW + 20 }));
+    const ws = (cwd: string) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
+    const seen = (sessionId: string, cwd: string, ts: number, pid: number) => ({ type: 'session.seen', sessionId, ts, source: 'fs', cwd, workspace: ws(cwd), pid, name: null, tmuxPane: null, tmuxSession: null, transcriptPath: null, startedAt: ts }) as RawEvent;
+    await a.ingest(seen('A1', '/w/alpha', NOW, 101));
+    await a.ingest(seen('B1', '/w/beta', NOW + 10, 102));
+    await a.ingest(seen('C1', '/w/gamma', NOW + 20, 103));
+    await a.ingest(hook({ type: 'prompt', text: 'h', sessionId: 'H1', cwd: '/w/hooks', ts: NOW + 25 }));
     await a.close();
     store.saveSessions([{ ...newSession('R1', NOW, { cwd: '/w/delta', repoRoot: '/w/delta', repoName: 'delta', worktree: false, branch: 'main' }), location: 'cloud', state: 'working' }], NOW);
 
@@ -196,11 +199,11 @@ describe('Collector', () => {
     b.endGone(new Set(['B1']));
     await b.idle();
     expect(b.view('A1')).toMatchObject({ state: 'ended', stateSince: NOW });
-    expect(b.liveViews().map((v) => v.id)).toEqual(['B1', 'C1', 'R1']);
-    expect(b.snapshot().floors.map((f) => f.key)).toEqual(['repo:/w/gamma', 'repo:/w/beta', 'repo:/w/delta']);
+    expect(b.view('H1')).toMatchObject({ state: 'working' });
+    expect(b.liveViews().map((v) => v.id)).toEqual(['B1', 'C1', 'H1', 'R1']);
     b.endGone(new Set());
     await b.idle();
-    expect(b.liveViews().map((v) => v.id)).toEqual(['B1', 'C1', 'R1']);
+    expect(b.liveViews().map((v) => v.id)).toEqual(['B1', 'C1', 'H1', 'R1']);
     await b.close();
     store.close();
   });

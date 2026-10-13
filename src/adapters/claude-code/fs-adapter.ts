@@ -89,7 +89,10 @@ export class FsAdapter {
   private async scan(): Promise<void> {
     const now = this.now();
     const files = await readSessionsDir(join(this.o.claudeDir, 'sessions'));
+    if (!files) return;
     const starts = await this.probe(files.map((f) => f.pid), now);
+    // A scan that could not read looks like "no live session": it changes nothing, so it cannot end any.
+    if (!starts) return;
     const live = new Set<string>();
 
     for (const f of files) {

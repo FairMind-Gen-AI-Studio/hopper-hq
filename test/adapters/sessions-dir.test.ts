@@ -77,9 +77,17 @@ describe('readSessionsDir', () => {
     await writeFile(join(dir, '1.json'), JSON.stringify({ pid: 1, sessionId: 'A', cwd: '/w' }));
     await writeFile(join(dir, '2.json'), '{broken');
     await writeFile(join(dir, '1.abc.key'), 'secret');
-    const files = await readSessionsDir(dir);
+    const files = (await readSessionsDir(dir))!;
     expect(files.map((f) => f.sessionId)).toEqual(['A']);
-    expect(await readSessionsDir(join(dir, 'missing'))).toEqual([]);
+    expect(await readSessionsDir(dir)).toHaveLength(1);
+  });
+
+  it('tells a directory it could not read from an empty one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'shq-sessions-'));
+    expect(await readSessionsDir(dir)).toEqual([]);
+    expect(await readSessionsDir(join(dir, 'missing'))).toBeNull();
+    await writeFile(join(dir, 'file'), 'x');
+    expect(await readSessionsDir(join(dir, 'file'))).toBeNull();
   });
 });
 
@@ -97,13 +105,24 @@ describe('parseEtime', () => {
 describe('psProbe', () => {
   it('finds the start time of a running process and ignores unknown pids', async () => {
     const now = Date.now();
-    const starts = await psProbe([process.pid, 999_999_999], now);
+    const starts = (await psProbe([process.pid, 999_999_999], now))!;
     const mine = starts.get(process.pid);
     expect(mine).toBeDefined();
     expect(mine!).toBeLessThanOrEqual(now);
     expect(mine!).toBeGreaterThan(now - 24 * 60 * 60 * 1000);
     expect(starts.has(999_999_999)).toBe(false);
-    expect((await psProbe([], now)).size).toBe(0);
+    expect((await psProbe([], now))!.size).toBe(0);
+  });
+
+  it('tells a ps that could not run from no running process', async () => {
+    const path = process.env.PATH;
+    process.env.PATH = await mkdtemp(join(tmpdir(), 'shq-nops-'));
+    try {
+      expect(await psProbe([process.pid], Date.now())).toBeNull();
+      expect((await psProbe([], Date.now()))!.size).toBe(0);
+    } finally {
+      process.env.PATH = path;
+    }
   });
 });
 

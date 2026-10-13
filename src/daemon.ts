@@ -125,7 +125,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
         claudeDir: paths.claudeDir,
         emit: (e) => void collector.ingest(e),
         resolveWorkspace,
-        // A session that exited while the daemon was down left no live process: once the first scan has found the live ones, it ends.
+        // A session a session file showed that exited while the daemon was down left no live process: once the first scan that read has found the live ones, it ends.
         onFirstScan: (live) => collector.endGone(live),
       });
   fsAdapter?.start();

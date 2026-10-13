@@ -61,12 +61,13 @@ export function parseSessionFile(file: string, text: string): LiveSessionFile | 
   };
 }
 
-export async function readSessionsDir(dir: string): Promise<LiveSessionFile[]> {
+/** The session files in the directory, or null when it could not be read: that is not the same as no live session. */
+export async function readSessionsDir(dir: string): Promise<LiveSessionFile[] | null> {
   let names: string[];
   try {
     names = (await readdir(dir)).filter((n) => n.endsWith('.json')).sort();
   } catch {
-    return [];
+    return null;
   }
   const out: LiveSessionFile[] = [];
   for (const n of names) {
@@ -81,8 +82,8 @@ export async function readSessionsDir(dir: string): Promise<LiveSessionFile[]> {
   return out;
 }
 
-/** pid -> process start time in ms, for the pids that are running. */
-export type ProcessProbe = (pids: number[], now: number) => Promise<Map<number, number>>;
+/** pid -> process start time in ms, for the pids that are running; null when ps could not tell. */
+export type ProcessProbe = (pids: number[], now: number) => Promise<Map<number, number> | null>;
 
 /** Parses ps etime, "[[dd-]hh:]mm:ss", into seconds. */
 export function parseEtime(etime: string): number | null {
@@ -97,12 +98,15 @@ export const psProbe: ProcessProbe = async (pids, now) => {
   const wanted = new Set(pids.filter((p) => Number.isInteger(p) && p > 0));
   if (wanted.size === 0) return out;
   let stdout = '';
+  let ran = true;
   try {
     // Every process in one call: a pid list makes ps fail outright (and print nothing) when one pid is out of range.
     ({ stdout } = await execFileP('ps', ['-A', '-o', 'pid=,etime='], { maxBuffer: 16 * 1024 * 1024 }));
   } catch (err) {
     stdout = (err as { stdout?: string }).stdout ?? '';
+    ran = stdout.trim() !== '';
   }
+  if (!ran) return null;
   for (const line of stdout.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(\S+)$/);
     if (!m || !wanted.has(Number(m[1]))) continue;
