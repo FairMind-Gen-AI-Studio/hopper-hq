@@ -5,6 +5,7 @@ import type { WorkspaceResolver } from '../git.js';
 import { readHeadLines, readNewLines, readTailLines, type TailState } from './jsonl.js';
 import { isSameProcess, psProbe, readSessionsDir, type LiveSessionFile, type ProcessProbe } from './sessions-dir.js';
 import { parseTranscriptLine } from './transcript.js';
+import { WorkflowScanner } from './workflows.js';
 
 export interface FsAdapterOptions {
   claudeDir: string;
@@ -20,6 +21,8 @@ export interface FsAdapterOptions {
   transcriptRetryMs?: number;
   /** Called once, after the first scan that completes, with the sessions whose process is alive: any other has exited. */
   onFirstScan?: (live: ReadonlySet<string>) => void;
+  /** The workflow runs the collector holds as running on disk for a session, asked when the adapter starts tracking it. */
+  openRuns?: (sessionId: string) => readonly string[];
 }
 
 interface Tracked {
@@ -30,6 +33,7 @@ interface Tracked {
   statusAt: number | null;
   children: Map<string, boolean>;
   metas: Map<string, { type: string; description: string | null }>;
+  workflows: WorkflowScanner;
   lastSubagentScan: number;
   lastTranscriptLookup: number;
   ended: boolean;
@@ -152,6 +156,8 @@ export class FsAdapter {
       statusAt: null,
       children: new Map(),
       metas: new Map(),
+      // A session file that does not say when its process started: runs count from when the session was first seen.
+      workflows: new WorkflowScanner({ sessionId: f.sessionId, cwd: f.cwd, since: f.startedAt || now, open: this.o.openRuns?.(f.sessionId) ?? [], emit: this.o.emit }),
       lastSubagentScan: 0,
       lastTranscriptLookup: now,
       ended: false,
@@ -207,6 +213,7 @@ export class FsAdapter {
   private handleLine(t: Tracked, line: string): void {
     const parsed = parseTranscriptLine(line, t.file.sessionId, t.file.cwd);
     for (const e of parsed.events) this.o.emit({ ...e, cwd: t.file.cwd });
+    for (const launch of parsed.launches ?? []) t.workflows.noteLaunch(launch);
     if (parsed.branch && parsed.branch !== t.branch) {
       t.branch = parsed.branch;
       this.o.emit({ type: 'branch', sessionId: t.file.sessionId, ts: parsed.ts ?? this.now(), source: 'fs', cwd: t.file.cwd, branch: parsed.branch });
@@ -233,7 +240,12 @@ export class FsAdapter {
   private async scanSubagents(t: Tracked, now: number): Promise<void> {
     if (!t.transcript || now - t.lastSubagentScan < (this.o.subagentScanMs ?? 3000)) return;
     t.lastSubagentScan = now;
-    const dir = join(dirname(t.transcript), basename(t.transcript, '.jsonl'), 'subagents');
+    const sessionDir = join(dirname(t.transcript), basename(t.transcript, '.jsonl'));
+    await this.scanChildren(t, join(sessionDir, 'subagents'), now);
+    await t.workflows.scan(sessionDir, now);
+  }
+
+  private async scanChildren(t: Tracked, dir: string, now: number): Promise<void> {
     let names: string[];
     try {
       names = await readdir(dir);
