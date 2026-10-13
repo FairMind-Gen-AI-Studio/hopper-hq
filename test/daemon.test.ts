@@ -230,6 +230,8 @@ describe('startDaemon and summaries', () => {
       await vi.waitFor(() => expect(d.collector.session('S1')).not.toBeNull(), { timeout: 5000 });
       await d.collector.idle();
       expect([d.collector.session('X1'), d.collector.session('X2'), d.collector.liveViews().map((v) => v.id)]).toEqual([null, null, ['S1']]);
+      // The filesystem adapter leaves them out itself: the collector had nothing of theirs to drop.
+      expect(d.collector.ignored).toBe(0);
     } finally {
       await d.stop();
     }

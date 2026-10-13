@@ -24,15 +24,18 @@ function firstLine(text: string): string {
 const KILL_AFTER_MS = 5000;
 /** What ties a child to the Claude Code session that started the daemon, and the API key, which `-p` would bill. */
 const SESSION_ENV = new Set(['CLAUDECODE', 'AI_AGENT', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT', 'ANTHROPIC_API_KEY']);
-/** The CLAUDE_CODE_* variables that choose where claude sends its requests: the others belong to a session. */
-const PROVIDER_ENV = new Set(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']);
+/**
+ * The CLAUDE_CODE_* variables of that session. The others say how claude signs in, how it reaches the API and where it
+ * sends its requests, and stay.
+ */
+const SESSION_CLAUDE_CODE_ENV = /^CLAUDE_CODE_(ENTRYPOINT|EXECPATH|CHILD_SESSION|BRIDGE_SESSION_ID|SESSION_[A-Z_]+|SESSION_ID|MESSAGING_[A-Z_]+|SSE_PORT)$/;
 
 /**
  * The environment of a summary's claude: the daemon's, without what ties it to the session that started the daemon or
  * bills the API key, and marked as the summarizer's.
  */
 function summarizerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const kept = Object.entries(env).filter(([name]) => !SESSION_ENV.has(name) && (!name.startsWith('CLAUDE_CODE_') || PROVIDER_ENV.has(name)));
+  const kept = Object.entries(env).filter(([name]) => !SESSION_ENV.has(name) && !SESSION_CLAUDE_CODE_ENV.test(name));
   return { ...Object.fromEntries(kept), SCRANTON_HQ_SUMMARIZER: '1' };
 }
 

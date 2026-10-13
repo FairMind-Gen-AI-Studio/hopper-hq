@@ -87,7 +87,7 @@ describe('claudeCliProvider', () => {
     expect((await s.call()).argv[6]).toBe('');
   });
 
-  it('runs claude apart from the session that started the daemon, and off the API key, keeping the rest of the environment', async () => {
+  it('runs claude apart from the session that started the daemon and off the API key, keeping how it signs in and connects, and the rest of the environment', async () => {
     const s = await standIn();
     // A made-up environment, like that of a daemon started from inside a Claude Code session; never this process's.
     const env = {
@@ -95,12 +95,21 @@ describe('claudeCliProvider', () => {
       CLAUDECODE: '1', AI_AGENT: 'claude-code', CLAUDE_PID: '4242', CLAUDE_EFFORT: 'high',
       CLAUDE_PLUGIN_DATA: '/home/dev/.claude/plugins/data/x', CLAUDE_PLUGIN_ROOT: '/home/dev/.claude/plugins/x',
       ANTHROPIC_API_KEY: 'sk-ant-made-up-0000',
-      CLAUDE_CODE_SESSION_ID: '11111111-1111-4111-8111-111111111111', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_MESSAGING_SOCKET: '/home/dev/cc.sock',
+      CLAUDE_CODE_SESSION_ID: '11111111-1111-4111-8111-111111111111', CLAUDE_CODE_SESSION_ATTENDED: '1', CLAUDE_CODE_ENTRYPOINT: 'cli',
+      CLAUDE_CODE_EXECPATH: '/home/dev/.local/bin/claude', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_CODE_SSE_PORT: '41234',
+      CLAUDE_CODE_BRIDGE_SESSION_ID: '22222222-2222-4222-8222-222222222222',
+      CLAUDE_CODE_MESSAGING_SOCKET: '/home/dev/cc.sock', CLAUDE_CODE_MESSAGING_TOKEN: 'made-up-0000',
+      // How claude signs in, reaches the API and picks its provider: none of it belongs to the session.
+      CLAUDE_CODE_OAUTH_TOKEN: 'made-up-oauth-0000', CLAUDE_CODE_OAUTH_REFRESH_TOKEN: 'made-up-refresh-0000',
+      CLAUDE_CODE_CLIENT_CERT: '/home/dev/certs/client.pem', CLAUDE_CODE_CLIENT_KEY: '/home/dev/certs/client.key', CLAUDE_CODE_CERT_STORE: 'system',
+      CLAUDE_CODE_API_KEY_HELPER_TTL_MS: '60000', CLAUDE_CODE_PROXY_RESOLVES_HOSTS: '1',
       CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '1',
     };
     await claudeCliProvider({ command: s.command, model: null, cwd: s.dir, env }).summarize('notes', live());
     const names: string[] = JSON.parse(await readFile(join(s.dir, 'names.json'), 'utf8'));
     expect(names.filter((n) => n in env || n === 'SCRANTON_HQ_SUMMARIZER')).toEqual([
+      'CLAUDE_CODE_API_KEY_HELPER_TTL_MS', 'CLAUDE_CODE_CERT_STORE', 'CLAUDE_CODE_CLIENT_CERT', 'CLAUDE_CODE_CLIENT_KEY',
+      'CLAUDE_CODE_OAUTH_REFRESH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_PROXY_RESOLVES_HOSTS',
       'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CONFIG_DIR', 'HOME', 'PATH', 'SCRANTON_HQ_SUMMARIZER', 'STANDIN_MARKER',
     ]);
     expect((await s.call()).env).toEqual({ SCRANTON_HQ_SUMMARIZER: '1', STANDIN_MARKER: 'm2' });
