@@ -101,6 +101,9 @@ Usage:
 
 class UsageError extends Error {}
 
+/** The lock file cannot be opened: whether a daemon holds the directory is not known, which is not the same as free. */
+class LockFileError extends Error {}
+
 function version(): string {
   return (createRequire(import.meta.url)('../package.json') as { version: string }).version;
 }
@@ -147,6 +150,10 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
       io.err((err as Error).message);
       io.err(HELP);
       return 2;
+    }
+    if (err instanceof LockFileError) {
+      io.err(err.message);
+      return 1;
     }
     throw err;
   }
@@ -267,7 +274,11 @@ async function held(dataDir: string): Promise<boolean> {
   // The lock is SQLite's, and Node 22 warns that node:sqlite is experimental: nothing a command should print.
   const { silenceExperimentalWarnings } = await import('./daemon.js');
   silenceExperimentalWarnings();
-  return dataDirInUse(dataDir);
+  try {
+    return await dataDirInUse(dataDir);
+  } catch (err) {
+    throw new LockFileError(`Cannot read ${join(dataDir, 'daemon.lock')}: ${(err as Error).message}. Check its owner and permissions.`);
+  }
 }
 
 /** Asks the daemon to stop and waits until it has. No signal is sent: a process id in a file can be stale, or reused. */

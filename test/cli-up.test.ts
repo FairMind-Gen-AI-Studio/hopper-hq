@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { spawn, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { writeSync } from 'node:fs';
-import { appendFile, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -111,6 +111,15 @@ describe('up', () => {
     } finally {
       await close(server);
     }
+  });
+
+  it('names the lock file it cannot open when the daemon stops while starting', async () => {
+    const dataDir = await tmp('shq-up-');
+    await mkdir(join(dataDir, 'daemon.lock'));
+    const c = capture();
+    const spawnDaemon = async (): Promise<Background> => ({ exited: Promise.resolve(), stop: () => {} });
+    expect(await main(['up', '--no-open', '--data-dir', dataDir], { ...c.io, spawnDaemon, clock: fakeClock() })).toBe(1);
+    expect(c.err).toEqual([`Cannot read ${join(dataDir, 'daemon.lock')}: unable to open database file. Check its owner and permissions.`]);
   });
 
   it('says why when the daemon stops while starting, with only what it wrote this time', async () => {

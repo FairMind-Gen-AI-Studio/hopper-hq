@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { createServer, type RequestListener } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,6 +86,14 @@ describe('down', () => {
     } finally {
       lock.release();
     }
+  });
+
+  it('names the lock file it cannot open, rather than treating the directory as free', async () => {
+    const d = await pointedAt(null);
+    await mkdir(join(d.dataDir, 'daemon.lock'));
+    const c = capture();
+    expect(await main(['down', '--data-dir', d.dataDir], c.io)).toBe(1);
+    expect(c.err).toEqual([`Cannot read ${join(d.dataDir, 'daemon.lock')}: unable to open database file. Check its owner and permissions.`]);
   });
 
   it('leaves a daemon older than down alone, and says how to stop it', async () => {
