@@ -263,6 +263,30 @@ describe('the label layer', () => {
       expect(calls).toEqual([]);
     });
 
+    it('gives the stop to the earlier of two tags on the view that are equally near it in floor order', () => {
+      const { labels } = layer();
+      const floor = checkoutFloor();
+      const desks = desksOf(floor);
+      // The third desk stands at the far end of the floor, away from its neighbours in floor order.
+      desks[2]!.rect = desks[desks.length - 1]!.rect;
+      labels.sync(floor);
+      labels.setSelected(desks[2]!.sessionId);
+      // A top-down camera over the second and the fourth desk, which are one step either side of it in floor order.
+      const a = labelAnchor(desks[1]!);
+      const b = labelAnchor(desks[3]!);
+      const camera = new OrthographicCamera(-4.6, 4.6, 4.6, -4.6, 0.1, 100);
+      camera.position.set((a.x + b.x) / 2, 10, a.z);
+      camera.up.set(0, 0, -1);
+      camera.lookAt((a.x + b.x) / 2, 0, a.z);
+      camera.updateMatrixWorld();
+      labels.position(camera, 800, 500);
+      const shown = desks.filter((d) => labels.tag(d.sessionId)!.style.visibility === '').map((d) => d.sessionId);
+      expect(shown).toContain(desks[1]!.sessionId);
+      expect(shown).toContain(desks[3]!.sessionId);
+      expect(shown).not.toContain(desks[2]!.sessionId);
+      expect(stops(labels)).toEqual([desks[1]!.sessionId]);
+    });
+
     it('leaves the stop alone while its tag stays on the view', () => {
       const { labels } = layer();
       labels.sync(checkoutFloor());

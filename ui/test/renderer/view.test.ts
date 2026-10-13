@@ -412,6 +412,27 @@ describe('the floor view', () => {
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
   });
 
+  it('hands the focus to the canvas when the focused tag leaves the view and no tag is left on it', () => {
+    const { env, view, canvas, labels } = setup();
+    canvas.tabIndex = -1;
+    // Two desks at the far ends of a wide floor: zoomed in on its centre, neither is on the view.
+    const floor = makeFloor([{ key: '/demo/repo', repo: 'repo', color: 1, tie: 4, desks: [{ id: 'd1', state: 'idle' }, { id: 'd2', state: 'idle' }] }]);
+    const [first, second] = desksOf(floor);
+    first!.rect = { ...first!.rect, x: 0 };
+    second!.rect = { ...second!.rect, x: 100 };
+    floor.size = { w: 102, h: floor.size.h };
+    view.setFloor(floor);
+    env.flush();
+    const tags = [...labels.querySelectorAll<HTMLElement>('[data-session]')];
+    const tag = tags[0]!;
+    tag.focus();
+    expect(document.activeElement).toBe(tag);
+    for (let i = 0; i < 12; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -1000, bubbles: true, cancelable: true }));
+    env.flush();
+    expect(tags.filter((t) => t.style.visibility === '')).toEqual([]);
+    expect(document.activeElement).toBe(canvas);
+  });
+
   it('shows only the dots of the tags while the floor is small on screen', () => {
     const { env, view, canvas, labels } = setup();
     view.setFloor(checkoutFloor());
