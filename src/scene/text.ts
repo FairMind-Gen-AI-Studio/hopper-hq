@@ -14,9 +14,10 @@ const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
 /**
  * Format characters. Bidirectional ones can make text read differently from what it is; others are invisible: zero-width
  * spaces, word joiners, soft hyphens, the language tag. The zero-width non-joiner and joiner stay: emoji and some scripts
- * need them. So do the tag characters U+E0020 to U+E007F, which draw subdivision flags such as Scotland's.
+ * need them. The tag characters U+E0020 to U+E007F stay only in a subdivision flag, such as Scotland's: U+1F3F4, tag
+ * letters, then the cancel tag U+E007F (group 1, kept whole). Anywhere else they would hide ASCII text, and go.
  */
-const FORMAT = /(?![\u200C\u200D\u{E0020}-\u{E007F}])\p{Cf}/gu;
+const FORMAT = /(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|(?![\u200C\u200D])\p{Cf}/gu;
 
 /** Cap for keys and ids: 256 code points are at most 512 UTF-16 code units, the longest key GET /api/floor accepts. */
 export const KEY_MAX = 256;
@@ -31,7 +32,7 @@ export function cleanText(input: unknown, max = 200): string {
     typeof input === 'string' ? input : typeof input === 'number' || typeof input === 'boolean' || typeof input === 'bigint' ? String(input) : '';
   // Lone surrogates first, so the rest sees whole characters; then whitespace, so a carriage return or a form feed
   // separates words instead of joining them.
-  const text = raw.replace(SURROGATES, (s) => (s.length === 2 ? s : '\uFFFD')).replace(SPACE, ' ').replace(CONTROL, '').replace(FORMAT, '').replace(/ {2,}/g, ' ').trim();
+  const text = raw.replace(SURROGATES, (s) => (s.length === 2 ? s : '\uFFFD')).replace(SPACE, ' ').replace(CONTROL, '').replace(FORMAT, (match, flag) => (flag ? match : '')).replace(/ {2,}/g, ' ').trim();
   if (text.length <= max) return text;
   const points = Array.from(text);
   if (points.length <= max) return text;
