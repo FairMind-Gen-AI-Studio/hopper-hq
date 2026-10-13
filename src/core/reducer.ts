@@ -75,7 +75,12 @@ function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { update
     };
     children = [...s.children, child];
   } else {
-    children = s.children.map((c, k) => (k === i ? { ...c, ...patch } : c));
+    children = s.children.map((c, k) => {
+      if (k !== i) return c;
+      // An event's word on a subagent is newer than what it was restored with.
+      const { restored: _restored, ...known } = c;
+      return { ...known, ...patch };
+    });
   }
   if (children.length > MAX_CHILDREN) {
     const drop = children.findIndex((c) => !c.running);
@@ -247,9 +252,10 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
       // A run id that is not one makes a plain subagent. An agent a run already has stays the run's, whoever reports it.
       const runId = e.runId && RUN_ID.test(e.runId) ? e.runId : runOfAgent(s, e.agentId)?.id;
       if (runId) return startRunAgent(s, e, runId);
-      // A subagent a hook ended does not start again on the filesystem's word of a transcript written before that end.
+      // A subagent a hook ended does not start again on the filesystem's word of a transcript written before that end. One
+      // a restart stopped was not ended: the filesystem may start it on a transcript as old as what the store kept of it.
       const known = s.children.find((c) => c.id === e.agentId);
-      if (e.source === 'fs' && known && !known.running && known.updatedAt >= e.ts) return s;
+      if (e.source === 'fs' && known && !known.running && !known.restored && known.updatedAt >= e.ts) return s;
       return withChild(s, e.agentId, { type: e.agentType, description: e.description, running: true, updatedAt: e.ts });
     }
     case 'agent.finished':
@@ -394,17 +400,16 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
 
 /**
  * A session as the store kept it, ready for this version: what a row saved by an older version lacks takes its default.
- * Nothing says its subagents still run: they start as not running, and the filesystem scan and the next hook event mark
- * the live ones again. So do the agents of a run seen only through the mod, which count as finished. A run the
- * filesystem confirmed keeps its agents as stored: its journal and its end file, read again, correct them. Runs keep
- * their status. A meeting that
- * nothing holds any more ended while the daemon was away: the session is done, as of when its meeting began, so it is
- * no news.
+ * Its subagents that ran are marked restored and run on, holding a meeting as before, until they are settled
+ * (settleRestored): the filesystem's first scan and the next hook event report on the live ones first. The agents of a
+ * run seen only through the mod stop, and count as finished. A run the filesystem confirmed keeps its agents as stored:
+ * its journal and its end file, read again, correct them. Runs keep their status. A meeting that nothing holds any more
+ * ended while the daemon was away: the session is done, as of when its meeting began, so it is no news.
  */
 export function normalizeSession(raw: Session): Session {
   const s: Session = {
     ...raw,
-    children: (raw.children ?? []).map((c) => (c.running ? { ...c, running: false } : c)),
+    children: (raw.children ?? []).map((c) => (c.running ? { ...c, restored: true } : c)),
     runs: (raw.runs ?? []).map((r) => (r.onDisk ? r : stopAgents(r, -Infinity))),
     recentActions: raw.recentActions ?? [],
     lastAnswer: raw.lastAnswer ?? null,
@@ -413,6 +418,17 @@ export function normalizeSession(raw: Session): Session {
     summary: raw.summary ?? null,
   };
   return s.state === 'in_meeting' && !liveWork(s) ? { ...s, state: 'done' } : s;
+}
+
+/**
+ * Stops the restored subagents that nothing has reported on since the restart: no sign says they still run. A meeting
+ * only they held ended while the daemon was away: the session is done, as of when its meeting began, so it is no news.
+ * The same session when there is nothing to stop.
+ */
+export function settleRestored(s: Session): Session {
+  if (!s.children.some((c) => c.running && c.restored)) return s;
+  const settled = { ...s, children: s.children.map((c) => (c.running && c.restored ? { ...c, running: false } : c)) };
+  return settled.state === 'in_meeting' && !liveWork(settled) ? { ...settled, state: 'done' } : settled;
 }
 
 /** The user has looked at a finished session. Only 'done' sessions change; a 'done' stamped ahead of this clock counts as seen from its own time. */

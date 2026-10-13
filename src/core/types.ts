@@ -43,6 +43,12 @@ export interface ChildAgent {
   running: boolean;
   lastAction: string | null;
   updatedAt: number;
+  /**
+   * Set when it was running as the daemon restored it from the store, until an event reports on it: what the store kept is
+   * the last word on it. It runs on until the restored subagents are settled, and once stopped that way, the filesystem
+   * may start it again on a transcript written before its last update.
+   */
+  restored?: boolean;
 }
 
 export interface OpenTool {

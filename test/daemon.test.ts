@@ -362,6 +362,83 @@ describe('startDaemon and summaries', () => {
     }
   });
 
+  it('keeps a session in the meeting its background subagent still holds across a restart, and stops the restored subagents the first scan finds no sign of', async () => {
+    const dataDir = await tmp('shq-data-');
+    const claudeDir = await tmp('shq-claude-');
+    // Whole seconds: file times keep them exactly.
+    const now = Math.floor(Date.now() / 1000) * 1000;
+    const [meetingAt, heard, written, longAgo] = [now - 30_000, now - 25_000, now - 20_000, now - 5 * 60 * 60 * 1000];
+    await mkdir(join(claudeDir, 'sessions'));
+    const rows: Session[] = [];
+    // S1 and S2 wait in a meeting on a background subagent that wrote its transcript 20 s ago. The store last heard of it
+    // before that write (S1) or at it (S2). S3's meeting began 5 h ago, and its subagent has written nothing since. Each
+    // session file says the main turn ended when the meeting began: read again, that must not end the meeting.
+    for (const [id, since, lastHeard, wrote] of [['S1', meetingAt, heard, written], ['S2', meetingAt, written, written], ['S3', longAgo, longAgo, longAgo]] as const) {
+      const cwd = `/home/dev/billing-${id.toLowerCase()}`;
+      const project = join(claudeDir, 'projects', encodeProjectDir(cwd));
+      const subagents = join(project, id, 'subagents');
+      await mkdir(subagents, { recursive: true });
+      await writeFile(join(project, `${id}.jsonl`), '');
+      await writeFile(join(subagents, 'agent-bg1.meta.json'), JSON.stringify({ agentType: 'general-purpose', description: 'Audit the invoices' }));
+      await writeFile(join(subagents, 'agent-bg1.jsonl'), '{}\n');
+      await utimes(join(subagents, 'agent-bg1.jsonl'), wrote / 1000, wrote / 1000);
+      await writeFile(join(claudeDir, 'sessions', `${id}.json`), JSON.stringify({ pid: process.pid, sessionId: id, cwd, status: 'idle', statusUpdatedAt: since }));
+      rows.push({
+        ...newSession(id, since - 60_000, { cwd, repoRoot: cwd, repoName: `billing-${id.toLowerCase()}`, worktree: false, branch: 'main' }),
+        pid: process.pid, title: 'Audit the invoices', state: 'in_meeting', stateSince: since, backgroundTasks: 1, lastEventAt: since, lastSeq: 5,
+        children: [{ id: 'bg1', type: 'general-purpose', description: 'Audit the invoices', running: true, lastAction: null, updatedAt: lastHeard }],
+      });
+    }
+    // S4's process is gone, and so is its session file: it ends once the first scan is over.
+    const shop = '/home/dev/shop';
+    rows.push({ ...newSession('S4', meetingAt, { cwd: shop, repoRoot: shop, repoName: 'shop', worktree: false, branch: 'main' }), pid: process.pid, state: 'done', stateSince: meetingAt, seenAt: meetingAt });
+    const store = await Store.open(join(dataDir, 'scranton.db'));
+    store.saveSessions(rows, Date.now());
+    store.close();
+    await writeSummaryConfig(dataDir, { enabled: true });
+    const s = standIn(async () => 'Waits for the invoice audit.');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir, log: quiet, summarizer: { provider: s.provider, settleMs: 0 } });
+    try {
+      await vi.waitFor(() => expect(d.collector.session('S4')?.state).toBe('ended'), { timeout: 5000 });
+      await d.collector.idle();
+      const shown = (id: string) => {
+        const v = d.collector.view(id)!;
+        return [id, v.state, v.stateSince, v.seenAt, v.effectiveState, v.children.map((c) => [c.id, c.type, c.running, c.updatedAt, c.restored ?? false])];
+      };
+      expect(['S1', 'S2', 'S3'].map(shown)).toEqual([
+        ['S1', 'in_meeting', meetingAt, null, 'in_meeting', [['bg1', 'general-purpose', true, written, false]]],
+        ['S2', 'in_meeting', meetingAt, null, 'in_meeting', [['bg1', 'general-purpose', true, written, false]]],
+        // Its meeting ended while the daemon was away, as of when it began: no news.
+        ['S3', 'done', longAgo, null, 'idle', [['bg1', 'general-purpose', false, longAgo, true]]],
+      ]);
+      expect(d.collector.attentionSummary().items).toEqual([]);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect([s.configs, s.signals]).toEqual([[], []]);
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('stops the subagents a session was saved with as it starts when it does not watch the files', async () => {
+    const dataDir = await tmp('shq-data-');
+    const cwd = '/home/dev/billing-svc';
+    const now = Date.now();
+    const store = await Store.open(join(dataDir, 'scranton.db'));
+    store.saveSessions([{
+      ...newSession('S1', now - 60_000, { cwd, repoRoot: cwd, repoName: 'billing-svc', worktree: false, branch: 'main' }),
+      pid: process.pid, state: 'in_meeting', stateSince: now - 30_000, lastEventAt: now - 30_000,
+      children: [{ id: 'bg1', type: 'general-purpose', description: 'Audit the invoices', running: true, lastAction: null, updatedAt: now - 20_000 }],
+    }], now);
+    store.close();
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    try {
+      const s = d.collector.session('S1')!;
+      expect([s.state, s.stateSince, s.children.map((c) => c.running)]).toEqual(['done', now - 30_000, [false]]);
+    } finally {
+      await d.stop();
+    }
+  });
+
   it('summarizes the demo with its own lines', async () => {
     const dataDir = await tmp('shq-demo-');
     const d = await startDaemon({ demo: true, port: 0, dataDir, log: quiet, summarizer: { settleMs: 0 } });

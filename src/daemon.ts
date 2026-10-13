@@ -137,7 +137,9 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
-  const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log, ignoreCwd });
+  const watchFiles = !opts.demo && opts.watchFiles !== false;
+  // Restored subagents run on until the first scan has reported on them; with no scan to come, they stop at once.
+  const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log, ignoreCwd, holdRestored: watchFiles });
   const summarizer = new Summarizer({
     source: collector,
     config: opts.demo ? async () => DEMO_SUMMARY_CONFIG : cachedSummaryConfig(paths.dataDir),
@@ -177,7 +179,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
     throw err;
   }
 
-  const fsAdapter = opts.demo || opts.watchFiles === false
+  const fsAdapter = !watchFiles
     ? null
     : new FsAdapter({
         claudeDir: paths.claudeDir,
@@ -185,7 +187,11 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
         resolveWorkspace,
         ignoreCwd,
         // A session a session file showed that exited while the daemon was down left no live process: once the first scan that read has found the live ones, it ends.
-        onFirstScan: (live) => collector.endGone(live),
+        // The restored subagents that scan found no sign of stop, and so does a meeting only they held.
+        onFirstScan: (live) => {
+          collector.endGone(live);
+          void collector.settleRestored();
+        },
         // The runs a saved session holds open: the scan settles each one, even those its process left behind while the daemon was down.
         openRuns: (id) => collector.session(id)?.runs.filter((r) => r.status === 'running' && r.onDisk).map((r) => r.id) ?? [],
       });

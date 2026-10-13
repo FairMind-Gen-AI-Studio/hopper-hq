@@ -64,7 +64,10 @@ State rules (design §7, extended):
 - Over 10 runs, the oldest one that no longer goes on leaves first: a finished run, or one seen only through the mod with nothing left running. What the filesystem reads of a run the session let go of (its name, its phases) does not bring it back.
 - One definition of a run that goes on (running, and confirmed on disk or with a running agent) decides meetings, rooms and the order of a desk's runs.
 - There is no timeout on workflow agents: runs last an hour or more. Session liveness covers dead processes.
-- Children and run agents restored from the store start as not running. The fs scan and the next hook event mark live ones again within seconds, so sessions saved while stuck recover.
+- Agents of a run seen only through the mod, restored from the store, start as not running.
+- Children restored from the store that were running run on, and hold their meeting, until the first fs scan has looked at the session's subagents. Then those that neither the scan nor a hook event has reported on since the restart stop, and a meeting only they held is `done` as of when it began. Sessions saved while stuck recover, and a session that waits on a live background subagent stays in its meeting.
+  - Sessions no session file showed stop such children as they are restored, as does every session when the daemon does not watch the files: no scan will report on them.
+  - The fs may start a child that a restart stopped again on a transcript written before its last update. A child a hook ended stays ended on such a transcript.
 
 ### 2.2 Sources
 

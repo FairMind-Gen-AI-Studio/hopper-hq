@@ -1,7 +1,7 @@
 import type { WorkspaceResolver } from './adapters/git.js';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './core/feature.js';
-import { applyEvent, markSeen, normalizeSession } from './core/reducer.js';
+import { applyEvent, markSeen, normalizeSession, settleRestored } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, SessionSummary, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
 import { buildFloorDetail, buildScene } from './scene/build.js';
@@ -53,6 +53,12 @@ export interface CollectorOptions {
   log?: (line: string) => void;
   /** Events from a working directory this matches are dropped as they arrive: the summarizer's own sessions. */
   ignoreCwd?: (cwd: string) => boolean;
+  /**
+   * The sessions restored from the store that a session file showed keep the subagents that ran, and the meeting those
+   * hold, until settleRestored() runs after the first filesystem scan: the scan reports on them first. Without it, and
+   * for every other session, they stop as they are restored.
+   */
+  holdRestored?: boolean;
 }
 
 export class Collector {
@@ -91,9 +97,11 @@ export class Collector {
         skipped++;
         continue;
       }
-      this.sessions.set(s.id, normalizeSession(s));
+      const fromFile = s.location === 'local' && s.state !== 'ended' && s.pid !== null;
+      const restored = normalizeSession(s);
+      this.sessions.set(s.id, fromFile && o.holdRestored ? restored : settleRestored(restored));
       this.seq = Math.max(this.seq, s.lastSeq + 1);
-      if (s.location === 'local' && s.state !== 'ended' && s.pid !== null) this.unconfirmed.add(s.id);
+      if (fromFile) this.unconfirmed.add(s.id);
     }
     // Their rows stay in the store, which keeps every session: say how many, once.
     if (skipped > 0) this.log(`scranton-hq skipped ${skipped === 1 ? '1 saved session whose id is' : `${skipped} saved sessions whose ids are`} not valid`);
@@ -183,6 +191,26 @@ export class Collector {
       const s = this.sessions.get(id)!;
       void this.ingest({ type: 'session.ended', sessionId: id, ts: Math.max(s.lastEventAt, s.startedAt), source: 'fs', cwd: s.workspace.cwd, reason: 'process-gone' });
     }
+  }
+
+  /**
+   * Stops the restored subagents that no source has reported on since the restart, and ends a meeting only they held as
+   * of when it began. Called once the first filesystem scan has looked at them: it comes after the events ingested so
+   * far, the scan's among them. Only the first call finds any.
+   */
+  settleRestored(): Promise<void> {
+    this.queue = this.queue
+      .then(() => {
+        for (const prev of [...this.sessions.values()]) {
+          const next = settleRestored(prev);
+          if (next === prev) continue;
+          this.sessions.set(next.id, next);
+          this.changed(next.id);
+          this.sessionChanged(prev, next);
+        }
+      })
+      .catch((err: unknown) => this.log(`scranton-hq could not settle restored subagents: ${err instanceof Error ? err.message : String(err)}`));
+    return this.queue;
   }
 
   private async apply(e: CollectorEvent): Promise<void> {

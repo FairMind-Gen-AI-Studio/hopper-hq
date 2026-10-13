@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANSWER_MAX, applyEvent, markSeen, MAX_RECENT_ACTIONS, normalizeSession } from '../../src/core/reducer.js';
+import { ANSWER_MAX, applyEvent, markSeen, MAX_RECENT_ACTIONS, normalizeSession, settleRestored } from '../../src/core/reducer.js';
 import type { Session } from '../../src/core/types.js';
 import { ev, seen, WS } from '../helpers/events.js';
 
@@ -184,6 +184,26 @@ describe('applyEvent', () => {
     expect([s.state, s.children.map((c) => [c.running, c.updatedAt])]).toEqual(['done', [[true, 1300]]]);
   });
 
+  it('starts again a subagent a restart stopped, on the word of a transcript as old as what the store last heard of it, but not once a hook has ended it', () => {
+    const saved = run(seen(), ev('prompt', 1050, { text: 'x' }), ev('agent.started', 1100, { agentId: 'c1', agentType: 'Explore', description: null, source: 'fs' }),
+      ev('turn.finished', 1200, { backgroundTasks: 1 }));
+    // c1 ran when the session was saved. The restart stopped it before anything reported on it, as it does in a session
+    // the first scan does not track; then the filesystem reads its transcript, last written when the store last heard of it.
+    let s: Session = { ...saved, state: 'done', children: saved.children.map((c) => ({ ...c, running: false, restored: true })) };
+    s = applyEvent(s, ev('agent.started', 1100, { agentId: 'c1', agentType: 'Explore', description: null, source: 'fs' }))!;
+    expect(s.children).toEqual(saved.children);
+    // A hook ends it: a transcript written before that end does not start it again.
+    s = applyEvent(s, ev('agent.finished', 1300, { agentId: 'c1' }))!;
+    s = applyEvent(s, ev('agent.started', 1250, { agentId: 'c1', agentType: 'Explore', description: null, source: 'fs' }))!;
+    expect(s.children).toEqual([{ ...saved.children[0]!, running: false, updatedAt: 1300 }]);
+    // One a hook ended before the restart is restored as it was, and such a transcript does not start it again either.
+    const ended = normalizeSession(run(seen(), ev('prompt', 1050, { text: 'x' }), ev('agent.started', 1100, { agentId: 'c2', agentType: 'Explore', description: null }),
+      ev('agent.finished', 1200, { agentId: 'c2' }), ev('turn.finished', 1250, { backgroundTasks: 0 })));
+    expect(applyEvent(ended, ev('agent.started', 1150, { agentId: 'c2', agentType: 'Explore', description: null, source: 'fs' }))!.children).toEqual([
+      { id: 'c2', type: 'Explore', description: null, running: false, lastAction: null, updatedAt: 1200 },
+    ]);
+  });
+
   it('a wait raised over another one is ended only by the session itself', () => {
     let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
       ev('waiting', 1200, { reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' }),
@@ -281,20 +301,26 @@ describe('what a summary reads', () => {
 });
 
 describe('normalizeSession', () => {
-  it('stops every restored subagent, and ends the meeting they held as of when it began', () => {
+  it('keeps a subagent that ran running, marked as restored, with the meeting it holds, until it is settled: it stops then, and the meeting ends as of when it began', () => {
     const s = run(seen(), ev('prompt', 1040, { text: 'x' }), ev('agent.started', 1050, { agentId: 'a1', agentType: 'Explore', description: null }),
       ev('agent.started', 1060, { agentId: 'a2', agentType: 'Plan', description: null }), ev('agent.finished', 1070, { agentId: 'a2' }),
       ev('turn.finished', 1100, { backgroundTasks: 0 }));
     expect(s).toMatchObject({ state: 'in_meeting', stateSince: 1100, seenAt: null });
     expect(s.children.map((c) => c.running)).toEqual([true, false]);
     const n = normalizeSession(s);
-    expect(n.children).toEqual(s.children.map((c) => ({ ...c, running: false })));
-    expect({ ...n, children: s.children }).toEqual({ ...s, state: 'done' });
+    expect(n).toEqual({ ...s, children: [{ ...s.children[0]!, restored: true }, s.children[1]!] });
+    const settled = settleRestored(n);
+    expect(settled.children).toEqual([{ ...s.children[0]!, running: false, restored: true }, s.children[1]!]);
+    expect({ ...settled, children: s.children }).toEqual({ ...s, state: 'done' });
+    // Settled once, there is nothing left to settle.
+    expect(settleRestored(settled)).toBe(settled);
   });
 
   it('keeps the state of a session that holds no meeting', () => {
     const working = run(seen(), ev('prompt', 1040, { text: 'x' }), ev('agent.started', 1050, { agentId: 'a1', agentType: 'Explore', description: null }));
-    expect(normalizeSession(working)).toMatchObject({ state: 'working', stateSince: 1040, children: [{ id: 'a1', running: false }] });
+    const n = normalizeSession(working);
+    expect(n).toMatchObject({ state: 'working', stateSince: 1040, children: [{ id: 'a1', running: true, restored: true }] });
+    expect(settleRestored(n)).toMatchObject({ state: 'working', stateSince: 1040, children: [{ id: 'a1', running: false, restored: true }] });
   });
 });
 

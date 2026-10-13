@@ -227,6 +227,44 @@ describe('Collector', () => {
     await b.close();
     store.close();
   });
+
+  it('keeps the subagents that ran in the sessions it restored from a session file running until the first scan has looked, then stops those nothing reported on', async () => {
+    const store = await Store.open(':memory:');
+    const ws = (cwd: string) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
+    const child = (id: string, updatedAt: number) => ({ id, type: 'Explore', description: null, running: true, lastAction: null, updatedAt });
+    const meeting = (id: string, cwd: string, pid: number | null, children: Session['children']): Session => ({
+      ...newSession(id, NOW - 9000, ws(cwd)), pid, state: 'in_meeting', stateSince: NOW - 5000, lastEventAt: NOW - 5000, children,
+    });
+    store.saveSessions([
+      meeting('A1', '/w/alpha', 101, [child('a1', NOW - 4000), child('a2', NOW - 3000)]),
+      meeting('B1', '/w/beta', 102, [child('b1', NOW - 4000)]),
+      meeting('H1', '/w/hooks', null, [child('h1', NOW - 4000)]),
+    ], NOW);
+    const c = collector({ store, holdRestored: true });
+    const shown = () => ['A1', 'B1', 'H1'].map((id) => {
+      const s = c.session(id)!;
+      return [id, s.state, s.stateSince, s.children.map((x) => [x.id, x.running, x.restored ?? false])];
+    });
+    // A session only hooks reported on settles now, as before: no scan will look at it.
+    expect(shown()).toEqual([
+      ['A1', 'in_meeting', NOW - 5000, [['a1', true, true], ['a2', true, true]]],
+      ['B1', 'in_meeting', NOW - 5000, [['b1', true, true]]],
+      ['H1', 'done', NOW - 5000, [['h1', false, true]]],
+    ]);
+    // The first scan finds a1's transcript, last written when the store last heard of it, and nothing of a2 or b1. The
+    // settling comes after every event ingested before it, even one still waiting for its session's workspace.
+    void c.ingest(hook({ type: 'prompt', text: 'go', sessionId: 'N1', cwd: '/w/new' }));
+    void c.ingest({ type: 'agent.started', sessionId: 'A1', ts: NOW - 4000, source: 'fs', cwd: '/w/alpha', agentId: 'a1', agentType: 'Explore', description: null });
+    await c.settleRestored();
+    expect(shown()).toEqual([
+      ['A1', 'in_meeting', NOW - 5000, [['a1', true, false], ['a2', false, true]]],
+      ['B1', 'done', NOW - 5000, [['b1', false, true]]],
+      ['H1', 'done', NOW - 5000, [['h1', false, true]]],
+    ]);
+    expect(c.session('B1')!.seenAt).toBeNull();
+    await c.close();
+    store.close();
+  });
 });
 
 describe('floor order', () => {
