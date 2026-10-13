@@ -319,6 +319,17 @@ describe('interns', () => {
     expect([few.interns.map((i) => i.agentId), few.internsMore]).toEqual([['r1', 'f1'], 0]);
   });
 
+  it('lists an agent of a room and an intern of a desk once, the first, when two of their ids clean to one', () => {
+    const v = view('h', ws('/w/api', 'main'), 'in_meeting', {
+      children: [child('c1', 'Explore'), child('c1\u0007', 'Plan')],
+      runs: [run('wf_0000aaaa-001', { agents: [runAgent('a1', { startedAt: NOW - 10 * MIN }), runAgent('a\u00001', { startedAt: NOW - 9 * MIN })] })],
+    });
+    const floor = buildFloorDetail([v], 'repo:/w/api')!;
+    const desk = floor.islands[0]!.desks[0]!;
+    expect([desk.interns.map((i) => [i.agentId, i.type]), desk.internsMore]).toEqual([[['c1', 'Explore']], 0]);
+    expect(floor.rooms[0]!.agents.map((a) => [a.agentId, a.running])).toEqual([['a1', true]]);
+  });
+
   it('counts running subagents and running workflow agents together', () => {
     const runs = [run('wf_0000aaaa-001', { agents: [runAgent('w1'), runAgent('w2'), runAgent('w3', { running: false })], agentsFinished: 1 })];
     const desk = buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children: [child('c1', 'Explore'), child('c2', 'Plan', false)], runs })], 'repo:/w/api')!.islands[0]!.desks[0]!;

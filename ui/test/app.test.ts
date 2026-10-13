@@ -383,7 +383,7 @@ describe('App shell', () => {
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, run: RUN }));
   });
 
-  it('opens a run in its own panel, names it in the breadcrumbs, and goes back to its floor with Esc', () => {
+  it('opens a run in its own panel, names it in the breadcrumbs, and goes back to its floor with Esc', async () => {
     location.hash = toHash({ floor: CHECKOUT, desk: null });
     const { target, crumbs } = app(roomStore());
     go({ floor: CHECKOUT, run: RUN });
@@ -395,6 +395,10 @@ describe('App shell', () => {
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: null }));
     expect(crumbs()).toBe('Building / 4 · checkout-v2');
     click(target.querySelector('aside section.meetings .row-btn'));
+    // The row it clicked has gone: focus goes to the run's heading.
+    await settle();
+    expect(document.activeElement).toBe(target.querySelector('aside h2'));
+    expect(text(document.activeElement)).toBe('checkout-verify');
     click(target.querySelector('aside dd button.host'));
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'ps-d4' }));
     expect(crumbs()).toBe('Building / 4 · checkout-v2 / payments-svc-d4');

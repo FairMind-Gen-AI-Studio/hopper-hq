@@ -64,6 +64,16 @@ describe('RunPanel', () => {
     expect(rows.map((li) => li.querySelector('.dot')!.classList.contains('sw-in_meeting'))).toEqual([true, true, false]);
   });
 
+  it('lists two agents that share an id, each in its row', () => {
+    const floor = floorWith((room) => {
+      room.agents = [
+        { agentId: 'same', label: 'Plan the ledger', phase: 'Plan', type: 'workflow-subagent', running: true },
+        { agentId: 'same', label: 'Check the ledger', phase: 'Build', type: 'workflow-subagent', running: true },
+      ];
+    });
+    expect([...panel(RUN, floor).target.querySelectorAll('.agents li .a-name')].map(text)).toEqual(['Plan the ledger', 'Check the ledger']);
+  });
+
   it('names an agent by its type, or plainly, when it has no label, and says when no agent has started', () => {
     const floor = floorWith((room) => {
       room.agents = [

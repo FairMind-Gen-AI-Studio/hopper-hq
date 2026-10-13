@@ -71,6 +71,17 @@ describe('the mod fixtures through the collector', () => {
   });
 });
 
+describe('agent ids through the collector to the floor', () => {
+  it('shows one intern for subagent starts whose ids differ only in what no id may hold', async () => {
+    const c = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: 'orders-api', worktree: false, branch: 'main' }), now: () => NOW, saveDelayMs: 0 });
+    const start = (agent_id: string) => ({ session_id: SID, cwd: CWD, hook_event_name: 'SubagentStart', agent_id, agent_type: 'Explore', _scranton_ts: NOW });
+    for (const id of ['a58cb74ebedcc3070', 'a58cb74ebedcc3070 ', 'a58cb74e\u0000bedcc3070', 'a'.repeat(301)]) for (const e of mapHookPayload(start(id), NOW)) await c.ingest(e);
+    expect(c.view(SID)!.children.map((child) => child.id)).toEqual(['a58cb74ebedcc3070']);
+    const floor = c.floor(c.scene().floors[0]!.key)!;
+    expect(floor.islands[0]!.desks[0]!.interns.map((i) => i.agentId)).toEqual(['a58cb74ebedcc3070']);
+  });
+});
+
 describe('mapHookPayload edge cases', () => {
   const p = { session_id: 'S1', cwd: '/w/shop' };
 
@@ -135,12 +146,13 @@ describe('mapHookPayload edge cases', () => {
     expect(mapHookPayload({ session_id: '7ef904e4-9872-4cca-924f-e7ddde08fc55', cwd: '/w/shop', hook_event_name: 'Stop' }, NOW)).toHaveLength(1);
   });
 
-  it('drops a payload whose agent id is longer than any key the building keeps', () => {
-    const agent_id = 'a'.repeat(257);
-    for (const p of [{ hook_event_name: 'SubagentStart', agent_type: 'Explore' }, { hook_event_name: 'Stop' }, { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/w/shop/a.ts' } }]) {
-      expect([p.hook_event_name, mapHookPayload({ session_id: SID, cwd: CWD, agent_id, ...p }, NOW)]).toEqual([p.hook_event_name, []]);
+  it('drops a payload whose agent id is not one: 1 to 128 letters, digits, _ and -', () => {
+    for (const agent_id of ['a'.repeat(129), 'a58cb74ebedcc3070 ', 'a58cb74e\u0000bedcc3070', '../a1', 'a.b']) {
+      for (const p of [{ hook_event_name: 'SubagentStart', agent_type: 'Explore' }, { hook_event_name: 'Stop' }, { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/w/shop/a.ts' } }]) {
+        expect([agent_id, p.hook_event_name, mapHookPayload({ session_id: SID, cwd: CWD, agent_id, ...p }, NOW)]).toEqual([agent_id, p.hook_event_name, []]);
+      }
     }
-    expect(mapHookPayload({ session_id: SID, cwd: CWD, agent_id: 'a'.repeat(256), hook_event_name: 'Stop' }, NOW)).toEqual([{ ...base(NOW), type: 'agent.finished', agentId: 'a'.repeat(256) }]);
+    expect(mapHookPayload({ session_id: SID, cwd: CWD, agent_id: `a_-${'b'.repeat(125)}`, hook_event_name: 'Stop' }, NOW)).toEqual([{ ...base(NOW), type: 'agent.finished', agentId: `a_-${'b'.repeat(125)}` }]);
   });
 
   it('rejects payloads without a session or event name', () => {

@@ -85,7 +85,7 @@
       <h3 class="p-h3">Agents</h3>
       {#if found.room.agents.length > 0}
         <ul class="agents">
-          {#each found.room.agents as agent (agent.agentId)}
+          {#each found.room.agents as agent, i (i)}
             <li>
               <span class="dot {agent.running ? 'sw-in_meeting' : 'sw-idle'}" aria-hidden="true"></span>
               <span class="a-name">{agent.label ?? agent.type ?? 'Agent'}</span>

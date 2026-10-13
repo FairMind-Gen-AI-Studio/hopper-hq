@@ -186,6 +186,16 @@ describe('DeskPanel', () => {
     ]);
   });
 
+  it('lists two interns that share an id, each in its row', () => {
+    const { rows } = panel(CHECKOUT, 'sw-a1', NOW, (d) => {
+      d.interns = [
+        { agentId: 'same', type: 'Explore', label: 'Find the callers', running: true },
+        { agentId: 'same', type: 'Plan', label: null, running: false },
+      ];
+    });
+    expect(rows('Interns')).toEqual(['Explore | running | Find the callers', 'Plan | finished']);
+  });
+
   it('lists its runs with how long each ran, and opens one that has a room', () => {
     const { target, rows, onRun } = panel(CHECKOUT, 'ps-d4', NOW, () => {}, checkoutWithRoom());
     expect(rows('Workflow runs')).toEqual(['checkout-verify | Running for 9m', 'nightly-smoke | Completed in 8m']);

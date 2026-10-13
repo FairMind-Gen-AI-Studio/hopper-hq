@@ -10,6 +10,8 @@ export const MAX_RUN_AGENTS = 64;
 export const MAX_DROPPED_AGENTS = 256;
 /** A workflow run id: 'wf_' and a short id of letters, digits, '_' and '-'. Anything else names no run. */
 export const RUN_ID = /^wf_[A-Za-z0-9_-]{1,64}$/;
+/** An agent id: 1 to 128 letters, digits, '_' and '-'. Anything else names no agent: a file name and a key are made from it. */
+export const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 /** The main agent's last tool labels kept per session. */
 export const MAX_RECENT_ACTIONS = 10;
 /** The longest last answer kept, in code points. */

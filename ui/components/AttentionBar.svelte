@@ -76,10 +76,11 @@
     padding: 4px;
     overflow-y: auto;
   }
-  .group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-  .label { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  /* A group's label stays on the first row of its chips: every row of the bar is a row of chips, never cut through one. */
+  .group { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px; min-width: 0; }
+  .label { flex: none; margin: 0; font-size: 11px; line-height: 31px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; color: var(--muted); }
   .empty { margin: 0; color: var(--muted); font-size: 13px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+  .chips { flex: 1 1 0; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin: 0; padding: 0; list-style: none; }
   .chip {
     display: inline-flex;
     align-items: stretch;
@@ -111,11 +112,14 @@
   .who { font-weight: 600; white-space: nowrap; font-family: var(--font-mono); font-size: 12.5px; }
   .what { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36ch; min-width: 0; }
   .time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
-  /* The summary line: no width of its own, so the chip is as wide as its first line, and the line is cut to it. */
-  .sub { grid-column: 2 / -1; width: 0; min-width: 100%; display: flex; gap: 4px; font-size: 12px; line-height: 18px; color: var(--muted); white-space: nowrap; }
-  .s-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .s-age { flex: none; }
-  .stale .s-text { opacity: .65; }
+  /*
+   * The summary line: no width of its own, so the chip is as wide as its first line, and the line is cut to it. Some of
+   * the summary always shows, and the age gives way first: nothing spills over Go. A stale line says so in words, in the
+   * same colour.
+   */
+  .sub { grid-column: 2 / -1; width: 0; min-width: 100%; display: flex; gap: 4px; overflow: hidden; font-size: 12px; line-height: 18px; color: var(--muted); white-space: nowrap; }
+  .s-text { flex: 1 1 8ch; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+  .s-age { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .needs .time { color: var(--needs-ink); font-weight: 600; }
   .go {
     border: 0;

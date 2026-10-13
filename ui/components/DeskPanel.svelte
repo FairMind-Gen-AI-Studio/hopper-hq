@@ -91,7 +91,7 @@
   <section>
     <h3 class="p-h3">Interns</h3>
     <ul class="list">
-      {#each desk.interns as intern (intern.agentId)}
+      {#each desk.interns as intern, i (i)}
         <li>
           <span class="dot {intern.running ? 'sw-working' : 'sw-idle'}" aria-hidden="true"></span>
           <span class="l-name">{intern.type ?? 'Subagent'}</span>

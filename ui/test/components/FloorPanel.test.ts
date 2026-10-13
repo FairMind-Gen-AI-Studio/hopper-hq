@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FloorPanel from '../../components/FloorPanel.svelte';
+import source from '../../components/FloorPanel.svelte?raw';
 import type { FloorDetail } from '../../../src/scene/types';
 import { CHECKOUT, DOCS, NOW, ORDERS, makeFloor, makeScene } from '../helpers/fixtures';
 import { cleanup, click, render, text } from '../helpers/render';
@@ -132,6 +133,10 @@ describe('FloorPanel', () => {
     expect(onRun).toHaveBeenCalledWith(RUN);
     cleanup();
     expect(panel(CHECKOUT).target.querySelector('section.meetings')).toBeNull();
+  });
+
+  it('breaks a long name anywhere rather than widen the panel: happy-dom lays nothing out, so the rule says it', () => {
+    expect(source).toMatch(/\n  \.r-name \{[^}]*overflow-wrap: anywhere;/);
   });
 
   it('names a room without a name or a phase plainly, keeps two hosts of one run apart, and counts the runs without a room', () => {

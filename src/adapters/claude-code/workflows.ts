@@ -1,6 +1,6 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, sep } from 'node:path';
-import { RUN_ID } from '../../core/reducer.js';
+import { AGENT_ID, RUN_ID } from '../../core/reducer.js';
 import { truncate } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
 import { cleanOrNull } from '../../scene/text.js';
@@ -16,8 +16,6 @@ const MAX_END_BYTES = 8 * 1024 * 1024;
 const MAX_PHASES = 32;
 /** Journal reads per run and scan, as for transcripts. */
 const READS_PER_SCAN = 8;
-/** An agent id a journal line may carry: a file name is made from it. */
-const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 export interface WorkflowScannerOptions {
   sessionId: string;

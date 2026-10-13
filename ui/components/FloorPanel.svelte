@@ -127,7 +127,7 @@
     text-align: left;
   }
   .row-btn:hover { background: var(--hover); border-color: var(--line); }
-  .r-name { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; }
+  .r-name { font-family: var(--font-mono); font-size: 12.5px; font-weight: 500; overflow-wrap: anywhere; }
   .r-task { grid-column: 2; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
   .r-state { grid-row: span 2; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .r-sum { grid-column: 2 / -1; font-size: 12.5px; overflow-wrap: anywhere; }

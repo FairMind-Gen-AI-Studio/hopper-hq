@@ -75,6 +75,17 @@ const idOf = (v: SessionView): string => cleanText(v.id, KEY_MAX);
 /** An agent's type as the scene shows it: null when the reducer did not learn it. */
 const typeOf = (type: string): string | null => (type === UNNAMED_AGENT ? null : cleanOrNull(type));
 
+/** The items whose capped ids come first: two ids that clean to one name one agent, the first. */
+function firstOfEach<T>(items: T[], id: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = capKey(id(item));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Start order, then id: how running runs and rooms line up. */
 const byStart = (a: WorkflowRun, b: WorkflowRun): number => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id);
 
@@ -113,7 +124,7 @@ function deskSummaryOf(v: SessionView): DeskSummary | null {
 
 /**
  * The session's plain subagents: running ones in the order they started (the order the reducer first saw them), then
- * finished ones, the latest to finish first; at most INTERNS_MAX, and how many more there are.
+ * finished ones, the latest to finish first; one per id once cleaned; at most INTERNS_MAX, and how many more there are.
  */
 function internsOf(v: SessionView): { interns: Intern[]; internsMore: number } {
   const finished = v.children
@@ -121,10 +132,11 @@ function internsOf(v: SessionView): { interns: Intern[]; internsMore: number } {
     .filter(({ c }) => !c.running)
     .sort((a, b) => b.c.updatedAt - a.c.updatedAt || b.i - a.i)
     .map(({ c }) => c);
-  const shown = [...v.children.filter((c) => c.running), ...finished].slice(0, INTERNS_MAX);
+  const all = firstOfEach([...v.children.filter((c) => c.running), ...finished], (c) => c.id);
+  const shown = all.slice(0, INTERNS_MAX);
   return {
     interns: shown.map((c) => ({ agentId: capKey(c.id), type: typeOf(c.type), label: cleanOrNull(c.description), running: c.running })),
-    internsMore: v.children.length - shown.length,
+    internsMore: all.length - shown.length,
   };
 }
 
@@ -164,11 +176,11 @@ function phasesOf(r: WorkflowRun): MeetingRoom['phases'] {
   return phases.map((p) => ({ title: cleanText(p.title, PHASE_MAX), state: p.state })).filter((p) => p.title !== '');
 }
 
-/** Running agents first, in start order, then finished ones, the latest to finish first; at most MEETING_AGENTS_MAX. */
+/** Running agents first, in start order, then finished ones, the latest to finish first; one per id once cleaned; at most MEETING_AGENTS_MAX. */
 function meetingAgentsOf(r: WorkflowRun): MeetingAgent[] {
   const running = r.agents.filter((a) => a.running).sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   const finished = r.agents.filter((a) => !a.running).sort((a, b) => b.updatedAt - a.updatedAt || b.startedAt - a.startedAt || byCodeUnit(a.id, b.id));
-  return [...running, ...finished].slice(0, MEETING_AGENTS_MAX).map((a) => ({
+  return firstOfEach([...running, ...finished], (a) => a.id).slice(0, MEETING_AGENTS_MAX).map((a) => ({
     agentId: capKey(a.id),
     label: cleanOrNull(a.label),
     phase: cleanOrNull(a.phase, PHASE_MAX),
