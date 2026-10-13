@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Mesh, type BufferGeometry, type Material } from 'three';
 import { FloorScene, layoutSignature } from '../../renderer/floor-scene';
+import { KIND_SCALE } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { HOME_AZIMUTH, deskAnchor, robotSpot, seatSpot, shadowExtent } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, desksOf, makeFloor, type IslandSpec } from './fixtures';
+import { HOME_AZIMUTH, deskAnchor, headSpot, robotSpot, roomKey, seatSpot, seatSpots, shadowExtent } from '../../renderer/world';
+import { checkoutFloor, checkoutIslands, checkoutRooms, desksOf, makeFloor, roomFloor, type IslandSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at the same island. */
 function changedIslands(): IslandSpec[] {
@@ -88,13 +89,23 @@ describe('the floor scene', () => {
     expect(fs.geo.size).toBe(sceneOf(floorOf(1)).geo.size);
   });
 
-  it('signs the layout by footprint, core and island rectangles, keys and colours only', () => {
+  it('signs the layout by footprint, core, island rectangles, keys and colours, and room rectangles only', () => {
     const a = checkoutFloor();
     const b = makeFloor(changedIslands());
     expect(layoutSignature(b)).toBe(layoutSignature(a));
     const recoloured = checkoutIslands();
     recoloured[0]!.color = 6;
     expect(layoutSignature(makeFloor(recoloured))).not.toBe(layoutSignature(a));
+    const rooms = roomFloor();
+    expect(layoutSignature(rooms)).not.toBe(layoutSignature(a));
+    const moved = roomFloor();
+    moved.rooms[1] = { ...moved.rooms[1]!, rect: { ...moved.rooms[1]!.rect, y: moved.rooms[1]!.rect.y + 1 } };
+    expect(moved.size).toEqual(rooms.size);
+    expect(layoutSignature(moved)).not.toBe(layoutSignature(rooms));
+    // What happens in a room leaves the layout as it was.
+    const busier = checkoutRooms();
+    busier[0] = { ...busier[0]!, running: 1, finished: 4, seated: false };
+    expect(layoutSignature(roomFloor(busier))).toBe(layoutSignature(rooms));
   });
 
   it('rebuilds a robot for new colours, sends it home when the desk goes dormant, and back again', () => {
@@ -181,7 +192,8 @@ describe('the floor scene', () => {
   });
 
   it('frees every geometry and material it made on dispose', () => {
-    const fs = sceneOf();
+    const fs = sceneOf(roomFloor());
+    expect(fs.rooms.size).toBe(2);
     const geometries = new Set<BufferGeometry>();
     const materials = new Set<Material>();
     fs.scene.traverse((o) => {
@@ -196,5 +208,128 @@ describe('the floor scene', () => {
     expect(freed.size).toBe(geometries.size + materials.size);
     expect(fs.scene.children).toHaveLength(0);
     expect(fs.desks.size).toBe(0);
+    expect(fs.rooms.size).toBe(0);
+  });
+});
+
+describe('meeting rooms in the floor scene', () => {
+  /** The scene's key of the n-th room of checkoutRooms(). */
+  const keyOf = (n: number) => roomKey({ hostSessionId: checkoutRooms()[n]!.host, runId: checkoutRooms()[n]!.runId });
+  const entryOf = (fs: FloorScene, n: number) => {
+    const room = fs.rooms.get(keyOf(n))!;
+    expect(room, `room ${n}`).toBeDefined();
+    return room;
+  };
+  const local = (rect: { w: number; h: number }) => ({ x: 0, y: 0, w: rect.w, h: rect.h });
+
+  it('builds each room with its furniture, its running agents at the table in hard hats, and its host at the head', () => {
+    const fs = sceneOf(roomFloor());
+    expect(fs.rooms.size).toBe(2);
+    const first = entryOf(fs, 0);
+    expect(first.obj.group.parent).toBe(fs.scene);
+    expect(first.obj.group.position.toArray()).toEqual([first.room.rect.x, 0, first.room.rect.y]);
+    // Three agents run: each sits in its seat, in order, as a workflow robot in the room's colours.
+    const seats = seatSpots(local(first.room.rect));
+    expect([...first.agents.keys()]).toEqual(['wf_0000aaaa-001-a0', 'wf_0000aaaa-001-a1', 'wf_0000aaaa-001-a2']);
+    [...first.agents.values()].forEach((robot, i) => {
+      expect(robot.group.parent).toBe(first.obj.group);
+      expect([robot.kind, robot.group.scale.x, robot.body, robot.tie]).toEqual(['workflow', KIND_SCALE.workflow, first.room.look.body, first.room.look.tie]);
+      expect([robot.group.position.x, robot.group.position.z, robot.group.rotation.y]).toEqual([seats[i]!.x, seats[i]!.z, seats[i]!.facing]);
+    });
+    // ps-d4 is in the meeting: its robot sits at the head, and the placard is put away.
+    const head = headSpot(local(first.room.rect));
+    expect(first.host!.kind).toBe('session');
+    expect(first.host!.group.parent).toBe(first.obj.group);
+    expect([first.host!.group.position.x, first.host!.group.position.z, first.host!.group.rotation.y]).toEqual([head.x, head.z, head.facing]);
+    expect(first.obj.placard.visible).toBe(false);
+    // Ten agents run in the second room: eight sit, and sw-a1 works at its desk, so the head seat holds the placard.
+    const second = entryOf(fs, 1);
+    expect(second.agents.size).toBe(8);
+    expect(second.host).toBeNull();
+    expect(second.obj.placard.visible).toBe(true);
+    expect(fs.scene.getObjectByName('agent wf_0000aaaa-002-a7')).toBeDefined();
+    expect(fs.scene.getObjectByName('agent wf_0000aaaa-002-a8')).toBeUndefined();
+    expect(fs.scene.getObjectByName('host wf_0000aaaa-001')).toBe(first.host!.group);
+  });
+
+  it('keeps the robots of agents that run on, moves them up the table, and lets those that finish leave', () => {
+    const fs = sceneOf(roomFloor());
+    const first = entryOf(fs, 0);
+    const [a0, a1, a2] = [...first.agents.values()];
+    const rooms = checkoutRooms();
+    // a0 finishes; a1 and a2 run on and move up to the first two seats.
+    rooms[0] = { ...rooms[0]!, running: 3, finished: 2 };
+    const floor = roomFloor(rooms);
+    const agents = floor.rooms[0]!.agents;
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [agents[1]!, agents[2]!, { ...agents[0]!, running: false }, ...agents.slice(3)], counts: { running: 2, finished: 3 } };
+    expect(fs.apply(floor)).toBe(false);
+    const seats = seatSpots(local(first.room.rect));
+    expect([...first.agents.values()]).toEqual([a1, a2]);
+    expect([a1!.group.position.x, a1!.group.position.z]).toEqual([seats[0]!.x, seats[0]!.z]);
+    expect([a2!.group.position.x, a2!.group.position.z]).toEqual([seats[1]!.x, seats[1]!.z]);
+    expect(a0!.group.parent).toBeNull();
+  });
+
+  it('takes the host away from the head when it leaves the meeting, and puts the placard back', () => {
+    const fs = sceneOf(roomFloor());
+    const first = entryOf(fs, 0);
+    const host = first.host!;
+    const rooms = checkoutRooms();
+    rooms[0] = { ...rooms[0]!, seated: false };
+    fs.apply(roomFloor(rooms));
+    expect(first.host).toBeNull();
+    expect(host.group.parent).toBeNull();
+    expect(first.obj.placard.visible).toBe(true);
+  });
+
+  it('rebuilds the robots of a room whose colours change', () => {
+    const fs = sceneOf(roomFloor());
+    const first = entryOf(fs, 0);
+    const [before] = [...first.agents.values()];
+    const floor = roomFloor();
+    floor.rooms[0] = { ...floor.rooms[0]!, look: { body: 6, tie: 0 }, host: { ...floor.rooms[0]!.host!, body: 6, tie: 0 } };
+    fs.apply(floor);
+    const [after] = [...first.agents.values()];
+    expect(after).not.toBe(before);
+    expect(before!.group.parent).toBeNull();
+    expect([after!.body, after!.tie, first.host!.body]).toEqual([6, 0, 6]);
+  });
+
+  it('keeps a room that stays, moves it when the rooms above it close, and drops the rooms that close', () => {
+    const fs = sceneOf(roomFloor());
+    const first = entryOf(fs, 0);
+    const second = entryOf(fs, 1);
+    const group = second.obj.group;
+    // The first run ends: the second room moves up to the top of the wing, and the shell follows the new layout.
+    expect(fs.apply(roomFloor(checkoutRooms().slice(1)))).toBe(true);
+    expect(fs.rooms.size).toBe(1);
+    expect(fs.rooms.get(keyOf(1))).toBe(second);
+    expect(second.obj.group).toBe(group);
+    expect(second.obj.group.position.toArray()).toEqual([first.room.rect.x, 0, first.room.rect.y]);
+    expect(first.obj.group.parent).toBeNull();
+    expect(fs.apply(checkoutFloor())).toBe(true);
+    expect(fs.rooms.size).toBe(0);
+    expect(group.parent).toBeNull();
+  });
+
+  it('gives each of two hosts naming the same run a room of its own', () => {
+    const rooms = checkoutRooms();
+    rooms[1] = { ...rooms[1]!, runId: rooms[0]!.runId };
+    const fs = sceneOf(roomFloor(rooms));
+    expect(fs.rooms.size).toBe(2);
+    const groups = [...fs.rooms.values()].map((r) => r.obj.group);
+    expect(groups[0]).not.toBe(groups[1]);
+    expect(groups[0]!.position.z).not.toBe(groups[1]!.position.z);
+  });
+
+  it('keeps no geometry of a closed room, however often rooms open and close', () => {
+    const fs = sceneOf(roomFloor());
+    const size = fs.geo.size;
+    for (let n = 0; n < 5; n++) {
+      fs.apply(checkoutFloor());
+      fs.apply(roomFloor(checkoutRooms().slice(1)));
+      fs.apply(roomFloor());
+    }
+    expect(fs.geo.size).toBe(size);
   });
 });

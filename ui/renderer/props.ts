@@ -1,6 +1,7 @@
 /**
  * The floor's furniture from primitives: the shell (slab, walls with windows, the elevator and plants of the core,
- * a rug and a lamp per island) and one desk per session. Proportions follow prototypes/floor-3d-mockup.html.
+ * a rug and a lamp per island), one desk per session and one meeting room per room. Proportions follow
+ * prototypes/floor-3d-mockup.html.
  */
 import {
   BoxGeometry,
@@ -16,9 +17,24 @@ import {
   type Object3D,
 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import type { Desk, FloorDetail, GridRect } from '../../src/scene/types';
+import type { Desk, FloorDetail, GridRect, MeetingRoom } from '../../src/scene/types';
 import type { Materials } from './materials';
-import { WALL_H, WALL_SIDES, WALL_T, deskAnchor, rectCenter, type WallSide } from './world';
+import {
+  BOARD,
+  PARTITION_H,
+  PARTITION_T,
+  TABLE,
+  WALL_H,
+  WALL_SIDES,
+  WALL_T,
+  deskAnchor,
+  doorGap,
+  headSpot,
+  rectCenter,
+  seatSpots,
+  tableCenter,
+  type WallSide,
+} from './world';
 
 /** What a click on a mesh selects; set as `mesh.userData.pick`. */
 export interface PickData {
@@ -264,4 +280,77 @@ export function updateDesk(obj: DeskObject, desk: Desk, mats: Materials): void {
 function placeAt(group: Group, rect: GridRect): void {
   const a = deskAnchor(rect);
   group.position.set(a.x, 0, a.z);
+}
+
+export interface RoomObject {
+  readonly runId: string;
+  /** Stands at the room's north-west corner on the ground: everything in the room is placed from there. */
+  readonly group: Group;
+  /** The size it was built for; a room of another size is built again. */
+  readonly w: number;
+  readonly h: number;
+  /** A card on the head seat, shown while the host is not at the meeting. */
+  readonly placard: Mesh;
+}
+
+/**
+ * One meeting room, from its north-west corner: a floor tinted for meetings, glass partitions with a door in the west
+ * one, a table with SEATS_MAX seats and a head seat, a whiteboard on the north partition and a placard. No lamp hangs
+ * over the table: seen from above, it would hide the agents. Every geometry is shared: rooms are all the same size.
+ * Only the table top and the seats cast shadows.
+ */
+export function buildRoom(room: MeetingRoom, geo: Geometries, mats: Materials): RoomObject {
+  const s = mats.surface;
+  const thin = { cast: false };
+  const { w, h } = room.rect;
+  const local = { x: 0, y: 0, w, h };
+  const group = new Group();
+  group.name = `room ${room.runId}`;
+
+  part(group, geo.plane(w, h), s.roomFloor, w / 2, 0.006, h / 2, { rx: -Math.PI / 2, cast: false });
+
+  // Glass along each edge, inside the room's cells, and a frame rail on top of each pane. The west partition is two
+  // panes, either side of the door.
+  const door = doorGap(local);
+  const t = PARTITION_T;
+  const panes: Array<[x: number, z: number, lx: number, lz: number]> = [
+    [w / 2, t / 2, w, t],
+    [w / 2, h - t / 2, w, t],
+    [w - t / 2, h / 2, t, h - 2 * t],
+    [t / 2, (t + door.from) / 2, t, door.from - t],
+    [t / 2, (door.to + h - t) / 2, t, h - t - door.to],
+  ];
+  for (const [x, z, lx, lz] of panes) {
+    part(group, geo.box(lx, PARTITION_H, lz), s.glass, x, PARTITION_H / 2, z, thin);
+    part(group, geo.box(lx, 0.05, lz), s.frame, x, PARTITION_H - 0.025, z, thin);
+  }
+  // Posts at the corners and either side of the door.
+  for (const [x, z] of [[t, t], [w - t, t], [t, h - t], [w - t, h - t], [t, door.from], [t, door.to]] as const) {
+    part(group, geo.box(2 * t, PARTITION_H, 2 * t), s.frame, x, PARTITION_H / 2, z, thin);
+  }
+
+  // The table, its two pedestals, and a seat on a post at each place.
+  const c = tableCenter(local);
+  part(group, geo.rbox(TABLE.w, 0.08, TABLE.d, 0.03), s.desk, c.x, 0.74, c.z);
+  for (const dx of [-1.4, 1.4]) part(group, geo.rod(0.12, 0.12, 0.7, 12), s.leg, c.x + dx, 0.35, c.z, thin);
+  const head = headSpot(local);
+  for (const spot of [...seatSpots(local), head]) {
+    part(group, geo.rbox(0.46, 0.07, 0.46, 0.03), s.chair, spot.x, 0.44, spot.z);
+    part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, spot.x, 0.2, spot.z, thin);
+  }
+  const placard = part(group, geo.box(0.3, 0.2, 0.02), s.paper, head.x, 0.575, head.z, { ry: Math.PI / 2, cast: false });
+
+  // The whiteboard in its frame, on the inside of the north partition; its overlay lists the phases (labels.ts).
+  part(group, geo.box(BOARD.w + 0.08, BOARD.h + 0.08, 0.02), s.frame, w / 2, BOARD.y, t + 0.01, thin);
+  part(group, geo.rbox(BOARD.w, BOARD.h, 0.05, 0.02), s.board, w / 2, BOARD.y, t + 0.025, thin);
+
+  const obj: RoomObject = { runId: room.runId, group, w, h, placard };
+  updateRoom(obj, room);
+  return obj;
+}
+
+/** Moves the room to its cells, and shows the placard while the head seat is empty. */
+export function updateRoom(obj: RoomObject, room: MeetingRoom): void {
+  obj.group.position.set(room.rect.x, 0, room.rect.y);
+  obj.placard.visible = room.host === null;
 }
