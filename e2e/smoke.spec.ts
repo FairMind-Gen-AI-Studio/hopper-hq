@@ -10,7 +10,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * and drives the UI in headless Chrome. It never connects to another daemon and never reads ~/.scranton-hq.
  *
  * The demo replays a one-minute script, so who needs you changes as it runs: the test reads what is on screen
- * instead of assuming a session or a floor.
+ * instead of assuming a session or a floor. Its workflow run holds a meeting room for 52 s of each minute, and the
+ * next minute's run opens a room of its own: the test waits for a room with time left.
  */
 
 interface Demo {
@@ -110,9 +111,10 @@ async function watch(page: Page) {
   return seen;
 }
 
-function route(page: Page): { floor: string | null; desk: string | null } {
-  const m = /^#\/floor\/([^/]+)(?:\/desk\/([^/]+))?$/.exec(new URL(page.url()).hash);
-  return { floor: m ? decodeURIComponent(m[1]!) : null, desk: m?.[2] ? decodeURIComponent(m[2]) : null };
+function route(page: Page): { floor: string | null; desk: string | null; run: string | null } {
+  const m = /^#\/floor\/([^/]+)(?:\/(desk|run)\/([^/]+))?$/.exec(new URL(page.url()).hash);
+  const id = m?.[3] ? decodeURIComponent(m[3]) : null;
+  return { floor: m ? decodeURIComponent(m[1]!) : null, desk: m?.[2] === 'desk' ? id : null, run: m?.[2] === 'run' ? id : null };
 }
 
 /** Where a desk's label sits on the screen. */
@@ -149,6 +151,19 @@ async function sceneOf(page: Page): Promise<Scene> {
   return (await answer.json()) as Scene;
 }
 
+/** What the smoke test reads of GET /api/floor. */
+interface Floor {
+  rooms: Array<{ runId: string; hostSessionId: string; name: string | null; phases: Array<{ title: string; state: string }> }>;
+  islands: Array<{ desks: Array<{ sessionId: string; summary: { text: string } | null }> }>;
+}
+
+/** One floor as the daemon sees it now, with its meeting rooms, asked with the page's own sign-in. */
+async function floorOf(page: Page, key: string): Promise<Floor> {
+  const answer = await page.request.get(new URL(`/api/floor?key=${encodeURIComponent(key)}`, page.url()).href);
+  expect(answer.status()).toBe(200);
+  return (await answer.json()) as Floor;
+}
+
 let demo: Demo;
 
 test.beforeAll(async () => {
@@ -177,7 +192,7 @@ test('builds a page that writes no script, style or asset inline, where the cont
   }
 });
 
-test('signs in from the demo link, then walks the building, a floor in 3D and a desk', async ({ page, browser }, info) => {
+test('signs in from the demo link, then walks the building, a floor in 3D, a desk and a meeting room', async ({ page, browser }, info) => {
   const seen = await watch(page);
   const toast = page.locator('.toast span').last();
   const canvas = page.locator('.stage .floor-stage canvas');
@@ -241,7 +256,8 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
   });
 
   await test.step('a double-click on another desk, at a person\'s pace, selects it and goes to its pane (simulated)', async () => {
-    const other = page.locator(`button.fv-tag:not([data-session="${first.desk}"])`).filter({ visible: true }).first();
+    // A desk's tag: a room's tag is a button.fv-tag too, with a data-run instead.
+    const other = page.locator(`button.fv-tag[data-session]:not([data-session="${first.desk}"])`).filter({ visible: true }).first();
     const id = (await other.getAttribute('data-session'))!;
     const name = (await other.locator('.fv-name').textContent())!;
     const { x, y } = await centre(other);
@@ -304,7 +320,7 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
     expect(entry, 'an attention entry on another floor than the first').toBeDefined();
     const old = await canvas.elementHandle();
     await page.locator('.attention li.chip').filter({ has: page.getByText(entry!.name, { exact: true }) }).locator('button.open').click();
-    await expect.poll(() => route(page)).toEqual({ floor: entry!.floorKey, desk: entry!.sessionId });
+    await expect.poll(() => route(page)).toEqual({ floor: entry!.floorKey, desk: entry!.sessionId, run: null });
     await expect(page.locator(`button.fv-tag[data-session="${entry!.sessionId}"]`)).toBeVisible();
     await expect(page.locator('.no-webgl, .load-failed')).toHaveCount(0);
     expect(await canvas.evaluate((now, before) => now !== before, old)).toBe(true);
@@ -313,7 +329,7 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
 
   await test.step('Esc goes back up to the building, and a floor not opened yet opens on a fresh canvas', async () => {
     await page.keyboard.press('Escape');
-    await expect.poll(() => route(page)).toEqual({ floor: second, desk: null });
+    await expect.poll(() => route(page)).toEqual({ floor: second, desk: null, run: null });
     await page.keyboard.press('Escape');
     await expect(page.locator('.stage svg.facade')).toBeVisible();
     await expect(canvas).toHaveCount(0);
@@ -326,6 +342,57 @@ test('signs in from the demo link, then walks the building, a floor in 3D and a 
     await expect(canvas).toBeVisible();
     await expect(page.locator(`button.fv-tag[data-session="${next!.windows[0]!.sessionId}"]`)).toBeVisible();
     await expect(page.locator('.no-webgl, .load-failed')).toHaveCount(0);
+  });
+
+  let run = { floor: '', host: '' };
+  await test.step('a meeting room\'s tag opens its workflow run, with its phases', async () => {
+    // The demo's room closes 52 s into each minute, and the next minute's opens at its start. Wait for a room whose last
+    // phase has not begun, so that it stays open a while: 20 s at most, from the last phase of one run to the next run.
+    const { floors } = await sceneOf(page);
+    let found: { floor: Scene['floors'][number]; room: Floor['rooms'][number] } | undefined;
+    await expect
+      .poll(
+        async () => {
+          for (const floor of floors) {
+            const room = (await floorOf(page, floor.key)).rooms.find((r) => r.phases.at(-1)?.state === 'upcoming');
+            if (room) {
+              found = { floor, room };
+              return true;
+            }
+          }
+          return false;
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    const { floor, room } = found!;
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.stage svg.facade')).toBeVisible();
+    await page.locator(`.stage svg.facade g.floor[aria-label^="Floor ${floor.number}, "]`).focus();
+    await page.keyboard.press('Enter');
+    await expect.poll(() => route(page)).toEqual({ floor: floor.key, desk: null, run: null });
+    const tag = page.locator(`button.fv-tag.fv-room[data-run="${room.runId}"]`);
+    await expect(tag).toBeVisible();
+    await tag.click();
+    await expect.poll(() => route(page)).toEqual({ floor: floor.key, desk: null, run: room.runId });
+    await expect(tag).toHaveClass(/\bfv-sel\b/);
+    await expect(page.locator('aside h2')).toHaveText(room.name ?? room.runId);
+    await expect(page.locator('aside .phases .ph-title')).toHaveText(room.phases.map((p) => p.title));
+    await expect(page.locator('aside .phases li.ph-current')).toHaveCount(1);
+    await page.screenshot({ path: info.outputPath('run.png') });
+    run = { floor: floor.key, host: room.hostSessionId };
+  });
+
+  await test.step('the desk of the session that started the run says in one line where it stands', async () => {
+    await page.locator('aside dd button.host').click();
+    await expect.poll(() => route(page)).toEqual({ floor: run.floor, desk: run.host, run: null });
+    // The demo writes it 8 s after the session's turn ends.
+    const line = page.locator('aside section.summary .s-text');
+    await expect(line).toBeVisible({ timeout: 20_000 });
+    const desk = (await floorOf(page, run.floor)).islands.flatMap((i) => i.desks).find((d) => d.sessionId === run.host);
+    expect(desk?.summary?.text).toBeTruthy();
+    await expect(line).toHaveText(desk!.summary!.text);
+    await expect(page.locator('aside section.summary .s-age')).toHaveText(/^\d+[smhd] ago/);
   });
 
   await test.step('the bundled fonts load from the daemon', async () => {
