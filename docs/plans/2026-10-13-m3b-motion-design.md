@@ -28,7 +28,7 @@ M3b makes the floor move. A state change is seen as a robot walking somewhere, n
 
 One cell is one metre. x grows east, y grows south (as today).
 
-- **Desk**: 2×2 cells, as today. It faces `north` or `south`: the side its chair is on. The monitor sits on the opposite edge.
+- **Desk**: 2×2 cells, as today. Its `chair` is on its `north` or `south` edge, and the monitor sits on the opposite edge.
 - **Pod**: 4 desks in 2×2, back to back. The monitors meet in the middle, and each chair opens onto an aisle outside the pod. Each pod has a rug, with a 1-cell pad around the desks, and a placard. A pod is 6×6 cells.
 - **Block**: 2 pods side by side with an `AISLE` (2 cells) between them: 8 desks in 14×6 cells.
 - **Core**: the elevator and plants on the north wall, top-left, as today.
@@ -68,8 +68,8 @@ A floor's plan is two numbers: `blocks` (1–4) and `roomCols` (1–2).
 
 Seating is a pure function owned by the server: `seat(previous, views, now) -> next`, per floor.
 
-- The collector calls it before each scene build and keeps the result next to `firstSeen`.
-- `build.ts` takes the seating as input, the way it takes `firstSeen`. The same views and seating in any order give the same scene.
+- **One place advances it**: the collector's change and tick path. That path also covers time-derived transitions (done→idle after 4 h, idle→dormant). The collector stores the result next to `firstSeen` and marks the floor dirty for persistence when it changes.
+- **Builds only read it.** `buildScene`, `buildFloorDetail` and the snapshot all read the stored seating, the way they read `firstSeen`. None of them calls `seat`, so the façade and the floor detail can never disagree. The same views and seating in any order give the same scene.
 - Every tab therefore sees the same seats, and a reload reshuffles nothing.
 
 ### 3.2 Rules
@@ -85,7 +85,7 @@ Departures are applied before arrivals. Arrivals are handled in start order (`st
 3. With no free desk:
    - it takes the desk of the dormant session on this floor that has been dormant longest. That session loses its desk and goes through rule 2 when it wakes.
    - With no dormant session either, the plan grows by a block.
-   - At `BLOCKS_MAX`, the session waits for a free desk: the floor counts it in `desksMore`, and it still appears in the attention bar and the floor panel. Waiting sessions take freed desks in start order.
+   - At `BLOCKS_MAX`, the session waits for a free desk. It is listed in the floor's `unseated` (§4), so it still appears in the attention bar and the floor panel. Waiting sessions take freed desks in start order.
 4. **Dormant**: the robot leaves by the elevator. The desk stays reserved, with its monitor off and the session's name on a nameplate.
 5. **Ended**: the desk is freed at once.
 
@@ -110,6 +110,7 @@ On the first M3b start, each floor gets the smallest plan that seats its live se
 ### 3.4 Persistence
 
 - **Schema**: the `floors` table gains a nullable `plan` column holding JSON: `blocks`, `roomCols`, desk occupants by index, lounge seats and room slots.
+- **Migration**: `CREATE TABLE IF NOT EXISTS` does not add a column to an existing table, so the store adds `plan` with `ALTER TABLE` when it is missing. A test opens a database with today's schema and rows and upgrades it.
 - **When it is written**: on the dirty-floor path that already writes `first_seen`.
 - **Bad data**: a missing or malformed value is rebuilt from the views, as on first start.
 
@@ -125,20 +126,23 @@ The server says where each robot should be. The renderer works out how it gets t
   - `color`: a repo slot, or null;
   - `placard`: `{ repo, branch, worktree, path } | null`;
   - `desks`: always its 4 desks.
-- `Desk` is `{ id, rect, facing: 'north' | 'south', occupant: Occupant | null }`.
+- `Desk` is `{ id, rect, chair: 'north' | 'south', occupant: Occupant | null }`.
   - `Occupant` carries the v2 `Desk` fields except `rect` and `away`: session id, name, title, state, since, reason, activity, agentsRunning, summary, interns, internsMore, runs, location, pane, focusable and robot.
   - It also carries `at: Place`.
   - A dormant occupant has `robot: null`.
 - `Place` is one of:
   - `{ kind: 'desk' }`;
   - `{ kind: 'lounge', seat }`;
-  - `{ kind: 'room', slot }`: the host at the head of its run's table while `in_meeting`;
+  - `{ kind: 'room', slot }`: the host at the head of its run's table while `in_meeting`. A host whose run has no room (counted in `roomsMore`) stays at `desk`;
   - `{ kind: 'gone' }`: dormant.
 
   `at` is the target the renderer walks the robot to.
 - `lounge: { rect, seats }`.
-- `rooms: { slot, rect, run: MeetingRoom | null }[]`: every room of the plan. An empty room has its door closed and its lights dimmed.
-- `roomsMore` (as in v2) and `desksMore` (§3.2).
+- `rooms: { slot, rect, run: MeetingRoom | null }[]`: every room of the plan.
+  - An empty room has its door closed and its lights dimmed. The door is closed only visually: the walk grid treats every door as open, so it does not change when rooms open and close.
+  - `MeetingRoom.host` is dropped. The host's robot is the desk occupant's robot, with `at` pointing at the room.
+- `roomsMore` (as in v2).
+- `unseated: Occupant[]`: the floor's sessions without a desk. These are a dormant session whose desk another session took, and sessions waiting at the cap (§3.2). They have no robot on the floor. The floor panel lists them, and the façade counts them in `counts`, but they have no window.
 
 **Façade**:
 - One window per desk of the plan. `FacadeWindow` becomes `{ sessionId: string | null, state: ShownState | null }`.
@@ -190,7 +194,16 @@ All of it lives in the renderer, as pure modules with their own tests plus a thi
 - About 1.6 m/s walking and 2.2 m/s flying.
 - A trip lasts at most about 5 s, so long paths are walked faster.
 
+**One robot per session.**
+- Today a host in a meeting is two objects: a hidden desk robot and a separate host robot in the room. In M3b each session has exactly one robot, keyed by session id, and it walks between desk, room, lounge and elevator.
+- Workflow agents are keyed by agent id and interns by agent id within their desk.
+
 **Coordinates**: room robots are no longer children of their room's group. Every robot lives in floor coordinates, so it can walk between rooms, desks and the elevator. Rooms no longer move.
+
+**Seats stay put.** Room seats and intern spots follow the same rule as desks: first come keeps the seat. If they were taken by list index, as today, every agent after one that finishes would shift a seat and walk. The renderer keeps the seat map for each room and each desk's interns:
+- a running agent keeps its seat until it finishes;
+- a new agent takes the first free seat;
+- agents beyond the seats are not drawn, as in M3a.
 
 ### 5.3 When nothing walks
 
@@ -273,7 +286,7 @@ The demo script exercises every movement:
 ## 9. Testing
 
 **Pure functions:**
-- **Seating**: affinity, taking a dormant desk, growth, reset when empty, waiting at the cap, first start, persistence round trip.
+- **Seating**: affinity, taking a dormant desk, growth, reset when empty, waiting at the cap (listed in `unseated`), first start, persistence round trip, and a time-derived transition (idle→dormant) advancing seating on the tick path only.
 - **Plan layout**: a snapshot per size (1–4 blocks, 1–2 room columns).
 - **Grid and A***:
   - at every plan size, a path exists from the elevator to every desk, lounge seat and room seat;
@@ -286,6 +299,8 @@ The demo script exercises every movement:
 **Renderer** (happy-dom, injected clock):
 - a walker's position over time;
 - re-pathing mid-walk;
+- one robot per session across desk, room and lounge;
+- room seats and intern spots that stay put when an earlier agent finishes;
 - jumping into place when hidden, under reduced motion and with `motion=off`;
 - the number of shadow-map draws per walk;
 - instance counts and picking by `instanceId`;
