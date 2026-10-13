@@ -88,9 +88,9 @@
   });
 
   const crumbs = $derived.by((): Crumb[] => {
-    const list: Crumb[] = [{ label: 'Building', route: { floor: null, desk: null } }];
+    const list: Crumb[] = [{ label: 'Building', route: { floor: null, desk: null, run: null } }];
     if (route.floor === null) return list;
-    list.push({ label: summary ? `${summary.number} · ${summary.name}` : 'Floor', route: { floor: route.floor, desk: null } });
+    list.push({ label: summary ? `${summary.number} · ${summary.name}` : 'Floor', route: { floor: route.floor, desk: null, run: null } });
     if (route.desk !== null) {
       const name = desk?.desk.name ?? [...(scene?.attention.needsYou ?? []), ...(scene?.attention.done ?? [])].find((e) => e.sessionId === route.desk)?.name;
       list.push({ label: name ?? 'Desk', route });
@@ -99,8 +99,8 @@
   });
 
   function navigate(next: Route): void {
-    const to = next.floor === null ? { floor: null, desk: null } : next;
-    const moved = to.floor !== route.floor || to.desk !== route.desk;
+    const to = next.floor === null ? { floor: null, desk: null, run: null } : next;
+    const moved = to.floor !== route.floor || to.desk !== route.desk || to.run !== route.run;
     route = to;
     const hash = toHash(route);
     if (location.hash !== hash) location.hash = hash;
@@ -109,7 +109,7 @@
 
   function onHashChange(): void {
     const next = parseHash(location.hash);
-    if (next.floor === route.floor && next.desk === route.desk) return;
+    if (next.floor === route.floor && next.desk === route.desk && next.run === route.run) return;
     route = next;
     void followMove();
   }
@@ -163,8 +163,8 @@
   /** Esc goes up one level: desk, floor, building. */
   function onKeydown(e: KeyboardEvent): void {
     if (e.key !== 'Escape' || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (route.desk !== null) navigate({ floor: route.floor, desk: null });
-    else if (route.floor !== null) navigate({ floor: null, desk: null });
+    if (route.desk !== null) navigate({ floor: route.floor, desk: null, run: null });
+    else if (route.floor !== null) navigate({ floor: null, desk: null, run: null });
   }
 
   /** Leaving the page frees its connection at once. A page the browser brings back from its back-forward cache starts afresh. */
@@ -212,7 +212,7 @@
   }
 
   function openEntry(entry: AttentionEntry): void {
-    navigate({ floor: entry.floorKey, desk: entry.sessionId });
+    navigate({ floor: entry.floorKey, desk: entry.sessionId, run: null });
   }
 </script>
 
@@ -241,8 +241,8 @@
             <Facade
               floors={scene.floors}
               selected={null}
-              onFloor={(key) => navigate({ floor: key, desk: null })}
-              onDesk={(key, id) => navigate({ floor: key, desk: id })}
+              onFloor={(key) => navigate({ floor: key, desk: null, run: null })}
+              onDesk={(key, id) => navigate({ floor: key, desk: id, run: null })}
             />
             <p class="hint">{scene.floors.length > 0 ? 'Click a floor to go inside, or a window to open its desk.' : 'No sessions yet.'}</p>
           {/if}
@@ -254,7 +254,7 @@
               selected={route.desk}
               theme={resolvedTheme(theme, systemDark)}
               load={renderer}
-              onSelect={(id) => navigate({ floor: route.floor, desk: id })}
+              onSelect={(id) => navigate({ floor: route.floor, desk: id, run: null })}
               onActivate={focus}
             />
           {/key}
@@ -265,7 +265,7 @@
       <aside class="panel" aria-label="Details" bind:this={panel}>
         {#if route.floor === null}
           {#if scene}
-            <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null })} />
+            <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null, run: null })} />
           {/if}
         {:else if desk && floor}
           <DeskPanel
@@ -273,7 +273,7 @@
             island={desk.island}
             {floor}
             now={clock}
-            onBack={() => navigate({ floor: route.floor, desk: null })}
+            onBack={() => navigate({ floor: route.floor, desk: null, run: null })}
             onGo={focus}
             onSeen={seen}
           />
@@ -282,8 +282,8 @@
             {summary}
             {floor}
             selected={route.desk}
-            onDesk={(id) => navigate({ floor: route.floor, desk: id })}
-            onBack={() => navigate({ floor: null, desk: null })}
+            onDesk={(id) => navigate({ floor: route.floor, desk: id, run: null })}
+            onBack={() => navigate({ floor: null, desk: null, run: null })}
           />
         {/if}
       </aside>

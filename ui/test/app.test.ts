@@ -3,7 +3,7 @@ import { flushSync } from 'svelte';
 import App from '../App.svelte';
 import type { FocusResult } from '../lib/api';
 import { THEME_KEY } from '../lib/theme';
-import { toHash, type Route } from '../lib/route';
+import { toHash } from '../lib/route';
 import { WebGLUnavailableError } from '../renderer/index';
 import { CHECKOUT, NOW, ORDERS, makeFloor, makeScene } from './helpers/fixtures';
 import { fakeRenderer } from './helpers/fake-renderer';
@@ -15,7 +15,7 @@ function memoryStorage() {
   return { data, getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v), removeItem: (k: string) => void data.delete(k) };
 }
 
-function go(r: Route): void {
+function go(r: Parameters<typeof toHash>[0]): void {
   location.hash = toHash(r);
   window.dispatchEvent(new HashChangeEvent('hashchange'));
   flushSync();
