@@ -104,14 +104,15 @@ export class LabelLayer {
     for (const [key, label] of this.signs) if (!signs.has(key)) this.drop(this.signs, key, label);
     for (const [key, label] of this.boards) if (!boards.has(key)) this.drop(this.boards, key, label);
     this.order = [...tags];
+    this.markSelected();
     this.rove(this.stop);
   }
 
-  /** Marks the selected desk's tag, or the tags of the selected run's rooms; null clears. */
+  /** Marks the selected desk's tag, or the tag of the selected run's first room; null clears. */
   setSelected(target: Target | null): void {
     const changed = !sameTarget(target, this.selected);
     this.selected = target;
-    for (const tag of this.tags.values()) mark(tag.el, sameTarget(tag.target, target));
+    this.markSelected();
     // The tab stop follows a new selection; the same one marked again, as on each floor update, leaves it be.
     if (changed) this.rove(this.selectedKey());
   }
@@ -285,6 +286,12 @@ export class LabelLayer {
     const small = document.createElement('small');
     small.textContent = where;
     label.el.replaceChildren(document.createTextNode(island.repo), small);
+  }
+
+  /** Marks the tag of the selected key only: one room of a run is outlined, and one tag says so. */
+  private markSelected(): void {
+    const key = this.selectedKey();
+    for (const [k, tag] of this.tags) mark(tag.el, k === key);
   }
 
   /** The key of the selected desk's tag, or of the tag of the selected run's first room. */

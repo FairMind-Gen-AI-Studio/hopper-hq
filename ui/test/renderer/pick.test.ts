@@ -83,7 +83,7 @@ describe('picking', () => {
     expect(pickTarget(camera, new Vector2(0.98, 0.98), fs.pickables())).toBeNull();
   });
 
-  it('picks a room by its table, its floor, its glass or anyone sitting in it, the host included', () => {
+  it('picks a room by its table, its floor, its posts or anyone sitting in it, the host included', () => {
     const fs = new FloorScene(dayTheme());
     const floor = roomFloor();
     fs.apply(floor);
@@ -95,13 +95,27 @@ describe('picking', () => {
     const pick = (x: number, y: number, z: number) => pickTarget(camera, ndcOf(camera, x, y, z), fs.pickables());
     expect(pick(t.x, 0.78, t.z)).toEqual(target);
     expect(pick(room.rect.x + room.rect.w - 0.5, 0.01, room.rect.y + 0.8)).toEqual(target);
-    expect(pick(room.rect.x + 0.03, 1, doorGap(room.rect).from - 0.5)).toEqual(target);
+    expect(pick(room.rect.x + 0.06, 1, doorGap(room.rect).from)).toEqual(target);
     const entry = [...fs.rooms.values()][0]!;
     for (const robot of [...entry.agents.values(), entry.host!]) {
       const head = robot.group.localToWorld(new Vector3(0, 0.8, 0));
       expect(pick(head.x, head.y, head.z), robot.group.name).toEqual(target);
     }
     expect(pick(floor.rooms[1]!.rect.x + 4, 0.78, floor.rooms[1]!.rect.y + 3.3)).toEqual({ kind: 'room', id: floor.rooms[1]!.runId });
+  });
+
+  it('goes through the glass of the room in front to the room behind it', () => {
+    const fs = new FloorScene(dayTheme());
+    const floor = roomFloor();
+    fs.apply(floor);
+    fs.scene.updateMatrixWorld(true);
+    const camera = isoCamera(floor.size);
+    const [back, front] = floor.rooms;
+    // The far room's floor along its south edge, seen through the north glass of the room in front of it, east of that
+    // room's whiteboard: the board, opaque, picks the room in front.
+    const hits = [5, 6, 7].map((dx) => pickTarget(camera, ndcOf(camera, back!.rect.x + dx, 0.01, back!.rect.y + back!.rect.h - 0.3), fs.pickables()));
+    expect(hits).toEqual(Array(3).fill({ kind: 'room', id: back!.runId }));
+    expect(front!.rect.y).toBeGreaterThan(back!.rect.y);
   });
 
   it('picks the desk of an intern hovering behind it', () => {

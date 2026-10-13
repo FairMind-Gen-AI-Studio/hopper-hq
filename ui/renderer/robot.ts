@@ -80,7 +80,8 @@ export interface RobotObject {
 
 /**
  * Only the legs, the torso, the arms, the head, the hard hat and the paper cast shadows: joints, face, visor, tie, brim
- * and jetpack would cost a draw each for a texel or two of shadow.
+ * and jetpack would cost a draw each for a texel or two of shadow. An intern casts none: small, and high above the floor,
+ * it would leave only specks.
  */
 export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mats: Materials, kind: RobotKind = 'session'): RobotObject {
   const s = mats.surface;
@@ -143,6 +144,7 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
   group.traverse((o) => {
     if ((o as Mesh).isMesh) {
       o.userData.pick = pick;
+      if (kind === 'intern') o.castShadow = false;
       pickables.push(o as Mesh);
     }
   });

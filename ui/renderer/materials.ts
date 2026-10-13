@@ -39,7 +39,7 @@ const SURFACES = {
   paper: { color: 'scene-paper' },
   board: { color: 'scene-board', roughness: 0.4 },
   roomFloor: { color: 'scene-floor', mix: ['s-meeting', 0.12] },
-  glass: { color: 'window-glow', roughness: 0.2, opacity: 0.28 },
+  glass: { color: 'scene-glass', roughness: 0.2, opacity: 0.28 },
   shell: { color: 'bot-shell', roughness: 0.45 },
   visor: { color: 'bot-visor', emissive: 'bot-visor', intensity: 'visor-int' },
   hardhat: { color: 'bot-hardhat', roughness: 0.5 },

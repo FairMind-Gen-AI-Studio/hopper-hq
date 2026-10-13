@@ -57,10 +57,10 @@ describe('materials', () => {
     expect([m.surface.board.transparent, m.surface.hardhat.transparent, m.surface.roomFloor.transparent]).toEqual([false, false, false]);
   });
 
-  it('makes the partitions see-through glass in the window colour, which writes no depth', () => {
+  it('makes the partitions see-through glass in the glass colour, which writes no depth', () => {
     const theme = dayTheme();
     const glass = new Materials(theme).surface.glass;
-    expect(hex(glass.color)).toBe(theme.colors['window-glow']);
+    expect(hex(glass.color)).toBe(theme.colors['scene-glass']);
     expect([glass.transparent, glass.opacity, glass.depthWrite]).toEqual([true, GLASS_OPACITY, false]);
     expect(GLASS_OPACITY).toBeLessThan(0.5);
     expect(hex(glass.emissive)).toBe('#000000');

@@ -290,7 +290,7 @@ export interface RoomObject {
   readonly h: number;
   /** A card on the head seat, shown while the host is not at the meeting. */
   readonly placard: Mesh;
-  /** Every part of the room: a click on any of them selects the room. */
+  /** Every part of the room but its glass: a click on any of them selects the room. */
   readonly pickables: readonly Mesh[];
 }
 
@@ -298,7 +298,8 @@ export interface RoomObject {
  * One meeting room, from its north-west corner: a floor tinted for meetings, glass partitions with a door in the west
  * one, a table with SEATS_MAX seats and a head seat, a whiteboard on the north partition and a placard. No lamp hangs
  * over the table: seen from above, it would hide the agents. Every geometry is shared: rooms are all the same size.
- * Only the table top and the seats cast shadows.
+ * Only the table top and the seats cast shadows. A click goes through the glass, to whatever lies behind it: the floor
+ * of a room further back, or that room's furniture.
  */
 export function buildRoom(room: MeetingRoom, geo: Geometries, mats: Materials): RoomObject {
   const s = mats.surface;
@@ -321,8 +322,9 @@ export function buildRoom(room: MeetingRoom, geo: Geometries, mats: Materials): 
     [t / 2, (t + door.from) / 2, t, door.from - t],
     [t / 2, (door.to + h - t) / 2, t, h - t - door.to],
   ];
+  const glass = new Set<Mesh>();
   for (const [x, z, lx, lz] of panes) {
-    part(group, geo.box(lx, PARTITION_H, lz), s.glass, x, PARTITION_H / 2, z, thin);
+    glass.add(part(group, geo.box(lx, PARTITION_H, lz), s.glass, x, PARTITION_H / 2, z, thin));
     part(group, geo.box(lx, 0.05, lz), s.frame, x, PARTITION_H - 0.025, z, thin);
   }
   // Posts at the corners and either side of the door.
@@ -348,7 +350,7 @@ export function buildRoom(room: MeetingRoom, geo: Geometries, mats: Materials): 
   const pickables: Mesh[] = [];
   const pick: PickData = { kind: 'room', id: room.runId };
   group.traverse((o) => {
-    if ((o as Mesh).isMesh) {
+    if ((o as Mesh).isMesh && !glass.has(o as Mesh)) {
       o.userData.pick = pick;
       pickables.push(o as Mesh);
     }

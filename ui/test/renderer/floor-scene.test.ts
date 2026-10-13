@@ -346,7 +346,7 @@ describe('meeting rooms in the floor scene', () => {
     expect(group.parent).toBeNull();
   });
 
-  it('lets a click on a room, its table, its seats, its glass, its agents or its host pick the room', () => {
+  it('lets a click on a room, its table, its seats, its agents or its host pick the room, and go through its glass', () => {
     const fs = sceneOf(roomFloor());
     const picks = new Set(fs.pickables());
     const entry = [...fs.rooms.values()][0]!;
@@ -355,9 +355,11 @@ describe('meeting rooms in the floor scene', () => {
       if (o instanceof Mesh) meshes.push(o);
     });
     expect(meshes.length).toBeGreaterThan(30);
+    const glass = meshes.filter((m) => m.material === fs.mats.surface.glass);
+    expect(glass).toHaveLength(5);
     for (const m of meshes) {
-      expect(picks.has(m), m.name).toBe(true);
-      expect(m.userData.pick).toEqual(roomTarget('wf_0000aaaa-001'));
+      const pane = glass.includes(m);
+      expect([picks.has(m), m.userData.pick ?? null], m.name).toEqual(pane ? [false, null] : [true, roomTarget('wf_0000aaaa-001')]);
     }
     expect(entry.host!.pickables.every((m) => picks.has(m))).toBe(true);
   });
@@ -372,15 +374,67 @@ describe('meeting rooms in the floor scene', () => {
     expect(groups[0]!.position.z).not.toBe(groups[1]!.position.z);
   });
 
-  it('keeps no geometry of a closed room, however often rooms open and close', () => {
+  it('keeps no geometry, group or robot of a closed room, however often rooms open and close', () => {
     const fs = sceneOf(roomFloor());
+    const count = () => {
+      const names: string[] = [];
+      fs.scene.traverse((o) => names.push(o.name.split(' ')[0]!));
+      return { children: fs.scene.children.length, rooms: names.filter((n) => n === 'room').length, agents: names.filter((n) => n === 'agent').length, hosts: names.filter((n) => n === 'host').length };
+    };
     const size = fs.geo.size;
+    const open = count();
+    fs.apply(checkoutFloor());
+    const closed = count();
+    expect([open.rooms, open.agents, open.hosts, closed.rooms, closed.agents, closed.hosts]).toEqual([2, 11, 1, 0, 0, 0]);
     for (let n = 0; n < 5; n++) {
       fs.apply(checkoutFloor());
+      expect(count()).toEqual(closed);
       fs.apply(roomFloor(checkoutRooms().slice(1)));
       fs.apply(roomFloor());
+      expect(count()).toEqual(open);
     }
     expect(fs.geo.size).toBe(size);
+  });
+
+  it('places one robot per agent id, the first, however often a room that repeats an id is updated', () => {
+    const floor = roomFloor();
+    const room = floor.rooms[0]!;
+    // Three agents that share one id, beside the others.
+    room.agents = room.agents.map((a, i) => (i < 3 ? { ...a, agentId: 'same' } : a));
+    const fs = sceneOf(floor);
+    const agents = () => {
+      let n = 0;
+      [...fs.rooms.values()][0]!.obj.group.traverse((o) => (n += o.name.startsWith('agent ') ? 1 : 0));
+      return n;
+    };
+    const first = agents();
+    for (let i = 0; i < 5; i++) fs.apply(floor);
+    expect([first, agents(), [...fs.rooms.values()][0]!.agents.size]).toEqual([first, first, first]);
+  });
+
+  it('takes away the interns of a desk that leaves, also when two of them share an id', () => {
+    const islands = checkoutIslands();
+    islands[0]!.desks[0] = { ...islands[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true })) };
+    const fs = sceneOf(makeFloor(islands));
+    for (let i = 0; i < 5; i++) fs.apply(makeFloor(islands));
+    const interns = () => fs.scene.children.filter((o) => o.name.startsWith('intern ')).length;
+    expect(interns()).toBe(2);
+    islands[0]!.desks.shift();
+    fs.apply(makeFloor(islands));
+    expect(interns()).toBe(0);
+  });
+
+  it('outlines the first room of a run that two hosts name, in the order the floor lists them', () => {
+    const rooms = checkoutRooms();
+    const twin = { ...rooms[0]!, host: 'oa-c3', seated: false };
+    // The second host's room opens first; then the floor lists both, the first host's ahead.
+    const fs = sceneOf(roomFloor([rooms[1]!, twin]));
+    const floor = roomFloor([rooms[0]!, rooms[1]!, twin]);
+    fs.apply(floor);
+    fs.setSelected(roomTarget(rooms[0]!.runId));
+    const first = floor.rooms[0]!;
+    expect([fs.roomRing.visible, fs.roomRing.position.x, fs.roomRing.position.z]).toEqual([true, first.rect.x, first.rect.y]);
+    expect(fs.focusPoint(roomTarget(rooms[0]!.runId))).toEqual(tableCenter(first.rect));
   });
 });
 

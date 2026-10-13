@@ -75,6 +75,8 @@ export class FloorScene {
   private readonly entries = new Map<string, DeskEntry>();
   /** By roomKey: two hosts may name the same run. */
   private readonly roomEntries = new Map<string, RoomEntry>();
+  /** The rooms' keys in the floor's order: a run's first room is the first of these that is its. */
+  private roomOrder: string[] = [];
   private selected: Target | null = null;
   private azimuth = HOME_AZIMUTH;
 
@@ -136,6 +138,7 @@ export class FloorScene {
     }
     for (const [id, entry] of this.entries) if (!seen.has(id)) this.remove(id, entry);
     const rooms = new Set<string>();
+    this.roomOrder = floor.rooms.map(roomKey);
     for (const room of floor.rooms) {
       const key = roomKey(room);
       rooms.add(key);
@@ -338,12 +341,14 @@ export class FloorScene {
 
   /**
    * Brings a crew of robots in step with the places it is given, one robot per id, in `look`'s colours. A robot whose
-   * id stays keeps its object and moves to its new place; new colours build it again with `make`; the rest leave.
+   * id stays keeps its object and moves to its new place; new colours build it again with `make`; the rest leave. An id
+   * given twice gets the first place only: each robot is one the crew keeps track of.
    */
   private syncCrew(crew: Map<string, RobotObject>, places: Array<[id: string, spot: Spot]>, look: Robot, make: (id: string) => RobotObject): void {
     const before = new Map(crew);
     crew.clear();
     for (const [id, spot] of places) {
+      if (crew.has(id)) continue;
       let robot = before.get(id);
       before.delete(id);
       if (robot && (robot.body !== look.body || robot.tie !== look.tie)) {
@@ -357,9 +362,12 @@ export class FloorScene {
     for (const robot of before.values()) robot.group.removeFromParent();
   }
 
-  /** The first room of a run: two hosts may name the same run. */
+  /** The first room of a run, in the floor's order, as the labels mark it: two hosts may name the same run. */
   private roomOf(runId: string): RoomEntry | undefined {
-    for (const entry of this.roomEntries.values()) if (entry.room.runId === runId) return entry;
+    for (const key of this.roomOrder) {
+      const entry = this.roomEntries.get(key);
+      if (entry?.room.runId === runId) return entry;
+    }
     return undefined;
   }
 

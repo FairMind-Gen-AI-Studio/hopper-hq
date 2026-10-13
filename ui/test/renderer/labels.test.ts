@@ -510,7 +510,7 @@ describe('room labels', () => {
     expect(calls).toEqual([`select room ${FIRST}`, `activate room ${FIRST}`, `activate room ${FIRST}`]);
   });
 
-  it('marks the selected room, every room of that run, and no desk', () => {
+  it("marks the tag of the selected run's first room, the one the floor outlines, and no desk", () => {
     const { root, labels } = layer();
     const rooms = checkoutRooms();
     rooms.push({ ...rooms[0]!, host: 'oa-c3', seated: false });
@@ -518,8 +518,11 @@ describe('room labels', () => {
     labels.setSelected(deskTarget('oa-c3'));
     labels.setSelected(roomTarget(FIRST));
     const marked = [...root.querySelectorAll('.fv-sel')] as HTMLElement[];
-    expect(marked.map((e) => e.dataset.run)).toEqual([FIRST, FIRST]);
-    expect(marked.every((e) => e.getAttribute('aria-current') === 'true')).toBe(true);
+    expect(marked).toEqual([root.querySelectorAll(`.fv-room[data-run="${FIRST}"]`)[0]]);
+    expect(marked[0]!.getAttribute('aria-current')).toBe('true');
+    // A floor update marks it alike.
+    labels.sync(roomFloor(rooms));
+    expect(root.querySelectorAll('.fv-sel')).toHaveLength(1);
     expect(labels.tag('oa-c3')!.hasAttribute('aria-current')).toBe(false);
     labels.setSelected(roomTarget('wf_gone'));
     expect(root.querySelectorAll('.fv-sel')).toHaveLength(0);

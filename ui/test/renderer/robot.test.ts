@@ -181,17 +181,17 @@ describe('robots', () => {
     expect(rootHeight('typing', 'session')).toBe(rootHeight('typing'));
   });
 
-  it('lets the hard hat cast a shadow, but not its brim or the jetpack', () => {
+  it('lets the hard hat cast a shadow, but not its brim, and an intern cast none', () => {
     const { geo, mats } = kit();
     const robot: Robot = { pose: 'holding', badge: 'done', body: 2, tie: 3 };
     const agent = buildRobot('a1', robot, geo, mats, 'workflow');
     const casters = agent.pickables.filter((m) => m.castShadow);
     expect(casters).toHaveLength(8);
     expect(casters.filter((m) => m.material === mats.surface.hardhat)).toHaveLength(1);
+    // Small and high above the floor, an intern would leave only specks.
     const intern = buildRobot('p1', robot, geo, mats, 'intern');
-    // Torso, arms, head and the paper: an intern has no legs, and its jetpack and nozzles cast nothing.
-    expect(intern.pickables.filter((m) => m.castShadow)).toHaveLength(5);
-    for (const m of intern.pickables) if (m.parent === intern.rig.waist && m.position.z < -0.1) expect(m.castShadow).toBe(false);
+    expect(intern.pickables.length).toBeGreaterThan(10);
+    expect(intern.pickables.filter((m) => m.castShadow)).toEqual([]);
   });
 
   it('shares its geometries with every other robot', () => {

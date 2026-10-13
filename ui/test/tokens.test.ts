@@ -4,7 +4,7 @@ import css from '../styles/tokens.css?raw';
 /** Outline §2.11, and the room tokens of the M3a outline §2.10: what the renderer reads. */
 const RENDERER_COLORS = [
   'scene-floor', 'scene-wall', 'scene-base', 'scene-desk', 'scene-leg', 'scene-chair', 'scene-monitor', 'scene-key', 'scene-plant',
-  'scene-pot', 'scene-elevator', 'scene-frame', 'scene-paper', 'scene-board', 'bot-shell', 'bot-visor', 'bot-hardhat', 'bot-jet',
+  'scene-pot', 'scene-elevator', 'scene-frame', 'scene-paper', 'scene-board', 'scene-glass', 'bot-shell', 'bot-visor', 'bot-hardhat', 'bot-jet',
   'window-glow', 'lamp-glow', 'hemi-sky', 'hemi-ground', 'sun', 'accent', 's-working', 's-needs', 's-done', 's-meeting', 's-nosignal',
   ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => `repo-${n}`),
   ...[0, 1, 2, 3, 4, 5, 6, 7].map((n) => `feature-${n}`),
@@ -28,6 +28,7 @@ const PUBLISHED: Record<string, [string, string]> = {
   'scene-pot': ['#C46E4F', '#7E4532'], 'scene-elevator': ['#A9B0BC', '#5E6575'], 'scene-frame': ['#5C6170', '#2A2E3A'],
   'scene-paper': ['#FFFFFF', '#E4E7EE'], 'bot-shell': ['#D5DAE1', '#7E8796'], 'bot-visor': ['#7FE7FF', '#8FF0FF'],
   'scene-board': ['#FAFAFA', '#C9CED8'], 'bot-hardhat': ['#4A5163', '#D3D8E0'], 'bot-jet': ['#6B7280', '#9AA3B2'],
+  'scene-glass': ['#BCD7F2', '#6E8DB8'],
   'window-glow': ['#CFE4F7', '#2A3A6E'], 'lamp-glow': ['#FFE2A8', '#FFC870'], 'hemi-sky': ['#FFFFFF', '#8EA2D8'],
   'hemi-ground': ['#B9B2C4', '#1A1D2A'], sun: ['#FFF4E5', '#9DB4FF'], accent: ['#2C59C9', '#7EA4FF'],
   's-working': ['#E8B030', '#FFD27A'], 's-needs': ['#D63A3A', '#FF5A5F'], 's-done': ['#1C9A6A', '#3DD68C'],
