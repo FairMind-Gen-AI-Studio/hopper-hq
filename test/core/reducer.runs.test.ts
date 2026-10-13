@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvent, MAX_RUN_AGENTS, MAX_RUNS, newSession, normalizeSession, RUN_ID } from '../../src/core/reducer.js';
+import { applyEvent, liveRun, markSeen, MAX_RUN_AGENTS, MAX_RUNS, newSession, normalizeSession, RUN_ID } from '../../src/core/reducer.js';
 import type { CollectorEvent, Session } from '../../src/core/types.js';
 import { ev, seen, WS } from '../helpers/events.js';
 
@@ -41,7 +41,7 @@ describe('workflow runs', () => {
   });
 
   it('follows a run from its launch through its agents to its end', () => {
-    let s = run(seen(), ev('prompt', 1100, { text: 'verify the checkout' }),
+    let s = run(seen(), ev('prompt', 1100, { text: 'verify the checkout' }), ev('workflow.started', 1200, { runId: R, source: 'fs' }),
       ev('workflow.started', 1200, { runId: R, summary: 'Verify split payments end to end', source: 'fs' }),
       ev('turn.finished', 1300, { backgroundTasks: 0 }));
     expect(s).toMatchObject({ state: 'in_meeting', stateSince: 1300 });
@@ -170,6 +170,17 @@ describe('workflow runs', () => {
     expect(run(...all).runs[0]!.agents).toHaveLength(65);
   });
 
+  it('drops the oldest run that no longer goes on: finished, or seen only through the mod with nothing left running', () => {
+    const runId = (i: number) => `wf_0000aaaa-${String(i).padStart(3, '0')}`;
+    const events: CollectorEvent[] = [seen(), ev('agent.started', 1001, { agentId: 'h1', agentType: 'workflow-subagent', description: null, runId: runId(1), phase: null })];
+    events.push(ev('agent.finished', 1002, { agentId: 'h1' }));
+    for (let i = 2; i <= 11; i++) events.push(ev('workflow.started', 1000 + i * 10, { runId: runId(i), source: 'fs' }));
+    const s = run(...events);
+    expect(ids(s)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(runId));
+    expect(s.runs.every(liveRun)).toBe(true);
+    expect([liveRun({ ...s.runs[0]!, onDisk: false }), liveRun({ ...s.runs[0]!, status: 'completed' })]).toEqual([false, false]);
+  });
+
   it('ignores workflow events whose run id is not one, and takes such an agent as a plain subagent', () => {
     const s = run(seen(), ev('workflow.started', 1100, { runId: 'wf_a/b', name: 'x', source: 'fs' }), ev('workflow.finished', 1200, { runId: 'run-1', status: 'completed', source: 'fs' }),
       ev('agent.started', 1300, { agentId: 'a1', agentType: 'Explore', description: 'Find callers', runId: '../wf_1', phase: 'Plan' }));
@@ -186,6 +197,78 @@ describe('workflow runs', () => {
     s = applyEvent(s, ev('tool.started', 1400, { toolId: 'c1', tool: 'Bash', label: 'Bash: npm test', agentId: 'a1' }))!;
     expect(s).toMatchObject({ state: 'in_meeting', stateSince: 1400, waitReason: null, waitAgentId: null });
     expect(s.children.map((c) => c.id)).toEqual(['a2']);
+  });
+});
+
+describe('workflow runs read again from disk', () => {
+  const runId = (i: number) => `wf_0000aaaa-${String(i).padStart(3, '0')}`;
+  /** A run that ran from `start` to `end`, as the filesystem reads its end file: its end, then what it says of itself. */
+  const ended = (id: string, start: number, end: number): CollectorEvent[] => [
+    ev('workflow.finished', end, { runId: id, status: 'completed', startedAt: start, source: 'fs' }),
+    ev('workflow.started', start, { runId: id, name: `run ${id.slice(-3)}`, source: 'fs' }),
+  ];
+  const replay = (s: Session, events: CollectorEvent[]) => events.reduce((x, e) => applyEvent(x, e)!, s);
+
+  it('keeps the end of a run that has finished: the same end read again changes nothing, and a later word on how it ended changes only that', () => {
+    const s = markSeen(run(seen(), ev('prompt', 1050, { text: 'x' }), ...ended(R, 1100, 1200), ev('turn.finished', 1300, { backgroundTasks: 0 })), 1400);
+    expect(s.runs).toMatchObject([{ status: 'completed', startedAt: 1100, endedAt: 1200, name: 'run 001' }]);
+    expect(replay(s, ended(R, 1100, 1200))).toEqual(s);
+    expect(applyEvent(s, ev('workflow.finished', 5000, { runId: R, status: 'completed', source: 'fs' }))).toBe(s);
+    const killed = applyEvent(s, ev('workflow.finished', 5000, { runId: R, status: 'killed', source: 'fs' }))!;
+    expect(killed.runs[0]).toMatchObject({ status: 'killed', startedAt: 1100, endedAt: 1200 });
+    expect([killed.state, killed.stateSince, killed.seenAt]).toEqual(['done', 1300, 1400]);
+    // A run its session's end killed, whose end file then says it completed, completed as of that end.
+    const exited = run(seen(), ev('workflow.started', 1100, { runId: R, source: 'fs' }), ev('session.ended', 1500, { reason: 'other' }),
+      ev('workflow.finished', 1450, { runId: R, status: 'completed', startedAt: 1100, source: 'fs' }));
+    expect([exited.state, exited.runs[0]!.status, exited.runs[0]!.endedAt]).toEqual(['ended', 'completed', 1500]);
+    // A meeting another run holds counts nothing off for an end it already had.
+    const meeting = run(seen(), ev('prompt', 1050, { text: 'x' }), ...ended(R, 1100, 1200), ev('workflow.started', 1250, { runId: R2, source: 'fs' }),
+      ev('turn.finished', 1300, { backgroundTasks: 1 }));
+    expect(applyEvent(meeting, ev('workflow.finished', 5000, { runId: R, status: 'completed', source: 'fs' }))).toBe(meeting);
+  });
+
+  it('replays the ends of runs into a session whose runs are full, leaving the runs and the session as they were', () => {
+    const events: CollectorEvent[] = [seen(), ev('prompt', 1050, { text: 'x' })];
+    for (let i = 0; i < 10; i++) events.push(...ended(runId(i), 2000 + i * 100, 2050 + i * 100));
+    events.push(ev('turn.finished', 3000, { backgroundTasks: 0 }));
+    const s = markSeen(run(...events), 3100);
+    expect(ids(s)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(runId));
+    // One that started before them all, and one that ended after some of them started: neither is kept, nor runs.
+    for (const [start, end] of [[1000, 1500], [1900, 2500]] as const) {
+      const again = replay(s, [...ended(runId(20), start, end), ...ended(runId(3), 2300, 2350)]);
+      expect([start, again.runs]).toEqual([start, s.runs]);
+      expect([again.state, again.stateSince, again.seenAt]).toEqual(['done', 3000, 3100]);
+    }
+    // One that started after them all takes the place of the oldest.
+    const newer = replay(s, ended(runId(20), 2950, 2990));
+    expect(ids(newer)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 20].map(runId));
+    expect(newer.runs.at(-1)).toMatchObject({ name: 'run 020', status: 'completed', onDisk: true, startedAt: 2950, endedAt: 2990 });
+    expect([newer.state, newer.stateSince, newer.seenAt]).toEqual(['done', 3000, 3100]);
+  });
+
+  it('makes no run from what the filesystem reads of one it does not hold: only a bare start, or the demo, makes one', () => {
+    const named = { runId: R, name: 'checkout-verify', summary: 'Verify split payments end to end', phases: ['Plan'] };
+    expect(run(seen(), ev('workflow.started', 1100, { ...named, source: 'fs' })).runs).toEqual([]);
+    expect(run(seen(), ev('workflow.started', 1100, { runId: R, source: 'fs' }), ev('workflow.started', 1200, { ...named, source: 'fs' })).runs)
+      .toMatchObject([{ name: 'checkout-verify', status: 'running', startedAt: 1100 }]);
+    expect(run(seen(), ev('workflow.started', 1100, { ...named, source: 'demo' })).runs).toMatchObject([{ name: 'checkout-verify', status: 'running' }]);
+  });
+
+  it("starts a finished run again only on the filesystem's bare word of a start after its end: resumed under its id", () => {
+    let s = run(seen(), ev('prompt', 1050, { text: 'x' }), ev('workflow.started', 1100, { runId: R, source: 'fs' }), fsAgent(1150, 'a1'),
+      ev('workflow.finished', 1800, { runId: R, status: 'failed', source: 'fs' }), ev('turn.finished', 1900, { backgroundTasks: 0 }));
+    expect(s).toMatchObject({ state: 'done', runs: [{ status: 'failed', endedAt: 1800, agentsFinished: 1 }] });
+    // A late spawn from the mod, a start before the end, and what the end file says of the run start nothing.
+    for (const e of [hookAgent(2000, 'a2'), ev('workflow.started', 1700, { runId: R, source: 'fs' }), ev('workflow.started', 2000, { runId: R, name: 'checkout-verify', source: 'fs' })]) {
+      const after = applyEvent(s, e)!;
+      expect([e.ts, after.state, after.runs[0]!.status, after.runs[0]!.endedAt]).toEqual([e.ts, 'done', 'failed', 1800]);
+    }
+    s = applyEvent(s, ev('workflow.started', 2100, { runId: R, source: 'fs' }))!;
+    expect(s).toMatchObject({ state: 'in_meeting', stateSince: 2100, runs: [{ status: 'running', endedAt: null, startedAt: 1100, agentsFinished: 1 }] });
+    s = applyEvent(s, fsAgent(2200, 'a3'))!;
+    expect(s.runs[0]!.agents.map((a) => [a.id, a.running])).toEqual([['a1', false], ['a3', true]]);
+    s = applyEvent(s, ev('workflow.finished', 2500, { runId: R, status: 'completed', source: 'fs' }))!;
+    expect(s).toMatchObject({ state: 'done', stateSince: 2500, runs: [{ status: 'completed', endedAt: 2500, agentsFinished: 2 }] });
   });
 });
 

@@ -81,12 +81,17 @@ function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { update
 }
 
 /**
- * Work that holds a finished turn in a meeting: a running subagent, or a running workflow run that the filesystem
- * confirmed or that still has a running agent. The hooks surface has no run end: a run seen only there lives while its
- * agents run.
+ * A workflow run that still goes on: running, and either confirmed on disk or with an agent still running. A run seen
+ * only through the hooks has no end there, so it lives while its agents run (rule R7). Rooms, desks and meetings all
+ * go by this.
  */
+export function liveRun(r: WorkflowRun): boolean {
+  return r.status === 'running' && (r.onDisk || r.agents.some((a) => a.running));
+}
+
+/** Work that holds a finished turn in a meeting: a running subagent, or a live workflow run. */
 function liveWork(s: Session): boolean {
-  return s.children.some((c) => c.running) || s.runs.some((r) => r.status === 'running' && (r.onDisk || r.agents.some((a) => a.running)));
+  return s.children.some((c) => c.running) || s.runs.some(liveRun);
 }
 
 /** A run known only by its id. */
@@ -103,12 +108,16 @@ function oldest<T extends { startedAt: number }>(items: T[], droppable: (item: T
   return at;
 }
 
-/** Changes the run with this id, a placeholder when there is none. Runs stay in start order, at most MAX_RUNS: the oldest finished one goes first. */
+/**
+ * Changes the run with this id, a placeholder starting at `ts` when there is none. Runs stay in start order, at most
+ * MAX_RUNS: the oldest one that no longer goes on leaves first, finished or seen only through the hooks with nothing left
+ * running.
+ */
 function withRun(s: Session, id: string, ts: number, change: (r: WorkflowRun) => WorkflowRun): Session {
   const i = s.runs.findIndex((r) => r.id === id);
   let runs = i === -1 ? [...s.runs, change(placeholderRun(id, ts))] : s.runs.map((r, k) => (k === i ? change(r) : r));
   if (runs.length > MAX_RUNS) {
-    const drop = oldest(runs, (r) => r.status !== 'running');
+    const drop = oldest(runs, (r) => !liveRun(r));
     if (drop !== -1) runs = runs.filter((_, k) => k !== drop);
   }
   return { ...s, runs: runs.sort((a, b) => a.startedAt - b.startedAt) };
@@ -251,19 +260,35 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     }
     case 'workflow.started': {
       if (!RUN_ID.test(e.runId)) return s;
-      const next = withRun(s, e.runId, e.ts, (r) => ({
-        ...r,
-        name: r.name ?? (e.name || null),
-        summary: r.summary ?? (e.summary || null),
-        phases: r.phases.length === 0 && e.phases?.length ? [...e.phases] : r.phases,
-        startedAt: Math.min(r.startedAt, e.ts),
-        onDisk: r.onDisk || e.source === 'fs',
-      }));
+      const fields = Boolean(e.name || e.summary || e.phases?.length);
+      // What the filesystem reads of a run fills a run the session holds. Only a bare start, or the demo's, makes one: a
+      // run the session let go of is not brought back by its end file.
+      if (fields && e.source === 'fs' && !s.runs.some((r) => r.id === e.runId)) return s;
+      const next = withRun(s, e.runId, e.ts, (r) => {
+        // A finished run goes on again only on the filesystem's bare word that it started after its end: resumed under its id.
+        const resumed = !fields && e.source === 'fs' && r.status !== 'running' && r.endedAt !== null && e.ts > r.endedAt;
+        return {
+          ...r,
+          name: r.name ?? (e.name || null),
+          summary: r.summary ?? (e.summary || null),
+          phases: r.phases.length === 0 && e.phases?.length ? [...e.phases] : r.phases,
+          startedAt: Math.min(r.startedAt, e.ts),
+          onDisk: r.onDisk || e.source === 'fs',
+          ...(resumed ? { status: 'running' as const, endedAt: null } : {}),
+        };
+      });
       return meetWhileRunning(next, e.runId, e.ts);
     }
     case 'workflow.finished': {
       if (!RUN_ID.test(e.runId)) return s;
-      const ended = withRun(s, e.runId, e.ts, (r) => ({ ...stopAgents(r, e.ts), status: e.status, endedAt: e.ts, onDisk: r.onDisk || e.source === 'fs' }));
+      const held = s.runs.find((r) => r.id === e.runId);
+      // A run that has finished keeps its end: the same end read again changes nothing, and a later word on how it ended
+      // changes only that. It held no meeting.
+      if (held && held.status !== 'running') {
+        const onDisk = held.onDisk || e.source === 'fs';
+        return held.status === e.status && held.onDisk === onDisk ? s : withRun(s, e.runId, e.ts, (r) => ({ ...r, status: e.status, onDisk }));
+      }
+      const ended = withRun(s, e.runId, Math.min(e.startedAt ?? e.ts, e.ts), (r) => ({ ...stopAgents(r, e.ts), status: e.status, endedAt: e.ts, onDisk: r.onDisk || e.source === 'fs' }));
       return settleMeeting(ended, e.ts);
     }
     case 'answer': {

@@ -178,7 +178,7 @@ export type CollectorEvent = EventBase &
     | { type: 'turn.finished'; backgroundTasks: number }
     | { type: 'agent.started'; agentId: string; agentType: string; description: string | null; runId?: string | null; phase?: string | null }
     | { type: 'workflow.started'; runId: string; name?: string | null; summary?: string | null; phases?: string[] }
-    | { type: 'workflow.finished'; runId: string; status: 'completed' | 'failed' | 'killed' }
+    | { type: 'workflow.finished'; runId: string; status: 'completed' | 'failed' | 'killed'; startedAt?: number }
     | { type: 'answer'; text: string }
     | { type: 'agent.finished'; agentId: string }
     | { type: 'session.ended'; reason: string }

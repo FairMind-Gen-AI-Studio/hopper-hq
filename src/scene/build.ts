@@ -3,7 +3,8 @@
  * Pure and deterministic: the same views in any order give the same scene, down to its JSON text. Every string is cleaned.
  */
 import type { WorkflowRun } from '../core/types.js';
-import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, liveRun, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
+import { liveRun } from '../core/reducer.js';
+import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { INTERNS_MAX, layoutFloor, MEETING_AGENTS_MAX, ROOMS_MAX, RUNS_SHOWN } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
 import { cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';

@@ -1,7 +1,7 @@
 import { DEFAULT_THRESHOLDS, type Thresholds } from '../config.js';
 import { capKey } from '../scene/text.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './feature.js';
-import type { Session, SessionState, WorkflowRun } from './types.js';
+import type { Session, SessionState } from './types.js';
 
 export interface SessionView extends Session {
   effectiveState: SessionState;
@@ -37,14 +37,6 @@ export function effectiveState(s: Session, now: number, t: Thresholds = DEFAULT_
     }
   }
   return { state, since };
-}
-
-/**
- * A workflow run that still goes on: running, and either confirmed on disk or with an agent still running. A run seen
- * only through the hooks has no end there, so it lives while its agents run (reducer rule R7).
- */
-export function liveRun(r: WorkflowRun): boolean {
-  return r.status === 'running' && (r.onDisk || r.agents.some((a) => a.running));
 }
 
 export function toView(s: Session, now: number, t: Thresholds = DEFAULT_THRESHOLDS, rules: FeatureRules = DEFAULT_FEATURE_RULES): SessionView {
