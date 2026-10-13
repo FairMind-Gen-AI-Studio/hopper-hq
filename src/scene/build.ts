@@ -53,7 +53,7 @@ interface IslandGroup {
   branch: string | null;
   worktree: boolean;
   path: string;
-  /** Desks in order: by start time, then id. */
+  /** Desks in order: by start time, then id. The last, the newest, gives the island its repo, branch, worktree flag and path. */
   views: SessionView[];
 }
 
@@ -108,9 +108,10 @@ function islandsOf(floor: Floor, label: (v: SessionView) => string): IslandGroup
   }
   const groups = [...byKey].map(([key, views]): IslandGroup => {
     views.sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
-    const first = views[0]!;
-    const ws = first.workspace;
-    return { key, repo: cleanText(label(first)), root: repoRootOf(first), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd), views };
+    // The newest session says what the checkout is now: a branch switched since an older session started shows.
+    const newest = views[views.length - 1]!;
+    const ws = newest.workspace;
+    return { key, repo: cleanText(label(newest)), root: repoRootOf(newest), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd), views };
   });
   return groups.sort((a, b) => byCodeUnit(a.repo, b.repo) || byCodeUnit(a.branch ?? '', b.branch ?? '') || byCodeUnit(a.key, b.key));
 }

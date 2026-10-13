@@ -216,6 +216,19 @@ describe('desks', () => {
   });
 });
 
+describe('islands', () => {
+  it('take their branch and worktree flag from their newest session, and keep desks in start order', () => {
+    const at = (id: string, branch: string, startedAt: number, worktree: boolean) => view(id, ws('/w/api', branch, { worktree }), 'working', { startedAt });
+    const island = (views: SessionView[]) => {
+      const i = buildFloorDetail(views, 'feature:x')!.islands[0]!;
+      return [i.branch, i.worktree, i.desks.map((d) => d.sessionId)];
+    };
+    expect(island([at('new', 'fix/x', NOW - DAY + 5, true), at('old', 'feat/x', NOW - DAY, false)])).toEqual(['fix/x', true, ['old', 'new']]);
+    // Sessions that started together: the one with the greater id counts as the newer.
+    expect(island([at('b', 'fix/x', NOW - DAY, true), at('a', 'feat/x', NOW - DAY, false)])).toEqual(['fix/x', true, ['a', 'b']]);
+  });
+});
+
 describe('wait reasons', () => {
   const waiting = (id: string, extra: Partial<Session>) =>
     view(id, ws('/w/api', 'main'), 'needs_you', { waitReason: { kind: 'permission', text: 'Bash', detail: 'Bash: npm publish' }, ...extra });
