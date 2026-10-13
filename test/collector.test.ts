@@ -401,3 +401,74 @@ describe('scene', () => {
     expect(c.floor('repo:/w/search-svc')!.islands[0]!.desks.map((d) => d.sessionId)).toEqual(['S2']);
   });
 });
+
+describe('the collector and the summarizer', () => {
+  const SUMMARY = { text: 'Done: the form works.', at: NOW + 2, inputHash: '0123456789abcdef' };
+
+  it('gives a session as it holds it, ended or not, and null for an unknown one', async () => {
+    const c = collector();
+    await c.ingest(hook({ type: 'prompt', text: 'go' }));
+    await c.ingest(hook({ type: 'session.ended', reason: 'exit', ts: NOW + 1 }));
+    expect(c.session('S1')).toMatchObject({ id: 'S1', state: 'ended', lastPrompt: 'go' });
+    expect(c.session('S9')).toBeNull();
+  });
+
+  it('tells session listeners the stored and the new value of each change, until they unsubscribe', async () => {
+    const c = collector();
+    const calls: [Session | undefined, Session][] = [];
+    const off = c.onSessionChange((prev, next) => calls.push([prev, next]));
+    await c.ingest(hook({ type: 'prompt', text: 'go' }));
+    await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, ts: NOW + 1 }));
+    await c.ingest(hook({ type: 'tool.finished', toolId: 't0', ok: true, agentId: null, ts: NOW - 5 }));
+    expect(c.setSummary('S1', SUMMARY)).toBe(true);
+    off();
+    await c.ingest(hook({ type: 'prompt', text: 'again', ts: NOW + 3 }));
+    expect(calls.map(([prev, next]) => [prev?.state ?? null, next.state, next.summary])).toEqual([
+      [null, 'working', null],
+      ['working', 'done', null],
+      ['done', 'done', SUMMARY],
+    ]);
+    expect(calls[1]![0]).toBe(calls[0]![1]);
+    expect(calls[2]![0]).toBe(calls[1]![1]);
+  });
+
+  it('stores a summary with no event and saves it with the session, for known sessions only', async () => {
+    const store = await Store.open(':memory:');
+    const c = collector({ store });
+    await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0 }));
+    const changes = vi.fn();
+    c.onChange(changes);
+    expect(c.setSummary('S9', SUMMARY)).toBe(false);
+    expect(changes).not.toHaveBeenCalled();
+    expect(c.setSummary('S1', SUMMARY)).toBe(true);
+    expect(changes).toHaveBeenCalledTimes(1);
+    await c.close();
+    expect(store.recentEvents('S1').map((e) => e.type)).toEqual(['turn.finished']);
+    expect(collector({ store }).session('S1')!.summary).toEqual(SUMMARY);
+    store.close();
+  });
+
+  it('keeps going when a session listener throws', async () => {
+    const log = vi.fn();
+    const c = collector({ log });
+    const later = vi.fn();
+    c.onSessionChange(() => {
+      throw new Error('boom');
+    });
+    c.onSessionChange(later);
+    await c.ingest(hook({ type: 'prompt', text: 'go' }));
+    expect([later.mock.calls.length, c.dropped, c.session('S1')?.lastPrompt]).toEqual([1, 0, 'go']);
+    expect(log).toHaveBeenCalledWith('scranton-hq session listener failed: boom');
+  });
+
+  it('drops and counts the events of an ignored working directory before they are ordered', async () => {
+    const dir = '/home/dev/.scranton-hq/summarizer';
+    const c = collector({ ignoreCwd: (cwd) => cwd === dir || cwd.startsWith(dir + '/') });
+    await c.ingest(hook({ type: 'prompt', text: 'Summarize', sessionId: 'X1', cwd: dir }));
+    await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, sessionId: 'X1', cwd: `${dir}/sub` }));
+    await c.ingest(hook({ type: 'prompt', text: 'go', cwd: `${dir}-other` }));
+    expect([c.ignored, c.dropped]).toEqual([2, 0]);
+    expect(c.session('X1')).toBeNull();
+    expect(c.session('S1')).toMatchObject({ lastPrompt: 'go', lastSeq: 0 });
+  });
+});

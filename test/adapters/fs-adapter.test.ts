@@ -184,6 +184,17 @@ describe('FsAdapter', () => {
     expect(events).toEqual([]);
   });
 
+  it('never tracks or announces a session whose working directory is ignored', async () => {
+    await writeSession({ ...SESSION, cwd: '/home/dev/.scranton-hq/summarizer' });
+    await writeFile(join(root, 'sessions', '4343.json'), JSON.stringify({ ...SESSION, pid: 4343, sessionId: 'S2' }));
+    const reports: string[][] = [];
+    const a = adapter({ ignoreCwd: (cwd) => cwd.startsWith('/home/dev/.scranton-hq/summarizer'), onFirstScan: (live) => reports.push([...live]) });
+    await a.poll();
+    await a.poll();
+    expect(events.map((e) => [e.type, e.sessionId])).toEqual([['session.seen', 'S2'], ['session.status', 'S2']]);
+    expect(reports).toEqual([['S2']]);
+  });
+
   it('finds a transcript stored under a differently encoded directory', async () => {
     await writeSession(SESSION);
     const path = await writeTranscript('-w-shop-orders api (legacy)', LINES);

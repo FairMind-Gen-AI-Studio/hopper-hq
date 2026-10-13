@@ -2,7 +2,7 @@ import type { WorkspaceResolver } from './adapters/git.js';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './core/feature.js';
 import { applyEvent, markSeen, normalizeSession } from './core/reducer.js';
-import type { CollectorEvent, EventSourceKind, RawEvent, Session, WaitReason } from './core/types.js';
+import type { CollectorEvent, EventSourceKind, RawEvent, Session, SessionSummary, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
 import { buildFloorDetail, buildScene } from './scene/build.js';
 import { cleanOrNull, cleanText, isSessionId, taskTitle } from './scene/text.js';
@@ -51,11 +51,14 @@ export interface CollectorOptions {
   acceptSources?: EventSourceKind[];
   saveDelayMs?: number;
   log?: (line: string) => void;
+  /** Events from a working directory this matches are dropped as they arrive: the summarizer's own sessions. */
+  ignoreCwd?: (cwd: string) => boolean;
 }
 
 export class Collector {
   private readonly sessions = new Map<string, Session>();
   private readonly listeners = new Set<() => void>();
+  private readonly sessionListeners = new Set<(prev: Session | undefined, next: Session) => void>();
   private readonly dirty = new Set<string>();
   /**
    * When each floor key was first seen: set once, so a floor keeps its place while sessions sit on it. A floor no session
@@ -74,6 +77,8 @@ export class Collector {
   private queue: Promise<void> = Promise.resolve();
   private saveTimer: NodeJS.Timeout | null = null;
   dropped = 0;
+  /** Events dropped because their working directory is ignored. */
+  ignored = 0;
 
   constructor(private readonly o: CollectorOptions) {
     this.now = o.now ?? Date.now;
@@ -147,6 +152,10 @@ export class Collector {
       this.dropped++;
       return this.queue;
     }
+    if (raw.cwd !== undefined && this.o.ignoreCwd?.(raw.cwd)) {
+      this.ignored++;
+      return this.queue;
+    }
     // A source that reports a session has seen it alive since the daemon started.
     this.unconfirmed.delete(raw.sessionId);
     const e = { ...raw, seq: this.seq++ } as CollectorEvent;
@@ -204,6 +213,18 @@ export class Collector {
         this.moveSeat(this.liveKey(stored), this.liveKey(next), e.ts);
       }
       this.changed(next.id);
+      this.sessionChanged(stored, next);
+    }
+  }
+
+  /** Tells the session listeners. One that throws neither stops the others nor the event. */
+  private sessionChanged(prev: Session | undefined, next: Session): void {
+    for (const fn of this.sessionListeners) {
+      try {
+        fn(prev, next);
+      } catch (err) {
+        this.log(`scranton-hq session listener failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
@@ -238,6 +259,19 @@ export class Collector {
     return () => {
       this.listeners.delete(fn);
     };
+  }
+
+  /** Calls `fn` with the previous and the new value each time a session changes; `prev` is undefined for a new one. */
+  onSessionChange(fn: (prev: Session | undefined, next: Session) => void): () => void {
+    this.sessionListeners.add(fn);
+    return () => {
+      this.sessionListeners.delete(fn);
+    };
+  }
+
+  /** A session as the collector holds it, ended or not; null when it is unknown. */
+  session(id: string): Session | null {
+    return this.sessions.get(id) ?? null;
   }
 
   /** Views of the sessions still in the building. Ended sessions are skipped before any view is derived for them. */
@@ -309,6 +343,17 @@ export class Collector {
     if (!s || this.view(id)?.effectiveState !== 'done') return false;
     this.sessions.set(id, markSeen(s, this.now()));
     this.changed(id);
+    return true;
+  }
+
+  /** Stores a session's summary line, with no event. False when the session is unknown. */
+  setSummary(id: string, summary: SessionSummary): boolean {
+    const prev = this.sessions.get(id);
+    if (!prev) return false;
+    const next = { ...prev, summary };
+    this.sessions.set(id, next);
+    this.changed(id);
+    this.sessionChanged(prev, next);
     return true;
   }
 

@@ -23,6 +23,8 @@ export interface FsAdapterOptions {
   onFirstScan?: (live: ReadonlySet<string>) => void;
   /** The workflow runs the collector holds as running on disk for a session, asked when the adapter starts tracking it. */
   openRuns?: (sessionId: string) => readonly string[];
+  /** A session file whose working directory this matches is never tracked or announced: the summarizer's own sessions. */
+  ignoreCwd?: (cwd: string) => boolean;
 }
 
 interface Tracked {
@@ -100,7 +102,7 @@ export class FsAdapter {
     const live = new Set<string>();
 
     for (const f of files) {
-      if (!isSameProcess(f, starts.get(f.pid)) || live.has(f.sessionId)) continue;
+      if (!isSameProcess(f, starts.get(f.pid)) || live.has(f.sessionId) || this.o.ignoreCwd?.(f.cwd)) continue;
       live.add(f.sessionId);
       let t = this.tracked.get(f.sessionId);
       if (!t || t.ended) {
