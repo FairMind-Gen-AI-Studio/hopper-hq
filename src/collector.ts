@@ -7,7 +7,7 @@ import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type F
 import { buildFloorDetail, buildScene } from './scene/build.js';
 import { cleanOrNull, cleanText, isSessionId, taskTitle } from './scene/text.js';
 import type { BuildingScene, FloorDetail } from './scene/types.js';
-import type { Store } from './store/store.js';
+import type { FloorRecord, Store } from './store/store.js';
 
 export interface Snapshot {
   generatedAt: number;
@@ -89,7 +89,7 @@ export class Collector {
   constructor(private readonly o: CollectorOptions) {
     this.now = o.now ?? Date.now;
     this.log = o.log ?? ((line) => process.stderr.write(line + '\n'));
-    for (const [key, at] of o.store?.loadFloors() ?? []) this.firstSeen.set(key, at);
+    for (const [key, floor] of o.store?.loadFloors() ?? []) this.firstSeen.set(key, floor.firstSeen);
     let skipped = 0;
     for (const s of o.store?.loadSessions() ?? []) {
       // Saved before ids were checked: such a session could not be named in a URL.
@@ -276,7 +276,12 @@ export class Collector {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     const list = [...this.dirty].map((id) => this.sessions.get(id)).filter((s): s is Session => s !== undefined);
-    const floors = new Map([...this.dirtyFloors].map((key): [string, number | null] => [key, this.firstSeen.get(key) ?? null]));
+    const floors = new Map(
+      [...this.dirtyFloors].map((key): [string, FloorRecord | null] => {
+        const firstSeen = this.firstSeen.get(key);
+        return [key, firstSeen === undefined ? null : { firstSeen, plan: null }];
+      }),
+    );
     if (list.length || floors.size) this.o.store?.save(list, floors, this.now());
     this.dirty.clear();
     this.dirtyFloors.clear();

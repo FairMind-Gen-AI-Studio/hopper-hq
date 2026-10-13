@@ -19,12 +19,20 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_session_ts ON events (session_id, ts);
 CREATE TABLE IF NOT EXISTS floors (
   key TEXT PRIMARY KEY,
-  first_seen INTEGER NOT NULL
+  first_seen INTEGER NOT NULL,
+  plan TEXT
 );
 `;
 
 type JsonRow = { json: string };
-type FloorRow = { key: string; first_seen: number };
+type FloorRow = { key: string; first_seen: number; plan: unknown };
+
+/** A floor as stored: when its key was first seen, and its seating. */
+export interface FloorRecord {
+  firstSeen: number;
+  /** The seating as JSON (scene/seating.ts); null when none is stored. */
+  plan: string | null;
+}
 
 export class Store {
   private readonly upsertSession: StatementSync;
@@ -37,11 +45,16 @@ export class Store {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA journal_mode = WAL');
     db.exec(SCHEMA);
+    // A database made before floors kept their seating: CREATE TABLE IF NOT EXISTS leaves its floors table as it was.
+    const columns = db.prepare('PRAGMA table_info(floors)').all() as unknown as { name: string }[];
+    if (!columns.some((c) => c.name === 'plan')) db.exec('ALTER TABLE floors ADD COLUMN plan TEXT');
     this.upsertSession = db.prepare(
       'INSERT INTO sessions (id, json, updated_at) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at',
     );
     this.insertEvent = db.prepare('INSERT INTO events (session_id, ts, seq, source, type, json) VALUES (?, ?, ?, ?, ?, ?)');
-    this.upsertFloor = db.prepare('INSERT INTO floors (key, first_seen) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET first_seen = excluded.first_seen');
+    this.upsertFloor = db.prepare(
+      'INSERT INTO floors (key, first_seen, plan) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET first_seen = excluded.first_seen, plan = excluded.plan',
+    );
     this.deleteFloor = db.prepare('DELETE FROM floors WHERE key = ?');
   }
 
@@ -51,14 +64,14 @@ export class Store {
     return new Store(new DatabaseSync(path));
   }
 
-  /** Writes sessions and floor first-seen times in one transaction: all of it or nothing. A floor mapped to null is forgotten. */
-  save(sessions: Session[], floors: ReadonlyMap<string, number | null>, now: number): void {
+  /** Writes sessions and floors in one transaction: all of it or nothing. A floor mapped to null is forgotten. */
+  save(sessions: Session[], floors: ReadonlyMap<string, FloorRecord | null>, now: number): void {
     this.db.exec('BEGIN');
     try {
       for (const s of sessions) this.upsertSession.run(s.id, JSON.stringify(s), now);
-      for (const [key, firstSeen] of floors) {
-        if (firstSeen === null) this.deleteFloor.run(key);
-        else this.upsertFloor.run(key, firstSeen);
+      for (const [key, floor] of floors) {
+        if (floor === null) this.deleteFloor.run(key);
+        else this.upsertFloor.run(key, floor.firstSeen, floor.plan);
       }
       this.db.exec('COMMIT');
     } catch (err) {
@@ -86,10 +99,10 @@ export class Store {
     return out;
   }
 
-  /** When each floor key was first seen. */
-  loadFloors(): Map<string, number> {
-    const rows = this.db.prepare('SELECT key, first_seen FROM floors').all() as unknown as FloorRow[];
-    return new Map(rows.map((r) => [r.key, Number(r.first_seen)]));
+  /** Every stored floor. */
+  loadFloors(): Map<string, FloorRecord> {
+    const rows = this.db.prepare('SELECT key, first_seen, plan FROM floors').all() as unknown as FloorRow[];
+    return new Map(rows.map((r) => [r.key, { firstSeen: Number(r.first_seen), plan: typeof r.plan === 'string' ? r.plan : null }]));
   }
 
   appendEvent(e: CollectorEvent): void {

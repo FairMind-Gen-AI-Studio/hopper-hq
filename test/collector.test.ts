@@ -301,7 +301,7 @@ describe('floor order', () => {
     await a.ingest(hook({ type: 'prompt', text: 'b', sessionId: 'B1', cwd: '/w/beta', ts: NOW + 10 }));
     await a.ingest(hook({ type: 'session.ended', reason: 'exit', sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 20 }));
     a.flush();
-    expect(store.loadFloors()).toEqual(new Map([['repo:/w/beta', NOW + 10]]));
+    expect(store.loadFloors()).toEqual(new Map([['repo:/w/beta', { firstSeen: NOW + 10, plan: null }]]));
     await a.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A2', cwd: '/w/alpha', ts: NOW + 30 }));
     expect(a.snapshot().floors.map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/alpha', NOW + 30], ['repo:/w/beta', NOW + 10]]);
     await a.close();
@@ -321,7 +321,7 @@ describe('floor order', () => {
     await c.ingest(hook({ type: 'session.ended', reason: 'exit', sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 20 }));
     await c.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A2', cwd: '/w/alpha', ts: NOW + 30 }));
     await c.close();
-    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', NOW + 30], ['repo:/w/beta', NOW + 10]]));
+    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', { firstSeen: NOW + 30, plan: null }], ['repo:/w/beta', { firstSeen: NOW + 10, plan: null }]]));
     store.close();
   });
 
@@ -331,7 +331,7 @@ describe('floor order', () => {
     await c.ingest(hook({ type: 'prompt', text: 'a', sessionId: 'A1', cwd: '/w/alpha', ts: NOW }));
     await c.ingest(hook({ type: 'branch', branch: 'feat/late-idea', sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 50 }));
     await c.close();
-    expect(store.loadFloors()).toEqual(new Map([['feature:late-idea', NOW + 50]]));
+    expect(store.loadFloors()).toEqual(new Map([['feature:late-idea', { firstSeen: NOW + 50, plan: null }]]));
     store.close();
   });
 
@@ -350,11 +350,12 @@ describe('floor order', () => {
   it('forgets at start the floors no session sits on any more', async () => {
     const store = await Store.open(':memory:');
     const ws = (cwd: string) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
-    store.save([newSession('A1', 50, ws('/w/alpha')), { ...newSession('G1', 5, ws('/w/gamma')), state: 'ended' }], new Map([['repo:/w/alpha', 40], ['repo:/w/gamma', 5], ['repo:/w/gone', 30]]), 1);
+    const at = (firstSeen: number) => ({ firstSeen, plan: null });
+    store.save([newSession('A1', 50, ws('/w/alpha')), { ...newSession('G1', 5, ws('/w/gamma')), state: 'ended' }], new Map([['repo:/w/alpha', at(40)], ['repo:/w/gamma', at(5)], ['repo:/w/gone', at(30)]]), 1);
     const c = collector({ store });
     expect(c.snapshot().floors.map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/alpha', 40]]);
     await c.close();
-    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', 40]]));
+    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', at(40)]]));
     store.close();
   });
 
@@ -371,7 +372,7 @@ describe('floor order', () => {
     const c = collector({ store });
     expect(c.snapshot().floors.map((f) => [f.key, f.openedAt])).toEqual([['repo:/w/beta', 70], ['repo:/w/alpha', 50]]);
     await c.close();
-    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', 50], ['repo:/w/beta', 70]]));
+    expect(store.loadFloors()).toEqual(new Map([['repo:/w/alpha', { firstSeen: 50, plan: null }], ['repo:/w/beta', { firstSeen: 70, plan: null }]]));
     store.close();
   });
 });
