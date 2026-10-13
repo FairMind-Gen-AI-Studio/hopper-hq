@@ -8,7 +8,9 @@ import type { AttentionSummary, Snapshot } from './collector.js';
 import { resolvePaths } from './config.js';
 import { readDaemonFile } from './daemon-file.js';
 import { dataDirInUse, DataDirInUseError } from './daemon-lock.js';
-import { cleanText } from './scene/text.js';
+import { cleanText, formatAgo } from './scene/text.js';
+import type { ProviderName } from './summary/config.js';
+import type { SummaryStatus } from './summary/summarizer.js';
 
 /** Time, for the commands that wait. */
 export interface Clock {
@@ -35,6 +37,8 @@ export interface Io {
   clock?: Clock;
   /** Starts `scranton-hq start ARGS` in the background, its output appended to `log`. Default: a detached process. */
   spawnDaemon?(args: string[], log: string): Promise<Background>;
+  /** The environment `summaries on` looks for ANTHROPIC_API_KEY in. Default: this process's. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** How long to wait for the desktop's opener: a browser it starts can outlive it, and nothing it prints matters. */
@@ -108,6 +112,7 @@ Usage:
   scranton-hq ls [--data-dir DIR]
   scranton-hq ack [SESSION_ID] [--data-dir DIR]
   scranton-hq ui [--no-open] [--data-dir DIR]
+  scranton-hq summaries [status|on|off] [--provider claude-cli|anthropic-api] [--model ID] [--data-dir DIR]
   scranton-hq demo [--port N] [--data-dir DIR]
   scranton-hq --version`;
 
@@ -144,6 +149,8 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
         return await cmdDemo(args, io);
       case 'ui':
         return await cmdUi(args, io);
+      case 'summaries':
+        return await cmdSummaries(args, io);
       case undefined:
       case 'help':
       case '--help':
@@ -435,6 +442,84 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
   await Promise.race([(io.untilStopped ?? untilSignal)(), daemon.stopRequested]);
   await daemon.stop();
   return 0;
+}
+
+/** Where each provider sends a session's notes, as `summaries on` says it. */
+const SENT_TO: Record<ProviderName, string> = { 'claude-cli': 'the claude CLI on your account', 'anthropic-api': 'the Anthropic API' };
+
+/**
+ * Turns the "where it stands" summaries on or off in the config file, which a running daemon reads again before each
+ * summary, or says how they stand. --provider without --model goes back to that provider's default model.
+ */
+async function cmdSummaries(args: string[], io: Io): Promise<number> {
+  const { values, positionals } = parseArgs({ args, options: { provider: { type: 'string' }, model: { type: 'string' }, ...dataDirOption }, allowPositionals: true });
+  const action = positionals[0] ?? 'status';
+  if (positionals.length > 1 || (action !== 'status' && action !== 'on' && action !== 'off')) throw new UsageError(`Unknown summaries command: ${positionals.join(' ')}`);
+  const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
+  const { isProviderName, MODEL_PATTERN, readSummaryConfig, writeSummaryConfig } = await import('./summary/config.js');
+  if (action === 'status') {
+    if (values.provider !== undefined || values.model !== undefined) throw new UsageError('Give --provider and --model with on or off.');
+    const config = await readSummaryConfig(dataDir);
+    io.out(`Summaries are ${config.enabled ? 'on' : 'off'} (${config.provider}, model ${config.model ?? 'default'}).`);
+    const { callDaemon } = await import('./client.js');
+    const r = await callDaemon<SummaryStatus>(dataDir, 'GET', '/api/summaries', 800);
+    if (!r) {
+      io.out('The daemon is not running.');
+      return 0;
+    }
+    if (r.status === 404) {
+      io.err('The running daemon is older than the summaries command. Restart it to summarize.');
+      return 1;
+    }
+    if (!r.ok || !r.data) {
+      io.err(`The daemon answered with status ${r.status}.`);
+      return 1;
+    }
+    for (const line of summaryStatusLines(r.data, Date.now())) io.out(line);
+    return 0;
+  }
+  const { provider, model } = values;
+  if (provider !== undefined && !isProviderName(provider)) {
+    io.err(`Unknown provider: ${cleanText(provider, 64)}. Use claude-cli or anthropic-api.`);
+    return 1;
+  }
+  if (model !== undefined && !MODEL_PATTERN.test(model)) {
+    io.err(`Invalid model: ${cleanText(model, 64)}. A model is 1 to 64 letters, digits, '.', '_', ':' or '-'.`);
+    return 1;
+  }
+  let config;
+  try {
+    config = await writeSummaryConfig(dataDir, { enabled: action === 'on', ...(provider !== undefined ? { provider, model: model ?? null } : model !== undefined ? { model } : {}) });
+  } catch (err) {
+    io.err((err as Error).message);
+    return 1;
+  }
+  if (!config.enabled) {
+    io.out('Summaries are off.');
+    return 0;
+  }
+  io.out(
+    `Summaries are on (${config.provider}, model ${config.model ?? 'default'}). Each finished turn sends the session's title, last request, recent actions and last reply to ${SENT_TO[config.provider]}.`,
+  );
+  if (config.provider === 'anthropic-api' && !(io.env ?? process.env).ANTHROPIC_API_KEY) io.out('The daemon reads ANTHROPIC_API_KEY from its own environment.');
+  return 0;
+}
+
+/** The daemon's report on summaries, in words. Whatever listens on the daemon's port answers here: every value is checked and cleaned. */
+function summaryStatusLines(s: SummaryStatus, now: number): string[] {
+  const time = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const model = cleanText(s.model, 64);
+  const lines = [s.enabled === true ? `The daemon summarizes with ${cleanText(s.provider, 32) || 'an unknown provider'}${model ? `, model ${model}` : ''}.` : 'The daemon does not summarize.'];
+  const ok = time(s.lastOkAt);
+  lines.push(ok === null ? 'Last summary: none yet.' : `Last summary: ${formatAgo(now - ok)} ago.`);
+  const error = typeof s.lastError === 'object' && s.lastError !== null ? s.lastError : null;
+  const errorAt = time(error?.at);
+  if (errorAt !== null) lines.push(`Last error ${formatAgo(now - errorAt)} ago: ${cleanText(error?.message, 200) || 'unknown'}`);
+  const paused = time(s.pausedUntil);
+  if (paused !== null && paused > now) lines.push(`Paused for ${formatAgo(paused - now)} after 3 failures in a row.`);
+  const queued = time(s.queued);
+  if (queued !== null && queued > 0) lines.push(`Sessions waiting for a summary: ${queued}.`);
+  return lines;
 }
 
 /** The one thing `ui` prints or opens: a sign-in link to the loopback address, as the daemon mints them. */

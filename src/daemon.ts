@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
-import { startDemo } from './adapters/demo.js';
+import { demoSummaryLine, startDemo } from './adapters/demo.js';
 import { createGitResolver } from './adapters/git.js';
 import { callDaemon } from './client.js';
 import { Collector } from './collector.js';
@@ -18,6 +18,9 @@ import { simulatedFocusDriver, tmuxFocusDriver } from './server/focus.js';
 import { createApiServer } from './server/http.js';
 import { loadUiBundle, UI_LIMITS } from './server/static.js';
 import { Store } from './store/store.js';
+import { cachedSummaryConfig, summarizerDir, type SummaryConfig } from './summary/config.js';
+import { anthropicApiProvider, claudeCliProvider, demoProvider, type SummaryProvider } from './summary/providers.js';
+import { Summarizer } from './summary/summarizer.js';
 
 export interface DaemonOptions {
   port?: number;
@@ -30,6 +33,8 @@ export interface DaemonOptions {
   demo?: boolean;
   /** The built browser UI (default: dist/ui, next to this module once built). */
   uiDir?: string;
+  /** For tests: the summary provider for a config (default: the claude CLI or the Anthropic API; the demo's own lines), and how long a turn settles. */
+  summarizer?: { provider?: (c: SummaryConfig) => SummaryProvider; settleMs?: number };
 }
 
 export interface RunningDaemon {
@@ -41,6 +46,14 @@ export interface RunningDaemon {
   /** Resolves when the CLI asks the daemon to stop (`scranton-hq down`). Whoever started the daemon stops it. */
   stopRequested: Promise<void>;
   stop(): Promise<void>;
+}
+
+/** The demo summarizes every finished turn, with its own lines. */
+const DEMO_SUMMARY_CONFIG: SummaryConfig = { enabled: true, provider: 'claude-cli', model: null };
+
+/** Whether `path` is `dir` or lies under it. */
+function inside(dir: string, path: string): boolean {
+  return path === dir || path.startsWith(dir + sep);
 }
 
 /** Sign-in links of the demo last longer: its URL is printed once, at start. */
@@ -113,18 +126,37 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const log = opts.log ?? ((line: string) => process.stderr.write(line + '\n'));
   const token = await loadOrCreateToken(paths.dataDir);
   const ui = await loadUiBundle(opts.uiDir ?? fileURLToPath(new URL('./ui/', import.meta.url)), UI_LIMITS, log);
+  // The summarizer's claude sessions run there: neither their hooks nor their session files reach the building.
+  const summarizerCwd = resolve(summarizerDir(paths.dataDir));
+  await mkdir(summarizerCwd, { recursive: true, mode: 0o700 });
+  const summarizerReal = await realpath(summarizerCwd);
+  const ignoreCwd = (cwd: string) => inside(summarizerReal, cwd) || inside(summarizerCwd, cwd);
 
   const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
-  const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log });
+  const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log, ignoreCwd });
+  const summarizer = new Summarizer({
+    source: collector,
+    config: opts.demo ? async () => DEMO_SUMMARY_CONFIG : cachedSummaryConfig(paths.dataDir),
+    provider:
+      opts.summarizer?.provider ??
+      (opts.demo
+        ? () => demoProvider(demoSummaryLine)
+        : (c) =>
+            c.provider === 'anthropic-api'
+              ? anthropicApiProvider({ apiKey: process.env.ANTHROPIC_API_KEY, model: c.model })
+              : claudeCliProvider({ model: c.model, cwd: summarizerCwd })),
+    settleMs: opts.summarizer?.settleMs,
+    log,
+  });
   const auth = new UiAuth({ token, codeTtlMs: opts.demo ? DEMO_CODE_TTL_MS : undefined });
   const hub = new SceneHub({ source: collector, log });
   // Demo panes (%4…%11) must never reach the user's real tmux.
   const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
   let requestStop!: () => void;
   const stopRequested = new Promise<void>((resolve) => (requestStop = resolve));
-  const server = createApiServer({ collector, token, auth, ui, hub, focus, onShutdown: () => requestStop() });
+  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, onShutdown: () => requestStop() });
 
   let port: number;
   try {
@@ -149,8 +181,11 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
         claudeDir: paths.claudeDir,
         emit: (e) => void collector.ingest(e),
         resolveWorkspace,
+        ignoreCwd,
         // A session a session file showed that exited while the daemon was down left no live process: once the first scan that read has found the live ones, it ends.
         onFirstScan: (live) => collector.endGone(live),
+        // The runs a saved session holds open: the scan settles each one, even those its process left behind while the daemon was down.
+        openRuns: (id) => collector.session(id)?.runs.filter((r) => r.status === 'running' && r.onDisk).map((r) => r.id) ?? [],
       });
   fsAdapter?.start();
   const demo = opts.demo ? startDemo((e) => void collector.ingest(e)) : null;
@@ -163,6 +198,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
     loginUrl: (ttlMs) => loginUrl(port, auth.issueCode(ttlMs).code),
     stopRequested,
     stop: async () => {
+      summarizer.stop();
       fsAdapter?.stop();
       demo?.stop();
       hub.close();

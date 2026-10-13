@@ -73,6 +73,11 @@ export function demoScript(): DemoStep[] {
   ];
 }
 
+/** The line the demo's summarizer writes from a session's notes. */
+export function demoSummaryLine(_input: string): string {
+  return 'Working through the demo script';
+}
+
 export function startDemo(ingest: (e: RawEvent) => void, opts: { loopMs?: number; now?: () => number } = {}): { stop(): void } {
   const loopMs = opts.loopMs ?? DEMO_LOOP_MS;
   const now = opts.now ?? Date.now;

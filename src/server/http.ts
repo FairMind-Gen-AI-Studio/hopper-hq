@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { Collector } from '../collector.js';
 import { isSessionId, KEY_MAX } from '../scene/text.js';
+import type { SummaryStatus } from '../summary/summarizer.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
 import { SceneHub } from './events.js';
 import { simulatedFocusDriver, type FocusDriver } from './focus.js';
@@ -26,6 +27,8 @@ export interface ApiOptions {
   focus?: FocusDriver;
   /** Called when the CLI asks the daemon to stop (`scranton-hq down`), once the answer is sent. Default: nothing stops. */
   onShutdown?: () => void;
+  /** Reports on summaries at GET /api/summaries. Default: none, and that route answers 503. */
+  summarizer?: { status(): Promise<SummaryStatus> } | null;
 }
 
 type Deps = Required<ApiOptions>;
@@ -41,6 +44,7 @@ function withDefaults(o: ApiOptions): Deps {
     hub: o.hub ?? new SceneHub({ source: o.collector }),
     focus: o.focus ?? simulatedFocusDriver,
     onShutdown: o.onShutdown ?? (() => {}),
+    summarizer: o.summarizer ?? null,
   };
 }
 
@@ -77,6 +81,7 @@ function routes(d: Deps): Route[] {
     { methods: GET, path: '/api/health', auth: 'bearer', run: ({ res }) => send(res, 200, { ok: true, version: VERSION }) },
     { methods: GET, path: '/api/building', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.snapshot()) },
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
+    { methods: GET, path: '/api/summaries', auth: 'bearer', run: ({ res }) => getSummaries(d, res) },
     { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c) },
     { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
     { methods: POST, path: '/api/shutdown', auth: 'bearer', run: ({ res }) => postShutdown(d, res) },
@@ -203,6 +208,11 @@ async function postHooks(d: Deps, { req, res }: Ctx): Promise<void> {
   const items = Array.isArray(payload) ? payload : [payload];
   for (const item of items) for (const e of mapHookPayload(item, now)) void d.collector.ingest(e);
   return send(res, 204);
+}
+
+async function getSummaries(d: Deps, res: ServerResponse): Promise<void> {
+  if (!d.summarizer) return send(res, 503, { error: 'Summaries are not available' });
+  send(res, 200, await d.summarizer.status());
 }
 
 /** Every floor key is cut to KEY_MAX code points, at most twice as many UTF-16 code units: nothing longer is a floor. */

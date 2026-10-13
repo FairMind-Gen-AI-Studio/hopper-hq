@@ -105,6 +105,10 @@ describe('API routes', () => {
     expect(r.json.items.map((i: { id: string }) => i.id)).toContain('BATCH');
   });
 
+  it('answers 503 for summaries when it has no summarizer', async () => {
+    expect((await call({ path: '/api/summaries' })).status).toBe(503);
+  });
+
   it('answers 404 for unknown routes', async () => {
     expect((await call({ path: '/api/nope' })).status).toBe(404);
     expect((await call({ method: 'DELETE', path: '/api/health' })).status).toBe(404);

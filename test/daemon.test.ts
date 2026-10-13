@@ -1,14 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, stat, utimes, writeFile } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { encodeProjectDir } from '../src/adapters/claude-code/fs-adapter.js';
+import { demoSummaryLine } from '../src/adapters/demo.js';
 import { newSession } from '../src/core/reducer.js';
+import type { RawEvent, Session } from '../src/core/types.js';
 import { readDaemonFile } from '../src/daemon-file.js';
 import { startDaemon } from '../src/daemon.js';
 import { CSP } from '../src/server/headers.js';
+import { cleanText } from '../src/scene/text.js';
 import { Store } from '../src/store/store.js';
+import { writeSummaryConfig, type SummaryConfig } from '../src/summary/config.js';
+import { SUMMARY_MAX, summaryInput } from '../src/summary/input.js';
+import type { SummaryProvider } from '../src/summary/providers.js';
 import { bearer, call } from './helpers/http.js';
 import { isEvent, openSse } from './helpers/sse.js';
 
@@ -104,6 +111,35 @@ describe('startDaemon and the sessions it saved', () => {
     }
   });
 
+  it('kills a run a saved session held open whose journal is older than the session file, once that file shows the session again', async () => {
+    const dataDir = await tmp('shq-data-');
+    const claudeDir = await tmp('shq-claude-');
+    const cwd = '/home/dev/payments-svc';
+    // The session's process is this test's own: it runs, and the file gives no start time to compare.
+    await mkdir(join(claudeDir, 'sessions'));
+    await writeFile(join(claudeDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'S1', cwd }));
+    const project = join(claudeDir, 'projects', encodeProjectDir(cwd));
+    await mkdir(project, { recursive: true });
+    await writeFile(join(project, 'S1.jsonl'), '');
+    // The run's journal was last written an hour ago, by an earlier process, and the run has no end file.
+    const runDir = join(project, 'S1', 'subagents', 'workflows', 'wf_0000aaaa-001');
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, 'journal.jsonl'), JSON.stringify({ type: 'started', agentId: 'a1', label: 'plan', phase: 'Plan' }) + '\n');
+    const hourAgo = (Date.now() - 60 * 60_000) / 1000;
+    await utimes(join(runDir, 'journal.jsonl'), hourAgo, hourAgo);
+    const run = { id: 'wf_0000aaaa-001', name: 'checkout-verify', summary: null, phases: [], currentPhase: null, status: 'running' as const, onDisk: true, startedAt: Date.now() - 120_000, endedAt: null, agents: [], agentsFinished: 0 };
+    const store = await Store.open(join(dataDir, 'scranton.db'));
+    store.saveSessions([{ ...newSession('S1', Date.now() - 60 * 60_000, { cwd, repoRoot: cwd, repoName: 'payments-svc', worktree: false, branch: 'main' }), state: 'in_meeting', pid: process.pid, runs: [run] }], Date.now());
+    store.close();
+    const d = await startDaemon({ port: 0, dataDir, claudeDir, log: quiet });
+    try {
+      // Nothing writes its journal any more and nothing will end it: the scan kills it.
+      await vi.waitFor(() => expect(d.collector.session('S1')?.runs.map((r) => [r.id, r.status])).toEqual([['wf_0000aaaa-001', 'killed']]), { timeout: 5000 });
+    } finally {
+      await d.stop();
+    }
+  });
+
   it('leaves saved sessions as they are when it does not watch files', async () => {
     const d = await startDaemon({ port: 0, ...(await leftBehind()), watchFiles: false, log: quiet });
     try {
@@ -144,5 +180,99 @@ describe('startDaemon and the browser', () => {
     await stream.take(isEvent('scene'));
     await d.stop();
     await stream.ended;
+  });
+});
+
+describe('startDaemon and summaries', () => {
+  const hook = (sessionId: string, cwd: string, body: object): RawEvent => ({ sessionId, ts: Date.now(), source: 'hook', cwd, ...body }) as RawEvent;
+  /** A provider that answers as `answer` says, and keeps the configs it was built for and the signals of its calls. */
+  function standIn(answer: (input: string, signal: AbortSignal) => Promise<string>) {
+    const configs: SummaryConfig[] = [];
+    const signals: AbortSignal[] = [];
+    const provider = (c: SummaryConfig): SummaryProvider => {
+      configs.push(c);
+      return { name: c.provider, model: c.model ?? 'haiku', summarize: (input, signal) => (signals.push(signal), answer(input, signal)) };
+    };
+    return { provider, configs, signals };
+  }
+
+  it("keeps the summarizer's directory private, and the sessions that run there out of the building", async () => {
+    const dataDir = await tmp('shq-data-');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    try {
+      const dir = join(dataDir, 'summarizer');
+      expect((await stat(dir)).mode & 0o777).toBe(0o700);
+      const real = await realpath(dir);
+      for (const [i, cwd] of [dir, join(real, 'sub'), real].entries()) await d.collector.ingest(hook(`X${i}`, cwd, { type: 'prompt', text: 'Summarize' }));
+      await d.collector.ingest(hook('S1', `${real}-other`, { type: 'prompt', text: 'go' }));
+      expect(d.collector.ignored).toBe(3);
+      expect(d.collector.liveViews().map((v) => v.id)).toEqual(['S1']);
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('reports on summaries to the token only, from the config file as it changes', async () => {
+    const dataDir = await tmp('shq-data-');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    try {
+      const auth = bearer((await readDaemonFile(dataDir))!.token);
+      const r = await call(d.port, { path: '/api/summaries', headers: auth });
+      expect([r.status, r.json]).toEqual([200, { enabled: false, provider: 'claude-cli', model: 'haiku', lastOkAt: null, lastError: null, pausedUntil: null, queued: 0 }]);
+      await writeSummaryConfig(dataDir, { enabled: true, model: 'sonnet' });
+      expect((await call(d.port, { path: '/api/summaries', headers: auth })).json).toMatchObject({ enabled: true, provider: 'claude-cli', model: 'sonnet' });
+      const link = new URL(d.loginUrl());
+      const cookie = (await call(d.port, { path: link.pathname + link.search })).headers['set-cookie']![0]!.split(';')[0]!;
+      expect((await call(d.port, { path: '/api/summaries', headers: { cookie } })).status).toBe(401);
+      expect((await call(d.port, { path: '/api/summaries' })).status).toBe(401);
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('summarizes a finished turn with the provider for its config', async () => {
+    const dataDir = await tmp('shq-data-');
+    await writeSummaryConfig(dataDir, { enabled: true });
+    const s = standIn(async () => 'Done: the login form works.');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet, summarizer: { provider: s.provider, settleMs: 0 } });
+    try {
+      await d.collector.ingest(hook('S1', '/home/dev/shop', { type: 'prompt', text: 'Fix the login form' }));
+      await d.collector.ingest(hook('S1', '/home/dev/shop', { type: 'turn.finished', backgroundTasks: 0 }));
+      await vi.waitFor(() => expect(d.collector.session('S1')?.summary?.text).toBe('Done: the login form works.'), { timeout: 5000 });
+      expect(s.configs.at(-1)).toEqual({ enabled: true, provider: 'claude-cli', model: null });
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('stops the summarizer when it stops, aborting the summary under way', async () => {
+    const dataDir = await tmp('shq-data-');
+    await writeSummaryConfig(dataDir, { enabled: true });
+    const lines: string[] = [];
+    const s = standIn((_input, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))));
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: (l) => lines.push(l), summarizer: { provider: s.provider, settleMs: 0 } });
+    try {
+      await d.collector.ingest(hook('S1', '/home/dev/shop', { type: 'prompt', text: 'Fix the login form' }));
+      await d.collector.ingest(hook('S1', '/home/dev/shop', { type: 'turn.finished', backgroundTasks: 0 }));
+      await vi.waitFor(() => expect(s.signals).toHaveLength(1), { timeout: 5000 });
+    } finally {
+      await d.stop();
+    }
+    expect(s.signals[0]!.aborted).toBe(true);
+    expect(lines.filter((l) => l.includes('summary failed'))).toEqual([]);
+  });
+
+  it('summarizes the demo with its own lines', async () => {
+    const dataDir = await tmp('shq-demo-');
+    const d = await startDaemon({ demo: true, port: 0, dataDir, log: quiet, summarizer: { settleMs: 0 } });
+    try {
+      await vi.waitFor(() => expect(d.collector.session('demo-sw-b2')?.summary?.text).toEqual(expect.any(String)), { timeout: 5000 });
+      const session: Session = d.collector.session('demo-sw-b2')!;
+      expect(session.summary!.text).toBe(cleanText(demoSummaryLine(summaryInput(session)!.text), SUMMARY_MAX));
+      const r = await call(d.port, { path: '/api/summaries', headers: bearer((await readDaemonFile(dataDir))!.token) });
+      expect(r.json).toMatchObject({ enabled: true, provider: 'demo', model: null, lastError: null });
+    } finally {
+      await d.stop();
+    }
   });
 });
