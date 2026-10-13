@@ -269,7 +269,7 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
       const flag = dataDirFlag(values['data-dir']);
       io.err(
         err.withoutLock
-          ? `scranton-hq is already running on this data directory${err.pid === null ? '' : ` (process ${err.pid})`}. Stop it with Ctrl-C where it runs, or with scranton-hq down${flag}.`
+          ? `scranton-hq is already running on this data directory${err.pid === null ? '' : ` (process ${err.pid})`}. Stop it with Ctrl-C where it runs.`
           : `scranton-hq is already running${err.pid === null ? '' : ` (process ${err.pid})`}. Check with: scranton-hq status${flag}`,
       );
       return 1;

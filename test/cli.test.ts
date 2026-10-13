@@ -202,7 +202,7 @@ describe('cli start and demo', () => {
     expect(await main(['status', '--format', 'json', '--data-dir', dataDir], capture().io)).toBe(0);
   });
 
-  it('start names the process of an older daemon that answers without holding the lock, and how to stop it', async () => {
+  it('start names the process of an older daemon that answers without holding the lock, and that only Ctrl-C stops it', async () => {
     const older = await mkdtemp(join(tmpdir(), 'shq-older-'));
     const token = 'ab'.repeat(24);
     const server = createServer((req, res) => {
@@ -215,7 +215,7 @@ describe('cli start and demo', () => {
       const c = capture();
       const args = ['start', '--port', '0', '--no-watch', '--data-dir', older, '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))];
       expect(await main(args, { ...c.io, untilStopped: async () => {} })).toBe(1);
-      expect(c.err).toEqual([`scranton-hq is already running on this data directory (process 4242). Stop it with Ctrl-C where it runs, or with scranton-hq down --data-dir ${older}.`]);
+      expect(c.err).toEqual([`scranton-hq is already running on this data directory (process 4242). Stop it with Ctrl-C where it runs.`]);
     } finally {
       await close(server);
     }
