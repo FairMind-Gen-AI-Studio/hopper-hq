@@ -79,13 +79,24 @@ function listen(server: Server, port: number): Promise<number> {
   });
 }
 
+/** The pid when that process exists, null otherwise: a daemon.json left by a crashed daemon names a process that is gone. */
+function livePid(pid: number | undefined): number | null {
+  if (typeof pid !== 'number') return null;
+  try {
+    process.kill(pid, 0);
+    return pid;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM' ? pid : null;
+  }
+}
+
 /** Starts the daemon, or throws DataDirInUseError when another one runs on the same data directory. */
 export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaemon> {
   silenceExperimentalWarnings();
   const paths = resolvePaths(opts);
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
   const lock = await lockDataDir(paths.dataDir).catch(async (err) => {
-    throw err instanceof DataDirInUseError ? new DataDirInUseError(paths.dataDir, { pid: (await readDaemonFile(paths.dataDir))?.pid ?? null }) : err;
+    throw err instanceof DataDirInUseError ? new DataDirInUseError(paths.dataDir, { pid: livePid((await readDaemonFile(paths.dataDir))?.pid) }) : err;
   });
   try {
     // A daemon from before the lock never takes it: one that answers with this directory's token still owns the store.

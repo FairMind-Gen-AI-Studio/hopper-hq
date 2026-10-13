@@ -6,7 +6,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { daemonFilePath, readDaemonFile, removeDaemonFile } from '../src/daemon-file.js';
+import { daemonFilePath, readDaemonFile, removeDaemonFile, writeDaemonFile } from '../src/daemon-file.js';
 import { dataDirInUse, DataDirInUseError, lockDataDir } from '../src/daemon-lock.js';
 import { startDaemon } from '../src/daemon.js';
 import { close, listen } from './helpers/http.js';
@@ -102,6 +102,22 @@ describe('lockDataDir', () => {
 });
 
 describe('startDaemon and its data directory', () => {
+  it('names no process when daemon.json names one that is gone while the lock is held', async () => {
+    const dataDir = await tmp();
+    const child = spawn(process.execPath, ['-e', '']);
+    await new Promise((resolve) => child.once('exit', resolve));
+    await writeDaemonFile(dataDir, { port: 1, token: 'ab'.repeat(24), pid: child.pid!, startedAt: Date.now() });
+    const lock = await lockDataDir(dataDir);
+    try {
+      const err = await startDaemon({ port: 0, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet }).catch((e) => e);
+      expect(err).toBeInstanceOf(DataDirInUseError);
+      expect(err.pid).toBeNull();
+      expect(err.withoutLock).toBe(false);
+    } finally {
+      lock.release();
+    }
+  });
+
   it('refuses a second daemon on the same data directory, and lets the next one in once the first stops', async () => {
     const dataDir = await tmp();
     const claudeDir = await tmp();
