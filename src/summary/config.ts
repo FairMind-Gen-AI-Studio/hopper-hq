@@ -10,7 +10,7 @@ export interface SummaryConfig {
   model: string | null;
 }
 export const DEFAULT_SUMMARY_CONFIG: SummaryConfig = { enabled: false, provider: 'claude-cli', model: null };
-export const MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
+export const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 export const PROVIDER_NAMES: readonly ProviderName[] = ['claude-cli', 'anthropic-api'];
 

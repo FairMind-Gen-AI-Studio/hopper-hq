@@ -484,7 +484,7 @@ async function cmdSummaries(args: string[], io: Io): Promise<number> {
     return 1;
   }
   if (model !== undefined && !MODEL_PATTERN.test(model)) {
-    io.err(`Invalid model: ${cleanText(model, 64)}. A model is 1 to 64 letters, digits, '.', '_', ':' or '-'.`);
+    io.err(`Invalid model: ${cleanText(model, 64)}. A model is 1 to 64 letters, digits, '.', '_', ':' or '-', and starts with a letter or digit.`);
     return 1;
   }
   let config;
@@ -499,7 +499,7 @@ async function cmdSummaries(args: string[], io: Io): Promise<number> {
     return 0;
   }
   io.out(
-    `Summaries are on (${config.provider}, model ${config.model ?? 'default'}). Each finished turn sends the session's title, last request, recent actions and last reply to ${SENT_TO[config.provider]}.`,
+    `Summaries are on (${config.provider}, model ${config.model ?? 'default'}). Each finished turn sends the session's title, last request, state, recent actions and last reply to ${SENT_TO[config.provider]}.`,
   );
   if (config.provider === 'anthropic-api' && !(io.env ?? process.env).ANTHROPIC_API_KEY) io.out('The daemon reads ANTHROPIC_API_KEY from its own environment.');
   return 0;

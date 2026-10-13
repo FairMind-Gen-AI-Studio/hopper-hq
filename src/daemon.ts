@@ -129,6 +129,8 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   // The summarizer's claude sessions run there: neither their hooks nor their session files reach the building.
   const summarizerCwd = resolve(summarizerDir(paths.dataDir));
   await mkdir(summarizerCwd, { recursive: true, mode: 0o700 });
+  // One made before keeps its mode: it is made private again.
+  await chmod(summarizerCwd, 0o700);
   const summarizerReal = await realpath(summarizerCwd);
   const ignoreCwd = (cwd: string) => inside(summarizerReal, cwd) || inside(summarizerCwd, cwd);
 

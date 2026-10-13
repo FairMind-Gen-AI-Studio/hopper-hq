@@ -23,6 +23,9 @@ describe('the summaries config', () => {
     expect(DEFAULT_SUMMARY_CONFIG).toEqual({ enabled: false, provider: 'claude-cli', model: null });
     expect(['haiku', 'claude-haiku-5-5', 'us.anthropic.claude:1', 'a'.repeat(64)].every((m) => MODEL_PATTERN.test(m))).toBe(true);
     expect(['', 'a b', 'a/b', 'a=b', 'a'.repeat(65)].some((m) => MODEL_PATTERN.test(m))).toBe(false);
+    // Never one that claude would read as an option.
+    expect(['-x', '--help', '.haiku', ':x', '_x'].some((m) => MODEL_PATTERN.test(m))).toBe(false);
+    expect(['9b', 'Haiku'].every((m) => MODEL_PATTERN.test(m))).toBe(true);
   });
 
   it('reads the defaults from a missing file, a file that is not JSON or not an object, and a file without summaries', async () => {

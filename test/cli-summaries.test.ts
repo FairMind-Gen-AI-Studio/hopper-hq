@@ -21,7 +21,7 @@ async function summaries(args: string[], env: NodeJS.ProcessEnv = {}) {
   return { code, out, err };
 }
 
-const ON_CLI = "Summaries are on (claude-cli, model default). Each finished turn sends the session's title, last request, recent actions and last reply to the claude CLI on your account.";
+const ON_CLI = "Summaries are on (claude-cli, model default). Each finished turn sends the session's title, last request, state, recent actions and last reply to the claude CLI on your account.";
 
 /** A daemon file pointing at a server that answers /api/summaries as `answer` says. */
 async function fakeDaemon(dataDir: string, status: number, body: unknown) {
@@ -48,7 +48,7 @@ describe('scranton-hq summaries', () => {
 
   it('picks a provider and a model, and reminds that the daemon reads the API key from its own environment', async () => {
     const dir = await tmp('shq-sum-');
-    const api = "Each finished turn sends the session's title, last request, recent actions and last reply to the Anthropic API.";
+    const api = "Each finished turn sends the session's title, last request, state, recent actions and last reply to the Anthropic API.";
     expect((await summaries(['on', '--provider', 'anthropic-api', '--data-dir', dir])).out).toEqual([
       `Summaries are on (anthropic-api, model default). ${api}`,
       'The daemon reads ANTHROPIC_API_KEY from its own environment.',
@@ -65,8 +65,11 @@ describe('scranton-hq summaries', () => {
     expect(await summaries(['on', '--model', 'haiku; rm', '--data-dir', dir])).toEqual({
       code: 1,
       out: [],
-      err: ["Invalid model: haiku; rm. A model is 1 to 64 letters, digits, '.', '_', ':' or '-'."],
+      err: ["Invalid model: haiku; rm. A model is 1 to 64 letters, digits, '.', '_', ':' or '-', and starts with a letter or digit."],
     });
+    expect((await summaries(['on', '--model=--debug', '--data-dir', dir])).err).toEqual([
+      "Invalid model: --debug. A model is 1 to 64 letters, digits, '.', '_', ':' or '-', and starts with a letter or digit.",
+    ]);
     expect(await readSummaryConfig(dir)).toEqual(DEFAULT_SUMMARY_CONFIG);
     for (const args of [['maybe'], ['on', 'off'], ['status', '--model', 'haiku'], ['on', '--bogus']]) {
       const r = await summaries([...args, '--data-dir', dir]);

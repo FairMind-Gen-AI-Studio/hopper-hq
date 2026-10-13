@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, realpath, stat, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, stat, utimes, writeFile } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -198,6 +198,9 @@ describe('startDaemon and summaries', () => {
 
   it("keeps the summarizer's directory private, and the sessions that run there out of the building", async () => {
     const dataDir = await tmp('shq-data-');
+    // Made before, open to all: it is made private again.
+    await mkdir(join(dataDir, 'summarizer'));
+    await chmod(join(dataDir, 'summarizer'), 0o755);
     const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
     try {
       const dir = join(dataDir, 'summarizer');
@@ -207,6 +210,40 @@ describe('startDaemon and summaries', () => {
       await d.collector.ingest(hook('S1', `${real}-other`, { type: 'prompt', text: 'go' }));
       expect(d.collector.ignored).toBe(3);
       expect(d.collector.liveViews().map((v) => v.id)).toEqual(['S1']);
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('never shows a session whose session file says it runs in the summarizer\'s directory', async () => {
+    const dataDir = await tmp('shq-data-');
+    const claudeDir = await tmp('shq-claude-');
+    const dir = join(dataDir, 'summarizer');
+    await mkdir(dir);
+    await mkdir(join(claudeDir, 'sessions'));
+    const file = (name: string, sessionId: string, cwd: string) => writeFile(join(claudeDir, 'sessions', name), JSON.stringify({ pid: process.pid, sessionId, cwd }));
+    await file('a.json', 'X1', dir);
+    await file('b.json', 'X2', await realpath(dir));
+    await file('c.json', 'S1', '/home/dev/payments-svc');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir, log: quiet });
+    try {
+      await vi.waitFor(() => expect(d.collector.session('S1')).not.toBeNull(), { timeout: 5000 });
+      await d.collector.idle();
+      expect([d.collector.session('X1'), d.collector.session('X2'), d.collector.liveViews().map((v) => v.id)]).toEqual([null, null, ['S1']]);
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('sends nothing to any provider while there is no config file', async () => {
+    const dataDir = await tmp('shq-data-');
+    const s = standIn(async () => 'Done: the login form works.');
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet, summarizer: { provider: s.provider, settleMs: 0 } });
+    try {
+      await d.collector.ingest(hook('S1', '/home/dev/shop', { type: 'prompt', text: 'Fix the login form' }));
+      await d.collector.ingest(hook('S1', '/home/dev/shop', { type: 'turn.finished', backgroundTasks: 0 }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect([d.collector.session('S1')?.state, s.configs, s.signals]).toEqual(['done', [], []]);
     } finally {
       await d.stop();
     }
