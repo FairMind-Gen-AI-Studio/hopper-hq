@@ -58,7 +58,7 @@ State rules (design §7, extended):
   - A run confirmed on disk is live while its status is `running`.
   - A run seen only through the mod is live only while one of its agents runs, because the hooks surface has no run-end signal.
   - A run agent or run that starts while the session is `done` turns it back to `in_meeting`.
-- A run that finishes ends all its agents. A session that ends ends all its children and runs, and any run still running becomes `killed`.
+- A run that finishes ends all its agents. When nothing else holds the meeting, the session is `done` as of the run's end, or as of the meeting's start when the end file read is older than the meeting. A session that ends ends all its children and runs, and any run still running becomes `killed`.
 - A run that has finished keeps its end. Reading its end file again changes nothing; a later word on how it ended changes only its status.
 - A finished run goes on again only when the filesystem takes it up after its end: resumed under its id (`resumeFromRunId`). A spawn the mod reports late never starts it again.
 - Over 10 runs, the oldest one that no longer goes on leaves first: a finished run, or one seen only through the mod with nothing left running. What the filesystem reads of a run the session let go of (its name, its phases) does not bring it back.
@@ -99,7 +99,7 @@ State rules (design §7, extended):
   - one that goes on (no end file, or a journal written after it) is followed: its journal is tailed, then its end file is read;
   - one that ended since the process started is read from its end file alone, and its journal is skipped. After a daemon restart, runs and sessions the daemon already knew stay as they were: no session becomes fresh news and no turn is summarized again;
   - anything older is history.
-- **Resumes.** A run that is not followed is judged again when its journal or its end file changes, or when the transcript launches it again. A run resumed under its id is followed again from where its journal was left. Only an end file written after the resume ends it.
+- **Resumes.** A run that is not followed is judged again when its journal or its end file changes, or when the transcript launches it again on a line written after its end. A launch line older than that end is the launch it ended from, read late. A run resumed under its id is followed again from where its journal was left. Only an end file newer than the end it had ends it, even one written before the scan that takes it up.
 - **Exit.** When a session's process is gone, its runs are scanned once more before the session ends, so a run that ended just before the exit is not taken as killed.
 - **Budget.**
   - Workflow directories are scanned only for live tracked sessions, on the existing subagent scan interval.

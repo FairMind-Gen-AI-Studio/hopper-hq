@@ -312,7 +312,8 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
         return held.status === e.status && held.onDisk === onDisk ? s : withRun(s, e.runId, e.ts, (r) => ({ ...r, status: e.status, onDisk }));
       }
       const ended = withRun(s, e.runId, Math.min(e.startedAt ?? e.ts, e.ts), (r) => ({ ...stopAgents(r, e.ts), status: e.status, endedAt: e.ts, onDisk: r.onDisk || e.source === 'fs' }));
-      return settleMeeting(ended, e.ts);
+      // An end the filesystem read after the meeting began, stamped as its file says, ends the meeting no earlier than it began.
+      return settleMeeting(ended, Math.max(e.ts, s.stateSince));
     }
     case 'answer': {
       // The mod and the transcript both report replies: the latest one wins.

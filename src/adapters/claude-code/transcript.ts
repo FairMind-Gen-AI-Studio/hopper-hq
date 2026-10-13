@@ -10,6 +10,8 @@ export interface WorkflowLaunch {
   summary: string | null;
   /** Where Claude Code keeps a copy of the run's script, as the result says; null when it does not. */
   scriptPath: string | null;
+  /** When the transcript line that reports it was written; null when the line does not say. */
+  at: number | null;
 }
 
 export interface ParsedLine {
@@ -45,13 +47,16 @@ type Block = { type?: unknown; id?: unknown; name?: unknown; input?: unknown; to
 
 const isText = (b: Block): b is Block & { text: string } => !!b && b.type === 'text' && typeof b.text === 'string';
 
-/** A Workflow tool's result: the run it launched. Null for any other result, and for a launch without a valid run id. */
-function launchOf(content: unknown): WorkflowLaunch | null {
+/**
+ * A Workflow tool's result, on a line written at `at`: the run it launched. Null for any other result, and for a launch
+ * without a valid run id.
+ */
+function launchOf(content: unknown, at: number | null): WorkflowLaunch | null {
   const text = typeof content === 'string' ? content : Array.isArray(content) ? (content as Block[]).filter(isText).map((b) => b.text).join('\n') : '';
   if (!text.startsWith('Workflow launched')) return null;
   const runId = /^Run ID: (wf_[A-Za-z0-9_-]{1,64})$/m.exec(text)?.[1];
   if (!runId) return null;
-  return { runId, summary: cleanOrNull(/^Summary: (.*)$/m.exec(text)?.[1], 200), scriptPath: /^Script file: (.+)$/m.exec(text)?.[1] ?? null };
+  return { runId, summary: cleanOrNull(/^Summary: (.*)$/m.exec(text)?.[1], 200), scriptPath: /^Script file: (.+)$/m.exec(text)?.[1] ?? null, at };
 }
 
 export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: string): ParsedLine {
@@ -87,7 +92,7 @@ export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: s
     const results = blocks.filter((b) => b && b.type === 'tool_result');
     for (const b of results) {
       out.events.push({ ...base, type: 'tool.finished', toolId: typeof b.tool_use_id === 'string' ? b.tool_use_id : null, ok: b.is_error !== true, agentId: null });
-      const launch = launchOf(b.content);
+      const launch = launchOf(b.content, out.ts ?? null);
       if (launch) (out.launches ??= []).push(launch);
     }
     if (results.length === 0) {

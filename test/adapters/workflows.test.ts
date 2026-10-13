@@ -88,7 +88,7 @@ describe('WorkflowScanner', () => {
   it('follows a run launched since the session began: its summary, its script, its journal across scans, and its end', async () => {
     // The journal's `failed` line ends an agent as its `result` line does.
     const s = scanner();
-    s.noteLaunch({ runId: R1, summary: 'Verify split payments end to end', scriptPath: await writeScript(`checkout-verify-${R1}.js`) });
+    s.noteLaunch({ runId: R1, summary: 'Verify split payments end to end', scriptPath: await writeScript(`checkout-verify-${R1}.js`), at: NEW });
     await writeRun(R1, [
       { type: 'launched' },
       started('a1', 'plan:orders', 'Plan'),
@@ -140,7 +140,7 @@ describe('WorkflowScanner', () => {
 
   it('takes a run as history when it ended, or last wrote its journal, before the session began, and a run that ended since from its end file alone', async () => {
     const s = scanner();
-    s.noteLaunch({ runId: 'wf_0000aaaa-h01', summary: 'An old run', scriptPath: await writeScript('old.js') });
+    s.noteLaunch({ runId: 'wf_0000aaaa-h01', summary: 'An old run', scriptPath: await writeScript('old.js'), at: OLD });
     await writeRun('wf_0000aaaa-h01', [started('h1', 'old', 'Plan')], OLD);
     await writeEnd('wf_0000aaaa-h01', { status: 'completed' }, OLD);
     await writeRun('wf_0000aaaa-h02', [started('h2', 'old', 'Plan')], OLD);
@@ -204,7 +204,7 @@ describe('WorkflowScanner', () => {
     await writeEnd(R2, { status: 'failed' }, NEW + 1000);
     expect((await scan(s)).map((e) => e.type)).toEqual(['workflow.finished', 'workflow.finished']);
     // R1 is launched again, before its journal shows it; R2 runs again and ends between two scans.
-    s.noteLaunch({ runId: R1, summary: 'Again', scriptPath: null });
+    s.noteLaunch({ runId: R1, summary: 'Again', scriptPath: null, at: NOW });
     await append(R2, [started('b2', 'build', 'Build'), result('b2')], NOW);
     await writeEnd(R2, { status: 'completed' }, NOW + 1000);
     expect(await scan(s, NOW + 3000)).toEqual([
@@ -217,6 +217,48 @@ describe('WorkflowScanner', () => {
     ]);
     await writeEnd(R1, { status: 'completed' }, NOW + 4000);
     expect(await scan(s, NOW + 6000)).toEqual([{ type: 'workflow.finished', runId: R1, status: 'completed', startedAt: NOW + 4000, ts: NOW + 4000 }]);
+  });
+
+  it('ends a run launched again whose resumed part ended before the next look, with new journal lines or none, at its new end', async () => {
+    const s = scanner();
+    await writeRun(R1, [started('a1', 'plan', 'Plan'), result('a1')], NEW);
+    await writeEnd(R1, { status: 'failed', startTime: NEW - 5000 }, NEW + 1000);
+    await writeRun(R2, [started('b1', 'plan', 'Plan'), result('b1')], NEW);
+    await writeEnd(R2, { status: 'failed', startTime: NEW - 5000 }, NEW + 1000);
+    expect((await scan(s)).map((e) => e.type)).toEqual(['workflow.finished', 'workflow.finished']);
+    // Both are launched again. Before the next scan, R1 runs an agent and ends again; R2 ends again with no new line.
+    s.noteLaunch({ runId: R1, summary: 'Again', scriptPath: null, at: NOW });
+    s.noteLaunch({ runId: R2, summary: null, scriptPath: null, at: NOW });
+    await append(R1, [started('a2', 'build', 'Build'), result('a2')], NOW + 1000);
+    await writeEnd(R1, { status: 'completed', startTime: NOW }, NOW + 2000);
+    await writeEnd(R2, { status: 'completed', startTime: NOW }, NOW + 2000);
+    expect(await scan(s, NOW + 3000)).toEqual([
+      { type: 'workflow.started', runId: R1 },
+      { type: 'workflow.started', runId: R1, summary: 'Again' },
+      { type: 'workflow.started', runId: R2 },
+      { type: 'agent.started', agentId: 'a2', agentType: 'agent', description: 'build', runId: R1, phase: 'Build' },
+      { type: 'agent.finished', agentId: 'a2' },
+      { type: 'workflow.finished', runId: R1, status: 'completed', startedAt: NOW, ts: NOW + 2000 },
+      { type: 'workflow.finished', runId: R2, status: 'completed', startedAt: NOW, ts: NOW + 2000 },
+    ]);
+    expect(await scan(s, NOW + 6000)).toEqual([]);
+  });
+
+  it('launches a run again only by a launch written after the end it settled with: an older one, read late, is the launch it ended from', async () => {
+    const s = scanner();
+    await writeRun(R1, [started('a1', 'plan', 'Plan'), { type: 'failed', key: 'v2:a1', agentId: 'a1' }], NEW);
+    await writeEnd(R1, { status: 'failed', startTime: NEW - 1000 }, NEW + 50);
+    expect((await scan(s)).map((e) => e.type)).toEqual(['workflow.finished']);
+    // The transcript line that launched the run, written before it failed, is read after the scan that settled it; and a
+    // line that does not say when it was written proves no relaunch either.
+    s.noteLaunch({ runId: R1, summary: 'Verify split payments end to end', scriptPath: null, at: NEW - 1000 });
+    s.noteLaunch({ runId: R1, summary: 'Undated', scriptPath: null, at: null });
+    expect(await scan(s, NOW + 3000)).toEqual([]);
+    s.noteLaunch({ runId: R1, summary: 'Again', scriptPath: null, at: NOW + 4000 });
+    expect(await scan(s, NOW + 6000)).toEqual([
+      { type: 'workflow.started', runId: R1 },
+      { type: 'workflow.started', runId: R1, summary: 'Again' },
+    ]);
   });
 
   it('keeps following a run whose end file is older than its journal: it ended, and was resumed before the end was read', async () => {
@@ -240,7 +282,7 @@ describe('WorkflowScanner', () => {
     expect(await scan(s)).toEqual([]);
     await writeRun(R1, [{ type: 'launched' }], NEW);
     expect(await scan(s, NOW + 3000)).toEqual([{ type: 'workflow.started', runId: R1 }]);
-    s.noteLaunch({ runId: R1, summary: 'Verify split payments end to end', scriptPath: await writeScript(`checkout-verify-${R1}.js`) });
+    s.noteLaunch({ runId: R1, summary: 'Verify split payments end to end', scriptPath: await writeScript(`checkout-verify-${R1}.js`), at: NEW });
     expect(await scan(s, NOW + 6000)).toEqual([
       { type: 'workflow.started', runId: R1, summary: 'Verify split payments end to end' },
       { type: 'workflow.started', runId: R1, name: 'checkout-verify', summary: 'Verify split payments end to end', phases: ['Plan', 'Build', 'Review'] },
@@ -265,13 +307,13 @@ describe('WorkflowScanner', () => {
     ];
     const ids = paths.map((_, i) => `wf_0000bbbb-00${i}`);
     for (const [i, id] of ids.entries()) {
-      s.noteLaunch({ runId: id, summary: `Run ${i}`, scriptPath: paths[i]! });
+      s.noteLaunch({ runId: id, summary: `Run ${i}`, scriptPath: paths[i]!, at: NEW });
       await writeRun(id, [], NEW);
     }
     expect(await scan(s)).toEqual(ids.flatMap((id, i) => [{ type: 'workflow.started', runId: id }, { type: 'workflow.started', runId: id, summary: `Run ${i}` }]));
     const inside = scanner();
     await writeScript('ok.js');
-    inside.noteLaunch({ runId: R2, summary: null, scriptPath: join(session, 'workflows', 'scripts', '..', 'scripts', 'ok.js') });
+    inside.noteLaunch({ runId: R2, summary: null, scriptPath: join(session, 'workflows', 'scripts', '..', 'scripts', 'ok.js'), at: NEW });
     await writeRun(R2, [], NEW);
     expect((await scan(inside)).filter((e) => 'runId' in e && e.runId === R2)).toEqual([
       { type: 'workflow.started', runId: R2 },

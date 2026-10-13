@@ -95,15 +95,18 @@ describe('parseTranscriptLine', () => {
     expect(parseTranscriptLine(line({ type: 'assistant', isSidechain: true, timestamp: T, message: { content: [{ type: 'text', text: 'from a subagent' }] } }), S).events).toEqual([]);
   });
 
-  it('reads a Workflow launch from its result, as a string or as text blocks, and makes no event of it', () => {
+  it('reads a Workflow launch from its result, as a string or as text blocks, with the time of its line, and makes no event of it', () => {
     const scriptPath = '/home/dev/.claude/projects/-home-dev-shop/11111111-1111-4111-8111-111111111111/workflows/scripts/checkout-verify-wf_0000aaaa-001.js';
     const text = launchText({ runId: 'wf_0000aaaa-001', summary: 'Verify split\u0007 payments end to end', scriptPath });
-    const launch = { runId: 'wf_0000aaaa-001', summary: 'Verify split payments end to end', scriptPath };
+    const at = Date.parse('2026-10-10T10:00:30.000Z');
+    const launch = { runId: 'wf_0000aaaa-001', summary: 'Verify split payments end to end', scriptPath, at };
     const r = parseTranscriptLine(line(resultEntry(text)), S);
-    expect(r.events).toEqual([{ sessionId: S, ts: Date.parse('2026-10-10T10:00:30.000Z'), source: 'fs', type: 'tool.finished', toolId: 'toolu_06ABCDEFGHIJKLMNOPQRSTUV', ok: true, agentId: null }]);
+    expect(r.events).toEqual([{ sessionId: S, ts: at, source: 'fs', type: 'tool.finished', toolId: 'toolu_06ABCDEFGHIJKLMNOPQRSTUV', ok: true, agentId: null }]);
     expect(r.launches).toEqual([launch]);
     const [head, ...rest] = text.split('\nRun ID: ');
     expect(parseTranscriptLine(line(resultEntry([{ type: 'text', text: head }, { type: 'image' }, { type: 'text', text: `Run ID: ${rest.join('')}` }])), S).launches).toEqual([launch]);
+    // A line that does not say when it was written gives a launch of no known time.
+    expect(parseTranscriptLine(line({ ...resultEntry(text), timestamp: 'never' }), S).launches).toEqual([{ ...launch, at: null }]);
   });
 
   it('skips a launch without a valid run id, a result that only mentions one, and lines without Summary or Script file', () => {
@@ -111,8 +114,9 @@ describe('parseTranscriptLine', () => {
     expect(parsed(launchText({ runId: 'wf_a/b', summary: 'x' })).launches).toBeUndefined();
     expect(parsed(`The tool said:\n${launchText({ runId: 'wf_0000aaaa-002', summary: 'x' })}`).launches).toBeUndefined();
     expect(parsed('ok')).not.toHaveProperty('launches');
-    expect(parsed(launchText({ runId: 'wf_0000aaaa-003' })).launches).toEqual([{ runId: 'wf_0000aaaa-003', summary: null, scriptPath: null }]);
-    expect(parsed(launchText({ runId: 'wf_0000aaaa-004', summary: ' \u0007 ' })).launches).toEqual([{ runId: 'wf_0000aaaa-004', summary: null, scriptPath: null }]);
+    const at = Date.parse('2026-10-10T10:00:30.000Z');
+    expect(parsed(launchText({ runId: 'wf_0000aaaa-003' })).launches).toEqual([{ runId: 'wf_0000aaaa-003', summary: null, scriptPath: null, at }]);
+    expect(parsed(launchText({ runId: 'wf_0000aaaa-004', summary: ' \u0007 ' })).launches).toEqual([{ runId: 'wf_0000aaaa-004', summary: null, scriptPath: null, at }]);
   });
 
   it('ignores sidechain entries, bad JSON and unknown entry types', () => {

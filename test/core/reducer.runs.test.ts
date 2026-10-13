@@ -292,6 +292,19 @@ describe('workflow runs read again from disk', () => {
     s = applyEvent(s, ev('workflow.finished', 2500, { runId: R, status: 'completed', source: 'fs' }))!;
     expect(s).toMatchObject({ state: 'done', stateSince: 2500, runs: [{ status: 'completed', endedAt: 2500, agentsFinished: 2 }] });
   });
+
+  it("leaves a meeting no earlier than it began when a run's end is read after it began, and ends the run as its end file says", () => {
+    // The turn ends at 1500 while the run goes on; the scan after it reads the end file written at 1400.
+    const late = run(seen(), ev('prompt', 1050, { text: 'x' }), ev('workflow.started', 1100, { runId: R, source: 'fs' }), fsAgent(1150, 'a1'),
+      ev('turn.finished', 1500, { backgroundTasks: 0 }), ev('workflow.finished', 1400, { runId: R, status: 'completed', startedAt: 1100, source: 'fs' }));
+    expect(late).toMatchObject({ state: 'done', stateSince: 1500, runs: [{ status: 'completed', endedAt: 1400 }] });
+    // A run launched again whose resumed part ended before the scan that took it up: started again as of that scan, ended
+    // as of its new end file, and done as of the meeting its start began.
+    const resumed = run(seen(), ev('prompt', 1050, { text: 'x' }), ev('workflow.started', 1100, { runId: R, source: 'fs' }),
+      ev('workflow.finished', 1800, { runId: R, status: 'failed', source: 'fs' }), ev('turn.finished', 1900, { backgroundTasks: 0 }),
+      ev('workflow.started', 2600, { runId: R, source: 'fs' }), ev('workflow.finished', 2500, { runId: R, status: 'completed', startedAt: 2400, source: 'fs' }));
+    expect(resumed).toMatchObject({ state: 'done', stateSince: 2600, runs: [{ status: 'completed', startedAt: 1100, endedAt: 2500 }] });
+  });
 });
 
 describe('normalizeSession', () => {

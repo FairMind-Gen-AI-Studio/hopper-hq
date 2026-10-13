@@ -38,7 +38,7 @@ interface FollowedRun {
   launched: boolean;
   /** Agent types from the agents' meta files, each read once. */
   types: Map<string, string>;
-  /** The end file's modification time when the run was taken up again, resumed under its id: an end file no newer is that earlier end. Null when it had none. */
+  /** The modification time of the end file the run had when it was taken up again, resumed under its id: an end file no newer is that earlier end. Null when it had none. */
   endedBefore: number | null;
 }
 
@@ -50,7 +50,7 @@ interface SettledRun {
   mark: number;
   /** How far its journal was read, or how long it was when it settled: a resume reads on from there. */
   offset: number;
-  /** The transcript launched it again since. */
+  /** The transcript launched it again since, on a line written after that end. */
   relaunched: boolean;
 }
 
@@ -115,10 +115,15 @@ export class WorkflowScanner {
     this.open = new Set(o.open ?? []);
   }
 
+  /**
+   * A launch the transcript reports. It launches a run that settled again only when its line was written after the end
+   * the run settled with: an older line is the launch the run ended from, read late, and a line of no known time proves
+   * nothing.
+   */
   noteLaunch(launch: WorkflowLaunch): void {
     this.launches.set(launch.runId, launch);
     const settled = this.settled.get(launch.runId);
-    if (settled) settled.relaunched = true;
+    if (settled && launch.at !== null && launch.at > (settled.end ?? -Infinity)) settled.relaunched = true;
   }
 
   /** One scan of the session directory `sessionDir`. A run that cannot be read now is tried again on the next scan. */
@@ -161,8 +166,9 @@ export class WorkflowScanner {
    * What a run is, from the modification times of its end file and its journal (null when missing), and how it was left
    * when it settled:
    * - launched again since it settled, or its journal written after its end file: resumed under its id. It is live when
-   *   launched again or written since the session's process started, and its end file is that of an earlier end; else
-   *   gone (it died with an earlier process) when the collector holds it open, else history;
+   *   launched again or written since the session's process started; the end it settled with, else its end file, is that
+   *   of an earlier end, and a newer end file is the resumed part's, even one written before this look. Else it is gone
+   *   (it died with an earlier process) when the collector holds it open, else history;
    * - its end file written again, and its journal, since it settled: resumed and ended between two looks. It is live, and
    *   followed through its new lines to its new end;
    * - an end file: ended when written since the session's process started, or when the collector holds the run open;
@@ -173,7 +179,7 @@ export class WorkflowScanner {
   private judge(id: string, end: number | null, journal: number | null, settled: SettledRun | undefined): { verdict: Verdict; endedBefore: number | null } {
     const open = this.open.has(id);
     if (settled?.relaunched || (end !== null && journal !== null && journal > end)) {
-      if (settled?.relaunched || (journal !== null && journal >= this.o.since)) return { verdict: 'live', endedBefore: end };
+      if (settled?.relaunched || (journal !== null && journal >= this.o.since)) return { verdict: 'live', endedBefore: settled ? settled.end : end };
       return { verdict: open ? 'gone' : 'history', endedBefore: null };
     }
     if (end !== null) {
