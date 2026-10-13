@@ -1,9 +1,10 @@
 /**
- * Text hygiene and wording shared by the server, the CLI and the browser. Browser-safe: imports types only.
+ * Text hygiene and wording shared by the server, the CLI and the browser. Browser-safe: imports types, and palette.ts for its hash.
  * Titles, prompts, tool labels, wait reasons, names, branches and paths come from transcripts and session files:
  * they are untrusted, and every one is cleaned before it is shown.
  */
 import type { SessionState } from '../core/types.js';
+import { fnv1a32 } from './palette.js';
 
 /** A surrogate pair, or a lone surrogate: half a character, on which encodeURIComponent throws. */
 const SURROGATES = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g;
@@ -38,6 +39,22 @@ export function cleanText(input: unknown, max = 200): string {
   const points = Array.from(text);
   if (points.length <= max) return text;
   return max < 1 ? '' : points.slice(0, max - 1).join('') + '…';
+}
+
+/** The second seed of a capped key's hash: two 32-bit FNV-1a hashes from different seeds give 16 hex digits. */
+const KEY_SEED = 0x9e3779b9;
+
+/**
+ * A floor or island key: cleaned (see cleanText) and at most KEY_MAX code points. A longer key keeps its first
+ * KEY_MAX - 17 code points, then '~' and 16 hex digits hashed from the whole cleaned key, so two long keys that start
+ * alike stay apart. It is never cut inside a surrogate pair.
+ */
+export function capKey(input: unknown): string {
+  const key = cleanText(input, Infinity);
+  const points = Array.from(key);
+  if (points.length <= KEY_MAX) return key;
+  const hash = [fnv1a32(key), fnv1a32(key, KEY_SEED)].map((h) => h.toString(16).padStart(8, '0')).join('');
+  return `${points.slice(0, KEY_MAX - 17).join('')}~${hash}`;
 }
 
 /**

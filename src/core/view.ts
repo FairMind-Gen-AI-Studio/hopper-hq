@@ -1,5 +1,5 @@
 import { DEFAULT_THRESHOLDS, type Thresholds } from '../config.js';
-import { cleanText, KEY_MAX } from '../scene/text.js';
+import { capKey } from '../scene/text.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './feature.js';
 import type { Session, SessionState } from './types.js';
 
@@ -44,12 +44,12 @@ export function toView(s: Session, now: number, t: Thresholds = DEFAULT_THRESHOL
 
 /** The floor a session works on: its feature, else its repository's department, keyed by repo root (cwd outside git). */
 export function floorKeyOf(v: Pick<SessionView, 'feature' | 'workspace'>): string {
-  return cleanText(v.feature ? `feature:${v.feature}` : `repo:${v.workspace.repoRoot ?? v.workspace.cwd}`, KEY_MAX);
+  return capKey(v.feature ? `feature:${v.feature}` : `repo:${repoRootOf(v)}`);
 }
 
 /** The island a session sits at: one per checkout, keyed by worktree root (cwd outside git, or when saved without a root). */
 export function islandKeyOf(v: Pick<SessionView, 'workspace'>): string {
-  return cleanText(v.workspace.root ?? v.workspace.cwd, KEY_MAX);
+  return capKey(v.workspace.root ?? v.workspace.cwd);
 }
 
 /** The repository a session works in: its repo root, or its cwd outside git. Repo colours are keyed by it. */

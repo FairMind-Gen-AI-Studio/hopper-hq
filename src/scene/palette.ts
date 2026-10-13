@@ -6,9 +6,9 @@
 export const REPO_SLOTS = 8;
 export const FEATURE_SLOTS = 8;
 
-/** 32-bit FNV-1a over UTF-16 code units. */
-export function fnv1a32(text: string): number {
-  let h = 0x811c9dc5;
+/** 32-bit FNV-1a over UTF-16 code units, from the standard offset basis or another seed. */
+export function fnv1a32(text: string, seed = 0x811c9dc5): number {
+  let h = seed;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
     h = Math.imul(h, 0x01000193);

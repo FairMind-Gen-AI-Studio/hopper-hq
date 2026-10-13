@@ -7,6 +7,12 @@ describe('fnv1a32', () => {
     expect(fnv1a32('a')).toBe(0xe40c292c);
     expect(fnv1a32('foobar')).toBe(0xbf9cf968);
   });
+
+  it('starts from another seed when given one', () => {
+    expect(fnv1a32('foobar', 0x811c9dc5)).toBe(0xbf9cf968);
+    expect(fnv1a32('', 0x9e3779b9)).toBe(0x9e3779b9);
+    expect(fnv1a32('foobar', 0x9e3779b9)).not.toBe(0xbf9cf968);
+  });
 });
 
 describe('fmix32', () => {

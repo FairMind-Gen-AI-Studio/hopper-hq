@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { createGitResolver, resolveWorkspace, type GitRunner } from '../../src/adapters/git.js';
+import { floorKeyOf } from '../../src/core/view.js';
 
 const execFileP = promisify(execFile);
 const git = (cwd: string, ...args: string[]) =>
@@ -43,6 +44,21 @@ describe('resolveWorkspace', () => {
     const plain = join(base, 'plain');
     await mkdir(plain);
     expect(await resolveWorkspace(plain)).toEqual({ cwd: plain, repoRoot: null, repoName: 'plain', worktree: false, branch: null, root: null });
+  });
+
+  it('resolves the symlinks of a directory outside git, so a link and its target give one floor', async () => {
+    const real = join(base, 'scratch', 'notes');
+    await mkdir(real, { recursive: true });
+    await symlink(join(base, 'scratch'), join(base, 'scratch-link'));
+    const viaLink = await resolveWorkspace(join(base, 'scratch-link', 'notes'));
+    expect(viaLink).toEqual({ cwd: real, repoRoot: null, repoName: 'notes', worktree: false, branch: null, root: null });
+    expect(await resolveWorkspace(real)).toEqual(viaLink);
+    expect(floorKeyOf({ feature: null, workspace: viaLink })).toBe(`repo:${real}`);
+  });
+
+  it('keeps a directory outside git as it is when it cannot be resolved', async () => {
+    const gone = join(base, 'gone', 'away');
+    expect(await resolveWorkspace(gone)).toEqual({ cwd: gone, repoRoot: null, repoName: 'away', worktree: false, branch: null, root: null });
   });
 
   it('describes the main checkout and its subdirectories', async () => {

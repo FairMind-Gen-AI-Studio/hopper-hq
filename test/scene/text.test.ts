@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanOrNull, cleanText, formatAgo, isSessionId, KEY_MAX, reasonText, STATE_LABEL, taskTitle } from '../../src/scene/text.js';
+import { capKey, cleanOrNull, cleanText, formatAgo, isSessionId, KEY_MAX, reasonText, STATE_LABEL, taskTitle } from '../../src/scene/text.js';
 
 describe('cleanText', () => {
   it('removes terminal escapes, bells and NULs', () => {
@@ -143,5 +143,35 @@ describe('STATE_LABEL', () => {
       dormant: 'dormant',
       ended: 'ended',
     });
+  });
+});
+
+describe('capKey', () => {
+  it('cleans a key, and leaves one of at most KEY_MAX code points whole', () => {
+    expect(capKey(' /w/a\u0007pi ')).toBe('/w/api');
+    expect(capKey('x'.repeat(KEY_MAX))).toBe('x'.repeat(KEY_MAX));
+    expect(capKey('\u{1F600}'.repeat(KEY_MAX))).toBe('\u{1F600}'.repeat(KEY_MAX));
+    expect(capKey(null)).toBe('');
+  });
+
+  it('caps a longer key as its start, a tilde and 16 hex digits hashed from the whole key', () => {
+    const shared = 'p'.repeat(KEY_MAX);
+    const a = capKey(shared + 'a'.repeat(44));
+    const b = capKey(shared + 'b'.repeat(44));
+    expect(a).not.toBe(b);
+    for (const key of [a, b]) {
+      expect(Array.from(key)).toHaveLength(KEY_MAX);
+      expect(key.startsWith('p'.repeat(KEY_MAX - 17) + '~')).toBe(true);
+      expect(key.slice(KEY_MAX - 16)).toMatch(/^[0-9a-f]{16}$/);
+    }
+    expect(capKey(shared + 'a'.repeat(44))).toBe(a);
+    expect(capKey('x'.repeat(300)).slice(KEY_MAX - 17)).toBe('~970138f50bffcb49');
+  });
+
+  it('never cuts inside a surrogate pair, and stays within 512 UTF-16 code units', () => {
+    const key = capKey('\u{1F600}'.repeat(400));
+    expect(Array.from(key)).toHaveLength(KEY_MAX);
+    expect(key.length).toBeLessThanOrEqual(2 * KEY_MAX);
+    expect(() => encodeURIComponent(key)).not.toThrow();
   });
 });

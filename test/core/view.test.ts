@@ -3,6 +3,7 @@ import { DEFAULT_THRESHOLDS as T } from '../../src/config.js';
 import { newSession } from '../../src/core/reducer.js';
 import type { Session, SessionState } from '../../src/core/types.js';
 import { buildAttention, buildFloors, byCodeUnit, effectiveState, floorKeyOf, islandKeyOf, toView } from '../../src/core/view.js';
+import { KEY_MAX } from '../../src/scene/text.js';
 import { WS } from '../helpers/events.js';
 
 const H = 60 * 60 * 1000;
@@ -143,6 +144,21 @@ describe('repository labels', () => {
     expect(labels([at('a', '/home/dev/work/api', 'main'), at('b', '/home/dev/oss/api', 'main', 'ended')])).toEqual([
       ['repo:/home/dev/work/api', 'api', ['api']],
     ]);
+  });
+});
+
+describe('long keys', () => {
+  const now = 10 * H;
+  const at = (id: string, cwd: string) =>
+    toView({ ...sess(id, 'working', now - 1), workspace: { cwd, repoRoot: cwd, repoName: cwd.split('/').pop()!, worktree: false, branch: 'main', root: cwd } }, now);
+
+  it('keeps two floors and two islands apart when their keys share the first KEY_MAX code points', () => {
+    const a = at('a', '/' + 'x'.repeat(KEY_MAX) + 'a'.repeat(43));
+    const b = at('b', '/' + 'x'.repeat(KEY_MAX) + 'b'.repeat(43));
+    expect(floorKeyOf(a)).not.toBe(floorKeyOf(b));
+    expect(islandKeyOf(a)).not.toBe(islandKeyOf(b));
+    for (const key of [floorKeyOf(a), floorKeyOf(b), islandKeyOf(a), islandKeyOf(b)]) expect(Array.from(key)).toHaveLength(KEY_MAX);
+    expect(buildFloors([a, b])).toHaveLength(2);
   });
 });
 

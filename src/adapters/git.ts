@@ -31,7 +31,11 @@ const GIT_DIR_NAMES = new Set(['.git', '.bare']);
 
 export async function resolveWorkspace(cwd: string, run: GitRunner = runGit): Promise<Workspace> {
   const out = await run(cwd, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir']);
-  if (!out) return { cwd, repoRoot: null, repoName: basename(cwd) || cwd, worktree: false, branch: null, root: null };
+  if (!out) {
+    // Outside git, the directory itself names the floor: with its symlinks resolved, a link and its target are one floor.
+    const dir = await realpath(cwd).catch(() => cwd);
+    return { cwd: dir, repoRoot: null, repoName: basename(dir) || dir, worktree: false, branch: null, root: null };
+  }
   const [toplevel = cwd, gitDir = '', common = ''] = out.split('\n');
   const root = await real(toplevel);
   const ownDir = await real(gitDir || resolve(toplevel, '.git'));
