@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { DESK_PULL, DESK_ZOOM, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
+import { DESK_PULL, DESK_ZOOM, MAX_ZOOM, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
@@ -563,36 +563,56 @@ describe('the floor view', () => {
     expect(renderer.scene!.getObjectByName('room-selection')!.visible).toBe(true);
   });
 
-  it('follows the centre of a floor that grows while the camera is on it, and stays on a desk it panned to', () => {
-    const { renderer, env, view } = setup(dayTheme(true));
-    const islands = checkoutIslands();
-    for (let i = 0; i < 6; i++) {
-      const desks = Array.from({ length: 8 }, (_, k) => ({ id: `m${i}-${k}`, state: 'working' as const }));
-      islands.push({ key: `/demo/more-${i}`, repo: `more-${i}`, color: i, tie: 4, desks });
-    }
-    const grown = makeFloor(islands);
+  it('frames the floor again from home as rooms open and close, and keeps a camera the user moved where it looks, as large as it was', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    const shown = () => {
+      const c = renderer.camera as OrthographicCamera;
+      return (c.top - c.bottom) / c.zoom;
+    };
+    const round = (values: number[]) => values.map((v) => Math.round(v * 1e6));
+    const inView = (x: number, y: number, z: number) => {
+      const p = new Vector3(x, y, z).project(renderer.camera!);
+      return Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1;
+    };
     view.setFloor(checkoutFloor());
     env.flush();
+    // From home: a room opens, the wing widens the floor, and the camera frames all of it.
+    const rooms = roomFloor();
+    view.setFloor(rooms);
+    env.flush();
+    const framed = cameraPose(renderer);
+    expect(round([framed.target.x, framed.target.z, framed.zoom])).toEqual(round([floorCenter(rooms.size).x, floorCenter(rooms.size).z, 1]));
+    expect(desksOf(rooms).every((d) => inView(labelAnchor(d).x, labelAnchor(d).y, labelAnchor(d).z))).toBe(true);
+    expect(rooms.rooms.every((r) => inView(tableCenter(r.rect).x, 0.78, tableCenter(r.rect).z))).toBe(true);
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(cameraPose(renderer).target.x).toBeCloseTo(floorCenter(checkoutFloor().size).x, 6);
+    // Turned, the camera is no longer home: the room opens under it, and it keeps its place, its turn and its scale.
     view.rotate(1);
     env.flush();
-    view.setFloor(grown);
+    const turned = cameraPose(renderer);
+    const before = shown();
+    view.setFloor(roomFloor());
     env.flush();
-    const pose = cameraPose(renderer);
-    expect(pose.target.x).toBeCloseTo(floorCenter(grown.size).x, 6);
-    expect(pose.target.z).toBeCloseTo(floorCenter(grown.size).z, 6);
-    expect(pose.azimuth).toBeCloseTo(HOME_AZIMUTH + QUARTER, 6);
-    for (const desk of desksOf(grown)) {
-      const a = labelAnchor(desk);
-      const p = new Vector3(a.x, a.y, a.z).project(renderer.camera!);
-      expect([desk.sessionId, Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1]).toEqual([desk.sessionId, true]);
-    }
+    const kept = cameraPose(renderer);
+    expect(round([kept.target.x, kept.target.z, kept.azimuth, shown()])).toEqual(round([turned.target.x, turned.target.z, HOME_AZIMUTH + QUARTER, before]));
+    // Panned to a desk, it stays on the desk when the room closes.
     view.select(desk('oa-c3'), { pan: true });
     env.flush();
     const atDesk = cameraPose(renderer).target;
+    const zoomed = shown();
     view.setFloor(checkoutFloor());
     env.flush();
-    expect(cameraPose(renderer).target.x).toBeCloseTo(atDesk.x, 6);
-    expect(cameraPose(renderer).target.z).toBeCloseTo(atDesk.z, 6);
+    expect(round([cameraPose(renderer).target.x, cameraPose(renderer).target.z, shown()])).toEqual(round([atDesk.x, atDesk.z, zoomed]));
+    // At the most zoomed in, a floor that grows shows a little more of itself.
+    for (let i = 0; i < 20; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true, cancelable: true }));
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(MAX_ZOOM);
+    const most = shown();
+    view.setFloor(roomFloor());
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(MAX_ZOOM);
+    expect(shown()).toBeGreaterThan(most);
   });
 
   it('pans to a desk asked for before the floor arrived, once it arrives', () => {

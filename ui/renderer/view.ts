@@ -18,7 +18,7 @@ import type { FloorView, Target } from './index';
 import { LabelLayer } from './labels';
 import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
-import { POLAR, azimuthOf, cameraOffset, floorCenter, frustumFor, sameTarget, type Point } from './world';
+import { POLAR, azimuthOf, cameraOffset, frustumFor, sameTarget, type Point } from './world';
 
 /** What the view needs of a three.js WebGLRenderer. */
 export interface RendererLike {
@@ -184,6 +184,13 @@ export function createFloorView(
     const shift = { x: x - t.x, y: -t.y, z: z - t.z };
     t.add(shift);
     p.add(shift);
+  }
+
+  /** Whether the camera is where a floor opens: its centre, from the home side, at zoom 1. */
+  function atHome(): boolean {
+    const p = pose();
+    const home = homePose(size, p.azimuth);
+    return Math.abs(p.zoom - home.zoom) < 1e-6 && Math.abs(p.azimuth - home.azimuth) < 1e-6 && Math.hypot(p.target.x - home.target.x, p.target.z - home.target.z) < 1e-6;
   }
 
   function onControls(): void {
@@ -426,12 +433,14 @@ export function createFloorView(
     setFloor(floor: FloorDetail) {
       if (disposed) return;
       if (world.apply(floor)) {
-        const centre = floorCenter(size);
+        // A camera at home frames the floor again as it grows or shrinks, a room opening or closing. One the user moved
+        // stays where it looks, showing as much of the floor as it did, within the zoom limits.
+        const home = atHome();
+        const shown = (camera.top - camera.bottom) / camera.zoom;
         size = { ...floor.size };
         fit();
-        // A camera still on the floor's centre stays on it as the floor grows or shrinks; one moved elsewhere stays put.
-        const t = controls.target;
-        if (Math.hypot(t.x - centre.x, t.z - centre.z) < 1e-6) applyPose({ ...pose(), target: floorCenter(size) });
+        if (home) applyPose(homePose(size));
+        else applyPose({ ...pose(), zoom: (camera.top - camera.bottom) / shown });
       }
       if (!hasFloor) {
         hasFloor = true;
