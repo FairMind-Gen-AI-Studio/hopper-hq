@@ -4,7 +4,7 @@ import { FloorScene } from '../../renderer/floor-scene';
 import { pickTarget, toNdc } from '../../renderer/pick';
 import { dayTheme } from '../../renderer/theme';
 import { deskAnchor, doorGap, tableCenter } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, isoCamera, makeFloor, roomFloor, seatsOf } from './fixtures';
+import { checkoutFloor, checkoutSpecs, isoCamera, makeFloor, roomFloor, seatsOf } from './fixtures';
 
 /** A camera 10 m above the origin looking straight down, 10 m wide and tall: world x is screen x, world z is screen down. */
 function topDown(): OrthographicCamera {
@@ -125,9 +125,9 @@ describe('picking', () => {
 
   it('picks the session of an intern hovering over its desk', () => {
     const fs = new FloorScene(dayTheme());
-    const islands = checkoutIslands();
-    islands[0]!.desks[0]!.interns = [{ agentId: 'i1', type: 'Explore', label: null, running: true }];
-    const floor = makeFloor(islands);
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0]!.interns = [{ agentId: 'i1', type: 'Explore', label: null, running: true }];
+    const floor = makeFloor(checkouts);
     fs.apply(floor);
     fs.scene.updateMatrixWorld(true);
     const camera = isoCamera(floor.size);

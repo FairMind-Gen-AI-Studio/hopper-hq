@@ -45,9 +45,14 @@ export interface Meta {
   tone: 'needs' | 'done' | 'meeting' | 'nosignal' | null;
 }
 
+/** How many sessions a floor has: at a desk or waiting for one. */
+export function sessionsOf(f: Pick<FloorSummary, 'counts'>): number {
+  return Object.values(f.counts).reduce((n, c) => n + (c ?? 0), 0);
+}
+
 /** What a floor is ('2 repos · 4 sessions', 'Department · 5 sessions') and the counts worth a glance. */
 export function floorMeta(f: FloorSummary): Meta[] {
-  const sessions = plural(f.windows.length, 'session', 'sessions');
+  const sessions = plural(sessionsOf(f), 'session', 'sessions');
   const metas: Meta[] = [{ text: f.kind === 'department' ? `Department · ${sessions}` : `${plural(f.repos.length, 'repo', 'repos')} · ${sessions}`, tone: null }];
   if (f.shutters) metas.push({ text: 'shutters down', tone: null });
   const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
@@ -60,7 +65,7 @@ export function floorMeta(f: FloorSummary): Meta[] {
 
 /** A floor for a screen reader, with every count its label shows: 'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done'. */
 export function floorLabel(f: FloorSummary): string {
-  const parts = [plural(f.windows.length, 'session', 'sessions')];
+  const parts = [plural(sessionsOf(f), 'session', 'sessions')];
   const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
   if (needs) parts.push(`${needs} ${needYou(needs)}`);
   if (done) parts.push(`${done} done`);

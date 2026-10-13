@@ -53,19 +53,24 @@ describe('façade geometry', () => {
     expect(m.lobby.label.circle[1]).toBeGreaterThan(m.floors[0]!.label.circle[1]);
   });
 
-  it('gives each desk a window, in order, and fills the row with blanks', () => {
+  it('gives each desk of a floor\'s plan a window, in desk order, dark where it is free, and fills the row with blanks', () => {
     const m = facadeOf(makeScene().floors);
-    expect(m.width).toBe(6);
+    expect(m.width).toBe(16);
     const checkout = m.floors[3]!;
+    const free = (n: number) => Array<string>(n).fill('null:null:false');
     expect(checkout.windows.map((w) => `${w.sessionId}:${w.state}:${w.lit}`)).toEqual([
       'oa-c3:needs_you:true',
+      ...free(3),
       'ps-d4:in_meeting:true',
+      ...free(3),
       'sw-a1:working:true',
       'sw-b2:done:true',
+      ...free(6),
     ]);
-    expect(checkout.blanks).toHaveLength(2);
+    expect(checkout.blanks).toHaveLength(0);
     const orders = m.floors[1]!;
-    expect(orders.windows.map((w) => w.lit)).toEqual([true, true, true, false, true]);
+    expect(orders.windows.map((w) => w.lit)).toEqual([true, true, true, false, true, false, false, false]);
+    expect(orders.blanks).toHaveLength(8);
     const xs = checkout.windows.map((w) => Number(w.points.split(' ')[0]!.split(',')[0]));
     expect(xs).toEqual([...xs].sort((a, b) => a - b));
   });
@@ -79,7 +84,7 @@ describe('façade geometry', () => {
   it('lowers the shutters with three slats per window on a dormant floor only', () => {
     const m = facadeOf(makeScene().floors);
     expect(m.floors.map((f) => f.shutters)).toEqual([true, false, false, false]);
-    expect(m.floors[0]!.slats).toHaveLength(6 * 3);
+    expect(m.floors[0]!.slats).toHaveLength(16 * 3);
     expect(m.floors[1]!.slats).toHaveLength(0);
   });
 

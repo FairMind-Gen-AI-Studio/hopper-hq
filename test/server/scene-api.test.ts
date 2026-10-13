@@ -50,7 +50,7 @@ describe('GET /api/floor', () => {
     expect(r.status).toBe(200);
     expect(r.json).toEqual(collector.floor(key));
     expect(r.json.key).toBe(key);
-    expect(r.json.islands[0].desks[0].sessionId).toBe('S1');
+    expect(r.json.pods[0].desks[0].occupant.sessionId).toBe('S1');
   });
 
   it('answers 400 without a key, or with one longer than any floor key, 512 characters', async () => {

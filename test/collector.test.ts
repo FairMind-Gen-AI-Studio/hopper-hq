@@ -389,7 +389,7 @@ describe('scene', () => {
     now = base + 100;
 
     const scene = c.scene();
-    expect(scene.floors.map((f) => [f.number, f.key, f.windows.length])).toEqual([
+    expect(scene.floors.map((f) => [f.number, f.key, f.windows.filter((w) => w.sessionId !== null).length])).toEqual([
       [3, 'feature:checkout-v2', 4],
       [2, 'feature:search-ranking', 1],
       [1, 'repo:/demo/orders-api', 2],
@@ -423,7 +423,7 @@ describe('scene', () => {
     const { scene, floors } = c.render(['repo:/w/orders-api', 'repo:/w/nowhere']);
     expect(reads).toBe(1);
     expect(scene.attention.done.map((e) => e.sessionId)).toEqual(['S1']);
-    expect(floors.get('repo:/w/orders-api')!.islands[0]!.desks[0]!.state).toBe('done');
+    expect(floors.get('repo:/w/orders-api')!.pods[0]!.desks[0]!.occupant!.state).toBe('done');
     expect(floors.get('repo:/w/nowhere')).toBeNull();
     expect([...floors.keys()]).toEqual(['repo:/w/orders-api', 'repo:/w/nowhere']);
   });
@@ -438,7 +438,7 @@ describe('scene', () => {
     expect(c.liveViews().map((v) => v.id)).toEqual(['S2']);
     expect(c.scene().floors.map((f) => f.key)).toEqual(['repo:/w/search-svc']);
     expect(c.floor('repo:/w/orders-api')).toBeNull();
-    expect(c.floor('repo:/w/search-svc')!.islands[0]!.desks.map((d) => d.sessionId)).toEqual(['S2']);
+    expect(c.floor('repo:/w/search-svc')!.pods[0]!.desks.map((d) => d.occupant?.sessionId ?? null)).toEqual(['S2', null, null, null]);
   });
 });
 
@@ -563,6 +563,7 @@ describe('seating', () => {
     const sitting = (floor: FloorDetail | null | undefined) => floor!.pods[0]!.desks.map((d) => d.occupant?.sessionId ?? null);
     expect(sitting(c.floor(KEY))).toEqual(['A4', 'A2', 'A3', null]);
     expect(sitting(c.render([KEY]).floors.get(KEY))).toEqual(['A4', 'A2', 'A3', null]);
+    expect(c.scene().floors[0]!.windows.slice(0, 4).map((w) => w.sessionId)).toEqual(['A4', 'A2', 'A3', null]);
     expect(c.seatingOf(KEY)!.desks).toEqual(desks('A4', 'A2', 'A3'));
   });
 

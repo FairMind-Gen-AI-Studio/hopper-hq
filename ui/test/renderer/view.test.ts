@@ -7,7 +7,7 @@ import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
-import { checkoutFloor, checkoutIslands, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
 
 const W = 800;
 const H = 500;
@@ -701,9 +701,9 @@ describe('the floor view', () => {
       expect(Math.min(t.x, t.z, w - t.x, h - t.z)).toBeCloseTo(0, 6);
     }
     // A floor that shrinks away from where the camera looks takes the camera back to its edge.
-    const islands = checkoutIslands();
-    for (const n of [1, 2, 3, 4]) islands.push({ key: `/demo/more-${n}`, repo: 'more', color: 5, tie: 4, desks: [{ id: `m${n}`, state: 'working' }] });
-    const grown = makeFloor(islands);
+    const checkouts = checkoutSpecs();
+    for (const n of [1, 2, 3, 4]) checkouts.push({ key: `/demo/more-${n}`, repo: 'more', color: 5, tie: 4, desks: [{ id: `m${n}`, state: 'working' }] });
+    const grown = makeFloor(checkouts);
     view.setFloor(grown);
     view.select(desk('m4'), { pan: true });
     env.flush();

@@ -5,7 +5,7 @@
  */
 import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 2;
+export const SCENE_VERSION = 3;
 
 /** States a desk can show. Ended sessions have left the building. */
 export type ShownState = Exclude<SessionState, 'ended'>;
@@ -19,8 +19,9 @@ export interface SceneReason {
 }
 
 export interface FacadeWindow {
-  sessionId: string;
-  state: ShownState;
+  /** Null: a free desk, a dark window. */
+  sessionId: string | null;
+  state: ShownState | null;
 }
 
 export interface FloorSummary {
@@ -33,7 +34,7 @@ export interface FloorSummary {
   name: string;
   /** Repo labels on the floor, sorted. */
   repos: string[];
-  /** One per desk, in the same order as the floor's desks (islands in order, desks in order). */
+  /** One per desk of the plan, in desk index order. A floor's sessions are counted by `counts`, which include unseated ones. */
   windows: FacadeWindow[];
   counts: Partial<Record<ShownState, number>>;
   /** Every desk is dormant: the shutters are down. */
@@ -141,54 +142,9 @@ export interface MeetingRoom {
   agents: MeetingAgent[];
   /** Body and tie colour slots of the run's robots: the host's repo and feature. */
   look: { body: number; tie: number | null };
-  /** The host's robot at the head of the table while the host is in_meeting; else null (the head seat holds a placard). */
-  host: Robot | null;
   rect: GridRect;
   /** Its room slot: an index into FloorDetail.roomSlots. */
   slot: number;
-}
-
-export interface Desk {
-  sessionId: string;
-  /** 2x2 cells. The monitor sits on the north edge, the chair on the south edge. */
-  rect: GridRect;
-  name: string;
-  title: string | null;
-  state: ShownState;
-  since: number;
-  reason: SceneReason | null;
-  activity: DeskActivity | null;
-  /** Running subagents and workflow agents. */
-  agentsRunning: number;
-  summary: DeskSummary | null;
-  /** Running interns first (by start), then the latest finished; at most INTERNS_MAX. */
-  interns: Intern[];
-  /** Interns not in `interns`. */
-  internsMore: number;
-  /** The robot sits at the head of a meeting room on this floor (its desk chair is empty). */
-  away: boolean;
-  /** Running runs first (by start), then finished ones, latest ended first; at most RUNS_SHOWN. */
-  runs: RunSummary[];
-  location: 'local' | 'cloud';
-  /** tmux pane id (%N) for display; focus goes through POST /api/focus by sessionId. */
-  pane: string | null;
-  focusable: boolean;
-  /** Null when dormant: gone home, desk dark. */
-  robot: Robot | null;
-}
-
-export interface Island {
-  /** Worktree root (or cwd outside git): one island per checkout. */
-  key: string;
-  repo: string;
-  branch: string | null;
-  worktree: boolean;
-  /** Path shown on the placard (the worktree root, or cwd). */
-  path: string;
-  /** Repo colour slot (rug and robot bodies). */
-  color: number;
-  rect: GridRect;
-  desks: Desk[];
 }
 
 /** Where a session's robot should be. The renderer walks it there. */
@@ -282,9 +238,8 @@ export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   version: typeof SCENE_VERSION;
   /** Floor footprint in cells (walls run along its edges). */
   size: { w: number; h: number };
-  /** Elevator and plants corner (decor; never overlaps islands). */
+  /** Elevator and plants corner (decor; never overlaps pods). */
   core: GridRect;
-  islands: Island[];
   rooms: MeetingRoom[];
   /** Running runs on this floor without a room. */
   roomsMore: number;

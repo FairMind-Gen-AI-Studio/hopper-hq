@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PHASE, RUN_STATUS, STATES, STATE_ORDER, floorLabel, floorMeta, needYou, plural, raisedBy, runCounts, runSpan, waitText } from '../../lib/words';
+import { PHASE, RUN_STATUS, STATES, STATE_ORDER, floorLabel, floorMeta, needYou, plural, raisedBy, runCounts, runSpan, sessionsOf, waitText } from '../../lib/words';
 import { NOW, makeScene } from '../helpers/fixtures';
 
 describe('words', () => {
@@ -39,8 +39,18 @@ describe('words', () => {
     expect(floorLabel(checkout!)).toBe('Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done, 1 in a meeting');
     expect(floorLabel(search!)).toBe('Floor 3, search-ranking: 2 sessions, 1 no signal');
     expect(floorLabel(docs!)).toBe('Floor 1, docs-refresh: 2 sessions, shutters down');
-    expect(floorLabel({ ...orders!, counts: { needs_you: 2 } })).toBe('Floor 2, orders-api: 5 sessions, 2 need you');
+    expect(floorLabel({ ...orders!, counts: { needs_you: 2 } })).toBe('Floor 2, orders-api: 2 sessions, 2 need you');
     expect(floorMeta({ ...orders!, counts: { needs_you: 2 } })[1]!.text).toBe('● 2 need you');
+  });
+
+  it('counts a floor\'s sessions from its counts, those waiting for a desk too, and not from its windows', () => {
+    const [checkout] = makeScene().floors;
+    expect(checkout!.windows).toHaveLength(16);
+    expect(sessionsOf(checkout!)).toBe(4);
+    // Two sessions wait for a desk: no window is theirs, and the floor counts them.
+    const crowded = { ...checkout!, counts: { ...checkout!.counts, working: 3 } };
+    expect([sessionsOf(crowded), floorMeta(crowded)[0]!.text]).toEqual([6, '3 repos · 6 sessions']);
+    expect(sessionsOf({ counts: {} })).toBe(0);
   });
 
   it('says how a workflow run stands, how long it has gone on, and where each phase is', () => {

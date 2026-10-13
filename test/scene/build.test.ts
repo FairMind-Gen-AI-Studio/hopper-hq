@@ -69,19 +69,25 @@ describe('the demo building', () => {
       [2, 'feature:search-ranking', 'search-ranking', 'feature', ['search-svc']],
       [1, 'repo:/demo/orders-api', 'orders-api', 'department', ['orders-api']],
     ]);
+    const free = { sessionId: null, state: null };
     expect(scene.floors[0]!.windows).toEqual([
-      { sessionId: 'demo-oa-c3', state: 'needs_you' },
       { sessionId: 'demo-ps-d4', state: 'in_meeting' },
       { sessionId: 'demo-sw-b2', state: 'done' },
       { sessionId: 'demo-sw-a1', state: 'working' },
+      free,
+      { sessionId: 'demo-oa-c3', state: 'needs_you' },
+      free,
+      free,
+      free,
     ]);
     expect(scene.floors[0]!.counts).toEqual({ working: 1, needs_you: 1, done: 1, in_meeting: 1 });
     expect(scene.floors.map((f) => f.shutters)).toEqual([false, false, false]);
   });
 
-  it('gives each session on a floor one window', () => {
+  it('gives each desk of a floor\'s plan one window, in desk index order, dark where the desk is free', () => {
     scene.floors.forEach((f, i) => {
-      expect(f.windows.map((w) => w.sessionId).sort()).toEqual(occupants(floors[i]!).map((o) => o.sessionId).sort());
+      const desks = floors[i]!.pods.flatMap((p) => p.desks);
+      expect(f.windows).toEqual(desks.map((d) => (d.occupant ? { sessionId: d.occupant.sessionId, state: d.occupant.state } : { sessionId: null, state: null })));
     });
   });
 
@@ -90,7 +96,7 @@ describe('the demo building', () => {
       const { windows, ...summary } = f;
       expect(floors[i]).toMatchObject({ version: SCENE_VERSION, ...summary });
       expect(floors[i]).not.toHaveProperty('windows');
-      expect(windows).toHaveLength(occupants(floors[i]!).length);
+      expect(windows).toHaveLength(floors[i]!.pods.length * 4);
     });
     expect(buildFloorDetail(views, 'feature:nope')).toBeNull();
   });
@@ -349,22 +355,23 @@ describe('the plan', () => {
     ]);
   });
 
-  it('shows the floor as version 2 islands too: one per pod with a session, holding its occupied desks', () => {
+  it('counts every session on a floor, those waiting for a desk too, and gives a window only to those at a desk', () => {
     const views = [
-      view('a1', ws('/w/api', 'feat/x'), 'in_meeting', { startedAt: NOW - DAY, runs: [live('wf_0000aaaa-001', NOW - 9 * MIN)] }),
-      view('w1', ws('/w/web', 'feat/x'), 'working', { startedAt: NOW - DAY + 1 }),
-      view('a2', ws('/w/api', 'feat/x'), 'working', { startedAt: NOW - DAY + 2, runs: [live('wf_0000aaaa-002', NOW - 8 * MIN)] }),
+      view('s', ws('/w/api', 'main'), 'working'),
+      view('w', ws('/w/api', 'main'), 'needs_you', { startedAt: NOW - DAY + 1 }),
+      view('d', ws('/w/api', 'main'), 'dormant', { startedAt: NOW - DAY + 2 }),
     ];
-    const floor = buildFloorDetail(views, 'feature:x', undefined, new Map([['feature:x', seated([null, 'w1', null, 'a1', null, null, 'a2'], { rooms: ['wf_0000aaaa-002', 'wf_0000aaaa-001'] })]]))!;
-    const [p0, p1] = floor.pods;
-    expect(floor.islands.map((i) => [i.key, i.repo, i.branch, i.worktree, i.path, i.color, i.rect, i.desks.map((d) => [d.sessionId, d.rect, d.away])])).toEqual([
-      ['p0', 'web', 'feat/x', false, '/w/web', slotOf('/w/web', REPO_SLOTS), p0!.rect, [['w1', p0!.desks[1]!.rect, false], ['a1', p0!.desks[3]!.rect, true]]],
-      ['p1', 'api', 'feat/x', false, '/w/api', slotOf('/w/api', REPO_SLOTS), p1!.rect, [['a2', p1!.desks[2]!.rect, false]]],
+    const seating = new Map([['repo:/w/api', seated([null, null, 'd', 's'])]]);
+    const summary = buildScene(views, undefined, seating).floors[0]!;
+    const free = { sessionId: null, state: null };
+    expect([summary.counts, summary.windows]).toEqual([
+      { working: 1, needs_you: 1, dormant: 1 },
+      [free, free, { sessionId: 'd', state: 'dormant' }, { sessionId: 's', state: 'working' }, free, free, free, free],
     ]);
-    expect(floor.rooms.map((r) => [r.runId, r.slot, r.host])).toEqual([
-      ['wf_0000aaaa-002', 0, null],
-      ['wf_0000aaaa-001', 1, { pose: 'still', badge: 'meeting', body: slotOf('/w/api', REPO_SLOTS), tie: slotOf('x', FEATURE_SLOTS) }],
-    ]);
+    const floor = buildFloorDetail(views, 'repo:/w/api', undefined, seating)!;
+    expect([floor.counts, floor.unseated.map((o) => o.sessionId)]).toEqual([summary.counts, ['w']]);
+    // With no seating given, the floor is seated from scratch.
+    expect(buildScene(views).floors[0]!.windows.slice(0, 4).map((w) => w.sessionId)).toEqual(['s', 'w', 'd', null]);
   });
 });
 
@@ -413,12 +420,12 @@ describe('wait reasons', () => {
   });
 });
 
-describe('version 2', () => {
+describe('version 3', () => {
   it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
     const views = [view('a', ws('/w/api', 'main'), 'done')];
     const floor = buildFloorDetail(views, 'repo:/w/api')!;
-    expect(SCENE_VERSION).toBe(2);
-    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([2, [], 0, []]);
+    expect(SCENE_VERSION).toBe(3);
+    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([3, [], 0, []]);
     const desk = occupants(floor)[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.at, desk.runs]).toEqual([null, [], 0, { kind: 'desk' }, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();
@@ -585,10 +592,10 @@ describe('meeting rooms', () => {
     const api = slotOf('/w/api', REPO_SLOTS);
     const web = slotOf('/w/web', REPO_SLOTS);
     const tie = slotOf('rooms', FEATURE_SLOTS);
-    expect(floor.rooms.map((r) => [r.runId, r.host, r.look])).toEqual([
-      ['wf_0000aaaa-001', { pose: 'still', badge: 'meeting', body: api, tie }, { body: api, tie }],
-      ['wf_0000aaaa-002', null, { body: api, tie }],
-      ['wf_0000aaaa-003', null, { body: web, tie }],
+    expect(floor.rooms.map((r) => [r.runId, r.slot, r.look])).toEqual([
+      ['wf_0000aaaa-001', 0, { body: api, tie }],
+      ['wf_0000aaaa-002', 1, { body: api, tie }],
+      ['wf_0000aaaa-003', 2, { body: web, tie }],
     ]);
     expect(Object.fromEntries(occupants(floor).map((d) => [d.sessionId, [d.at, d.robot]]))).toEqual({
       meet: [{ kind: 'room', slot: 0 }, { pose: 'still', badge: 'meeting', body: api, tie }],
@@ -603,8 +610,8 @@ describe('meeting rooms', () => {
       view('late', ws('/w/api', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-005', NOW - MIN)] }),
     ];
     const floor = buildFloorDetail(views, 'feature:rooms')!;
-    expect([floor.rooms.map((r) => [r.runId, r.host]), floor.roomsMore]).toEqual([
-      [['wf_0000aaaa-001', null], ['wf_0000aaaa-002', null], ['wf_0000aaaa-003', null], ['wf_0000aaaa-004', null]],
+    expect([floor.rooms.map((r) => [r.runId, r.slot]), floor.roomsMore]).toEqual([
+      [['wf_0000aaaa-001', 0], ['wf_0000aaaa-002', 1], ['wf_0000aaaa-003', 2], ['wf_0000aaaa-004', 3]],
       1,
     ]);
     expect(occupants(floor).map((d) => [d.sessionId, d.at])).toEqual([['busy', { kind: 'desk' }], ['late', { kind: 'desk' }]]);
@@ -628,10 +635,11 @@ describe('meeting rooms', () => {
       expect(JSON.stringify(buildFloorDetail(order, 'feature:rooms'))).toBe(expected);
     }
     const floor = buildFloorDetail(views, 'feature:rooms')!;
-    expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.host !== null]), floor.roomsMore]).toEqual([
-      [['wf_0000aaaa-003', 'm3', false], ['wf_0000aaaa-000', 'm3', false], ['wf_0000aaaa-001', 'm1', true], ['wf_0000aaaa-002', 'm1', false]],
+    expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.slot]), floor.roomsMore]).toEqual([
+      [['wf_0000aaaa-003', 'm3', 0], ['wf_0000aaaa-000', 'm3', 1], ['wf_0000aaaa-001', 'm1', 2], ['wf_0000aaaa-002', 'm1', 3]],
       1,
     ]);
+    expect(Object.fromEntries(occupants(floor).map((o) => [o.sessionId, o.at]))).toEqual({ m1: { kind: 'room', slot: 2 }, m2: { kind: 'desk' }, m3: { kind: 'desk' } });
   });
 
   it('gives a run id that two sessions name one room on the floor: that of the host that started first', () => {
@@ -641,7 +649,7 @@ describe('meeting rooms', () => {
       view('m2', ws('/w/web', 'feat/rooms'), 'working', { startedAt: NOW - 2 * DAY, runs: [live('wf_0000aaaa-001', NOW - 9 * MIN)] }),
     ];
     const floor = buildFloorDetail(views, 'feature:rooms')!;
-    expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.host !== null]), floor.roomsMore]).toEqual([[['wf_0000aaaa-001', 'm1', true]], 2]);
+    expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.slot]), floor.roomsMore]).toEqual([[['wf_0000aaaa-001', 'm1', 0]], 2]);
     expect(Object.fromEntries(occupants(floor).map((d) => [d.sessionId, d.at.kind]))).toEqual({ m0: 'desk', m1: 'room', m2: 'desk' });
   });
 

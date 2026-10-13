@@ -1,9 +1,9 @@
 /**
  * A small building shaped like the demo's, for UI tests: four floors, put together the way src/scene/build.ts does
- * (layout from src/scene/layout.ts, colour slots from src/scene/palette.ts). Each checkout sits in pods of its own
+ * (the plan from src/scene/layout.ts, colour slots from src/scene/palette.ts). Each checkout sits in pods of its own
  * (helpers/plan.ts). Each call returns fresh objects, so a test may change what it gets.
  */
-import { LOUNGE_SEATS, layoutFloor } from '../../../src/scene/layout';
+import { LOUNGE_SEATS, type PlanLayout } from '../../../src/scene/layout';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../../src/scene/palette';
 import {
   SCENE_VERSION,
@@ -11,10 +11,11 @@ import {
   type Badge,
   type BuildingScene,
   type Checkout,
-  type Desk,
+  type DeskActivity,
   type FloorDetail,
   type FloorSummary,
   type Occupant,
+  type Pod,
   type Pose,
   type SceneReason,
   type ShownState,
@@ -39,11 +40,11 @@ interface DeskSpec {
   title: string | null;
   pane: string | null;
   reason?: SceneReason;
-  activity?: Desk['activity'];
+  activity?: DeskActivity;
   agents?: number;
   location?: 'local' | 'cloud';
 }
-interface IslandSpec {
+interface CheckoutSpec {
   repo: string;
   branch: string | null;
   worktree: boolean;
@@ -55,7 +56,7 @@ interface FloorSpec {
   kind: 'feature' | 'department';
   name: string;
   openedAt: number;
-  islands: IslandSpec[];
+  checkouts: CheckoutSpec[];
 }
 
 /** Top to bottom: newest first-seen first. */
@@ -65,7 +66,7 @@ const FLOORS: FloorSpec[] = [
     kind: 'feature',
     name: 'checkout-v2',
     openedAt: NOW - HOUR,
-    islands: [
+    checkouts: [
       {
         repo: 'orders-api',
         branch: 'feat/checkout-v2',
@@ -136,7 +137,7 @@ const FLOORS: FloorSpec[] = [
     kind: 'feature',
     name: 'search-ranking',
     openedAt: NOW - 3 * HOUR,
-    islands: [
+    checkouts: [
       {
         repo: 'search-svc',
         branch: 'feat/search-ranking',
@@ -178,7 +179,7 @@ const FLOORS: FloorSpec[] = [
     kind: 'department',
     name: 'orders-api',
     openedAt: NOW - 2 * DAY,
-    islands: [
+    checkouts: [
       {
         repo: 'orders-api',
         branch: 'main',
@@ -208,7 +209,7 @@ const FLOORS: FloorSpec[] = [
     kind: 'feature',
     name: 'docs-refresh',
     openedAt: NOW - 9 * DAY,
-    islands: [
+    checkouts: [
       {
         repo: 'docs-site',
         branch: 'feat/docs-refresh',
@@ -240,8 +241,46 @@ const STATE_ORDER = Object.keys(ROBOT) as ShownState[];
 
 const focusable = (d: DeskSpec) => (d.location ?? 'local') === 'local' && d.pane !== null && /^%\d+$/.test(d.pane);
 
+function checkoutOf(c: CheckoutSpec): Checkout {
+  return { repo: c.repo, branch: c.branch, worktree: c.worktree, path: c.path };
+}
+
+function occupantOf(f: FloorSpec, c: CheckoutSpec, d: DeskSpec): Occupant {
+  const look = ROBOT[d.state];
+  return {
+    sessionId: d.id,
+    name: d.name,
+    title: d.title,
+    state: d.state,
+    since: d.since,
+    reason: d.reason ?? null,
+    activity: d.activity ?? null,
+    agentsRunning: d.agents ?? 0,
+    summary: null,
+    interns: [],
+    internsMore: 0,
+    runs: [],
+    location: d.location ?? 'local',
+    pane: d.pane,
+    focusable: focusable(d),
+    robot: look && {
+      pose: look.pose,
+      badge: look.badge,
+      body: slotOf(c.repo, REPO_SLOTS),
+      tie: f.kind === 'feature' ? slotOf(f.key.slice('feature:'.length), FEATURE_SLOTS) : null,
+    },
+    at: d.state === 'dormant' ? { kind: 'gone' } : { kind: 'desk' },
+    checkout: checkoutOf(c),
+  };
+}
+
+/** The floor's plan, each checkout in pods of its own. */
+function podsOf(f: FloorSpec): { plan: PlanLayout; pods: Pod[] } {
+  return podsFor(f.checkouts.map((c) => ({ color: slotOf(c.repo, REPO_SLOTS), placard: checkoutOf(c), occupants: c.desks.map((d) => occupantOf(f, c, d)) })));
+}
+
 function summary(f: FloorSpec, number: number): FloorSummary {
-  const desks = f.islands.flatMap((i) => i.desks);
+  const desks = f.checkouts.flatMap((c) => c.desks);
   const counts: FloorSummary['counts'] = {};
   for (const state of STATE_ORDER) {
     const n = desks.filter((d) => d.state === state).length;
@@ -252,25 +291,25 @@ function summary(f: FloorSpec, number: number): FloorSummary {
     number,
     kind: f.kind,
     name: f.name,
-    repos: [...new Set(f.islands.map((i) => i.repo))].sort(),
-    windows: desks.map((d) => ({ sessionId: d.id, state: d.state })),
+    repos: [...new Set(f.checkouts.map((c) => c.repo))].sort(),
+    windows: podsOf(f).pods.flatMap((p) => p.desks.map((d) => (d.occupant ? { sessionId: d.occupant.sessionId, state: d.occupant.state } : { sessionId: null, state: null }))),
     counts,
     shutters: desks.every((d) => d.state === 'dormant'),
     openedAt: f.openedAt,
   };
 }
 
-function entry(f: FloorSpec, island: IslandSpec, d: DeskSpec, state: 'needs_you' | 'done'): AttentionEntry {
-  return { sessionId: d.id, floorKey: f.key, name: d.name, repo: island.repo, state, since: d.since, reason: d.reason ?? null, title: d.title, focusable: focusable(d), summary: null };
+function entry(f: FloorSpec, c: CheckoutSpec, d: DeskSpec, state: 'needs_you' | 'done'): AttentionEntry {
+  return { sessionId: d.id, floorKey: f.key, name: d.name, repo: c.repo, state, since: d.since, reason: d.reason ?? null, title: d.title, focusable: focusable(d), summary: null };
 }
 
 export function makeScene(): BuildingScene {
-  const all = FLOORS.flatMap((f) => f.islands.flatMap((i) => i.desks.map((d) => ({ f, i, d }))));
+  const all = FLOORS.flatMap((f) => f.checkouts.flatMap((c) => c.desks.map((d) => ({ f, c, d }))));
   const queue = (state: 'needs_you' | 'done') =>
     all
       .filter((x) => x.d.state === state)
       .sort((a, b) => a.d.since - b.d.since)
-      .map((x) => entry(x.f, x.i, x.d, state));
+      .map((x) => entry(x.f, x.c, x.d, state));
   return {
     version: SCENE_VERSION,
     floors: FLOORS.map((f, i) => summary(f, FLOORS.length - i)),
@@ -282,56 +321,13 @@ export function makeFloor(key: string): FloorDetail | null {
   const index = FLOORS.findIndex((f) => f.key === key);
   const f = FLOORS[index];
   if (!f) return null;
-  const layout = layoutFloor(f.islands.map((i) => ({ key: i.path, deskIds: i.desks.map((d) => d.id) })));
+  const { plan, pods } = podsOf(f);
   const { windows: _windows, ...rest } = summary(f, FLOORS.length - index);
-  const checkout = (island: IslandSpec): Checkout => ({ repo: island.repo, branch: island.branch, worktree: island.worktree, path: island.path });
-  const occupant = (island: IslandSpec, d: DeskSpec): Occupant => {
-    const look = ROBOT[d.state];
-    return {
-      sessionId: d.id,
-      name: d.name,
-      title: d.title,
-      state: d.state,
-      since: d.since,
-      reason: d.reason ?? null,
-      activity: d.activity ?? null,
-      agentsRunning: d.agents ?? 0,
-      summary: null,
-      interns: [],
-      internsMore: 0,
-      runs: [],
-      location: d.location ?? 'local',
-      pane: d.pane,
-      focusable: focusable(d),
-      robot: look && {
-        pose: look.pose,
-        badge: look.badge,
-        body: slotOf(island.repo, REPO_SLOTS),
-        tie: f.kind === 'feature' ? slotOf(f.key.slice('feature:'.length), FEATURE_SLOTS) : null,
-      },
-      at: d.state === 'dormant' ? { kind: 'gone' } : { kind: 'desk' },
-      checkout: checkout(island),
-    };
-  };
-  const { plan, pods } = podsFor(f.islands.map((island) => ({ color: slotOf(island.repo, REPO_SLOTS), placard: checkout(island), occupants: island.desks.map((d) => occupant(island, d)) })));
   return {
     version: SCENE_VERSION,
     ...rest,
-    size: layout.size,
-    core: layout.core,
-    islands: f.islands.map((island, n) => ({
-      key: island.path,
-      repo: island.repo,
-      branch: island.branch,
-      worktree: island.worktree,
-      path: island.path,
-      color: slotOf(island.repo, REPO_SLOTS),
-      rect: layout.islands[n]!.rect,
-      desks: island.desks.map((d, k): Desk => {
-        const { at: _at, checkout: _checkout, ...seat } = occupant(island, d);
-        return { ...seat, rect: layout.islands[n]!.desks[k]!.rect, away: false };
-      }),
-    })),
+    size: plan.size,
+    core: plan.core,
     rooms: [],
     roomsMore: 0,
     pods,

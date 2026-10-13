@@ -5,9 +5,10 @@
   import { STATES, floorLabel, floorMeta, type Meta } from '../lib/words';
 
   /**
-   * The building from outside: one window per desk, coloured by state, floors stacked on a lobby, newest on top.
-   * A floor is a button that goes inside; a window goes straight to its desk. A building too big for the stage at
-   * MIN_SCALE is drawn at that scale, and the stage scrolls.
+   * The building from outside: one window per desk of each floor's plan, coloured by the state of whoever sits there and
+   * dark where the desk is free, floors stacked on a lobby, newest on top. A floor is a button that goes inside; a window
+   * with somebody at its desk goes straight to that desk. A building too big for the stage at MIN_SCALE is drawn at that
+   * scale, and the stage scrolls.
    */
   interface Props {
     /** Top to bottom, as the scene lists them. */
@@ -86,8 +87,12 @@
       <title>{summary.name}</title>
       {@render solid(floor.plate, 'plate')}
       {@render solid(floor.wall, 'wall')}
-      {#each floor.windows as w (w.sessionId)}
-        <polygon class="sfill st-{w.state}" class:lit={w.lit} points={w.points} data-desk={w.sessionId}><title>{STATES[w.state].label}</title></polygon>
+      {#each floor.windows as w, i (i)}
+        {#if w.sessionId !== null && w.state !== null}
+          <polygon class="sfill st-{w.state}" class:lit={w.lit} points={w.points} data-desk={w.sessionId}><title>{STATES[w.state].label}</title></polygon>
+        {:else}
+          <polygon class="sfill st-free" points={w.points} />
+        {/if}
       {/each}
       {#each floor.blanks as quad, i (i)}<polygon class="sfill st-empty" points={quad} />{/each}
       {#each floor.slats as s, i (i)}<line class="slat" x1={s[0]} y1={s[1]} x2={s[2]} y2={s[3]} />{/each}

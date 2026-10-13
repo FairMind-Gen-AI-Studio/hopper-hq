@@ -135,7 +135,7 @@ describe('GET /api/events', () => {
     await floor.take(isEvent('floor'));
     void t.collector.ingest(working('S1', T0 - 500, 'Edit b.ts'));
     const detail = json((await floor.take(isEvent('floor'))).data);
-    expect(detail.islands[0].desks[0].activity.label).toBe('Edit b.ts');
+    expect(detail.pods[0].desks[0].occupant.activity.label).toBe('Edit b.ts');
     await sleep(100);
     expect(building.messages.filter(isEvent('scene'))).toHaveLength(1);
     expect(floor.messages.filter(isEvent('scene'))).toHaveLength(1);

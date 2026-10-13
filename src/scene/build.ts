@@ -15,7 +15,6 @@ import {
   type Badge,
   type BuildingScene,
   type Checkout,
-  type Desk,
   type DeskActivity,
   type DeskSummary,
   type FacadeWindow,
@@ -23,7 +22,6 @@ import {
   type FloorSummary,
   type GridRect,
   type Intern,
-  type Island,
   type MeetingAgent,
   type MeetingRoom,
   type Occupant,
@@ -61,20 +59,6 @@ const UNNAMED_AGENT = 'agent';
 /** The longest run name and phase title a script's meta gives (adapters/claude-code/script-meta.ts). */
 const RUN_NAME_MAX = 120;
 const PHASE_MAX = 80;
-
-/** A session with its island, ready to become a desk. */
-interface IslandGroup {
-  key: string;
-  /** The repository's label (see repoLabels). */
-  repo: string;
-  /** The repository's root: the key of its colour, the same on every floor. */
-  root: string;
-  branch: string | null;
-  worktree: boolean;
-  path: string;
-  /** Desks in order: by start time, then id. The last, the newest, gives the island its repo, branch, worktree flag and path. */
-  views: SessionView[];
-}
 
 const idOf = (v: SessionView): string => cleanText(v.id, KEY_MAX);
 
@@ -218,30 +202,19 @@ function robotOf(state: ShownState, root: string, feature: string | null): Robot
   return { pose: look.pose, badge: look.badge, ...lookOf(root, feature) };
 }
 
-/** One island per checkout, ordered by repo, branch and key: stable while sessions come and go. */
-function islandsOf(floor: Floor, label: (v: SessionView) => string): IslandGroup[] {
-  const byKey = new Map<string, SessionView[]>();
-  for (const v of floor.sessions) {
-    const key = islandKeyOf(v);
-    const list = byKey.get(key);
-    if (list) list.push(v);
-    else byKey.set(key, [v]);
-  }
-  const groups = [...byKey].map(([key, views]): IslandGroup => {
-    views.sort(bySessionStart);
-    // The newest session says what the checkout is now: a branch switched since an older session started shows.
-    const newest = views[views.length - 1]!;
-    const ws = newest.workspace;
-    return { key, repo: cleanText(label(newest)), root: repoRootOf(newest), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd), views };
+/**
+ * A floor as the façade and the directory show it: one window per desk of its plan, in desk index order, carrying the
+ * state of whoever sits there (dark for a free desk), and the count of its sessions by state, those without a desk too.
+ */
+function summaryOf(floor: Floor, number: number, seating: Seating): FloorSummary {
+  const on = new Map(floor.sessions.map((v) => [v.id, v]));
+  const windows = seating.desks.map((id): FacadeWindow => {
+    const v = id === null ? undefined : on.get(id);
+    return v ? { sessionId: idOf(v), state: v.effectiveState as ShownState } : { sessionId: null, state: null };
   });
-  return groups.sort((a, b) => byCodeUnit(a.repo, b.repo) || byCodeUnit(a.branch ?? '', b.branch ?? '') || byCodeUnit(a.key, b.key));
-}
-
-function summaryOf(floor: Floor, number: number, islands: IslandGroup[]): FloorSummary {
-  const windows: FacadeWindow[] = islands.flatMap((i) => i.views.map((v) => ({ sessionId: idOf(v), state: v.effectiveState as ShownState })));
   const counts: Partial<Record<ShownState, number>> = {};
   for (const state of SHOWN_STATES) {
-    const n = windows.filter((w) => w.state === state).length;
+    const n = floor.sessions.filter((v) => v.effectiveState === state).length;
     if (n > 0) counts[state] = n;
   }
   return {
@@ -287,30 +260,6 @@ function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place
   };
 }
 
-/** An occupant as a version 2 desk at `rect`: away while its robot sits at the head of a room. */
-function deskOf(o: Occupant, rect: GridRect): Desk {
-  return {
-    sessionId: o.sessionId,
-    rect,
-    name: o.name,
-    title: o.title,
-    state: o.state,
-    since: o.since,
-    reason: o.reason,
-    activity: o.activity,
-    agentsRunning: o.agentsRunning,
-    summary: o.summary,
-    interns: o.interns,
-    internsMore: o.internsMore,
-    away: o.at.kind === 'room',
-    runs: o.runs,
-    location: o.location,
-    pane: o.pane,
-    focusable: o.focusable,
-    robot: o.robot,
-  };
-}
-
 /**
  * A pod's rug colour and placard, from the sessions at its desks: the checkout of the newest while they all share one;
  * the repository alone while they share only that; neither otherwise, or when the pod is empty.
@@ -325,9 +274,8 @@ function podLook(views: SessionView[], label: (v: SessionView) => string): Pick<
   return { color: null, placard: null };
 }
 
-/** The room of a live run in its slot. Its host sits at the head of the table while the host's robot is there. */
-function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect, seat: Occupant | undefined): MeetingRoom {
-  const at = seat?.at;
+/** The room of a live run in its slot. */
+function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect): MeetingRoom {
   return {
     runId: capKey(run.id),
     hostSessionId: idOf(host),
@@ -337,7 +285,6 @@ function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect, seat: Occu
     counts: countsOf(run),
     agents: meetingAgentsOf(run),
     look: lookOf(repoRootOf(host), host.feature),
-    host: at?.kind === 'room' && at.slot === slot ? seat!.robot : null,
     rect,
     slot,
   };
@@ -348,9 +295,9 @@ function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect, seat: Occu
  * a room for each live run that holds a slot (in slot order), and the sessions without a desk. Each occupant's `at` is,
  * first match: gone when it has no desk or is dormant; the head of its first room run that holds a slot while it is
  * in_meeting; its lounge seat; its desk. The floor counts the live runs without a room, every host's: a run two hosts
- * name counts twice. The islands, and the rooms' hosts, show the same floor in version 2's shapes.
+ * name counts twice.
  */
-function detailOf(floor: Floor, number: number, groups: IslandGroup[], label: (v: SessionView) => string, seating: Seating): FloorDetail {
+function detailOf(floor: Floor, number: number, label: (v: SessionView) => string, seating: Seating): FloorDetail {
   const plan = layoutPlan(seating);
   const on = new Map(floor.sessions.map((v) => [v.id, v]));
   const runs = roomRunsOf(floor);
@@ -394,28 +341,10 @@ function detailOf(floor: Floor, number: number, groups: IslandGroup[], label: (v
     .map((r) => ({ r, slot: slotOfKey(r.key) }))
     .filter(({ slot }) => slot !== -1)
     .sort((a, b) => a.slot - b.slot)
-    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!, seated.get(r.host.id)));
+    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!));
   const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length, 0);
 
-  const islands = pods.flatMap((pod, i): Island[] => {
-    const first = sitting[i]!.find((v): v is SessionView => v !== null);
-    if (!first) return [];
-    const at = seated.get(first.id)!.checkout;
-    const look = pod.placard;
-    return [
-      {
-        key: pod.id,
-        repo: look?.repo ?? at.repo,
-        branch: look ? look.branch : at.branch,
-        worktree: look ? look.worktree : at.worktree,
-        path: look?.path ?? at.path,
-        color: pod.color ?? slotOf(repoRootOf(first), REPO_SLOTS),
-        rect: pod.rect,
-        desks: pod.desks.flatMap((d) => (d.occupant ? [deskOf(d.occupant, d.rect)] : [])),
-      },
-    ];
-  });
-  const { windows: _windows, ...summary } = summaryOf(floor, number, groups);
+  const { windows: _windows, ...summary } = summaryOf(floor, number, seating);
   return {
     version: SCENE_VERSION,
     ...summary,
@@ -424,7 +353,6 @@ function detailOf(floor: Floor, number: number, groups: IslandGroup[], label: (v
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
-    islands,
     rooms,
     roomsMore: liveRuns - rooms.length,
     unseated,
@@ -454,13 +382,15 @@ function attentionOf(views: readonly SessionView[], state: AttentionEntry['state
     .map((v) => entryOf(v, state));
 }
 
-/** The building every client sees: floors top to bottom, and the attention queue. */
+/**
+ * The building every client sees: floors top to bottom, each from its seating in `seating` (a floor with none there is
+ * seated from scratch), and the attention queue.
+ */
 export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>, seating?: ReadonlyMap<string, Seating>): BuildingScene {
   const floors = buildFloors(views, firstSeen);
-  const label = repoLabels(views);
   return {
     version: SCENE_VERSION,
-    floors: floors.map((f, i) => summaryOf(f, floors.length - i, islandsOf(f, label))),
+    floors: floors.map((f, i) => summaryOf(f, floors.length - i, seating?.get(f.key) ?? seatFloor(null, f))),
     attention: { needsYou: attentionOf(views, 'needs_you'), done: attentionOf(views, 'done') },
   };
 }
@@ -474,6 +404,5 @@ export function buildFloorDetail(views: readonly SessionView[], key: string, fir
   const i = floors.findIndex((f) => f.key === key);
   const floor = floors[i];
   if (!floor) return null;
-  const label = repoLabels(views);
-  return detailOf(floor, floors.length - i, islandsOf(floor, label), label, seating?.get(key) ?? seatFloor(null, floor));
+  return detailOf(floor, floors.length - i, repoLabels(views), seating?.get(key) ?? seatFloor(null, floor));
 }

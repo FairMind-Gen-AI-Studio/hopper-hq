@@ -4,7 +4,7 @@ import type { Target } from '../../renderer/index';
 import { COMPACT_PX, LabelLayer, projectToScreen, roomTitle, tagTitle, type LabelEvents } from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
 import { LABEL_Y, boardAnchor, headSpot, labelAnchor, loungeSpots, roomTagAnchor } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
 
 /** A camera looking straight down at a 10 m square around the origin. */
 function topDown(): OrthographicCamera {
@@ -64,9 +64,9 @@ describe('projection', () => {
 describe('the label layer', () => {
   it('shows a tag per session at a desk with its state, name, note, agents and remote mark, and a placard per pod that has one', () => {
     const { root, labels } = layer();
-    const islands = checkoutIslands();
-    islands[2]!.desks[0]!.cloud = true;
-    labels.sync(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[2]!.desks[0]!.cloud = true;
+    labels.sync(makeFloor(checkouts));
     expect(root.classList.contains('fv-labels')).toBe(true);
     expect(root.querySelectorAll('.fv-tag')).toHaveLength(7);
     expect(root.querySelectorAll('.fv-sign')).toHaveLength(3);
@@ -89,7 +89,7 @@ describe('the label layer', () => {
     expect(labels.sign('p2')!.textContent).toBe('payments-svcfeat/checkout-v2');
     expect(labels.sign('p3')).toBeUndefined();
     // Occupants that share only their repository: the placard names it alone.
-    const shared = makeFloor(islands);
+    const shared = makeFloor(checkouts);
     shared.pods[1]!.placard = { repo: 'orders-api', branch: null, worktree: false, path: null };
     labels.sync(shared);
     expect([labels.sign('p1')!.textContent, labels.sign('p1')!.querySelector('small')]).toEqual(['orders-api', null]);
@@ -97,11 +97,11 @@ describe('the label layer', () => {
 
   it('writes names, repos and branches as text, never as markup', () => {
     const { root, labels } = layer();
-    const islands = checkoutIslands();
-    islands[0]!.repo = HOSTILE;
-    islands[0]!.branch = HOSTILE;
-    islands[0]!.desks[0]!.name = HOSTILE;
-    labels.sync(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.repo = HOSTILE;
+    checkouts[0]!.branch = HOSTILE;
+    checkouts[0]!.desks[0]!.name = HOSTILE;
+    labels.sync(makeFloor(checkouts));
     expect(root.querySelector('img')).toBeNull();
     expect(labels.tag('sw-a1')!.querySelector('.fv-name')!.textContent).toBe(HOSTILE);
     expect(labels.sign('p0')!.firstChild!.textContent).toBe(HOSTILE);
@@ -115,10 +115,10 @@ describe('the label layer', () => {
     const name = tag.querySelector('.fv-name');
     labels.sync(checkoutFloor());
     expect(tag.querySelector('.fv-name')).toBe(name);
-    const islands = checkoutIslands();
-    islands[0]!.desks = [{ id: 'sw-a1', state: 'needs_you' }, { id: 'sw-b2', state: 'done' }, { id: 'sw-x9', state: 'working' }];
-    islands.pop();
-    labels.sync(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks = [{ id: 'sw-a1', state: 'needs_you' }, { id: 'sw-b2', state: 'done' }, { id: 'sw-x9', state: 'working' }];
+    checkouts.pop();
+    labels.sync(makeFloor(checkouts));
     expect(labels.tag('sw-a1')).toBe(tag);
     expect(tag.classList.contains('fv-st-needs_you')).toBe(true);
     expect(labels.tag('sw-c3')).toBeUndefined();
@@ -172,9 +172,9 @@ describe('the label layer', () => {
     expect(labels.tag('oa-c3')!.getAttribute('aria-current')).toBe('true');
     expect(labels.tag('sw-b2')!.hasAttribute('aria-current')).toBe(false);
     labels.setSelected(deskTarget('sw-x9'));
-    const islands = checkoutIslands();
-    islands[0]!.desks.push({ id: 'sw-x9', state: 'working' });
-    labels.sync(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.push({ id: 'sw-x9', state: 'working' });
+    labels.sync(makeFloor(checkouts));
     expect(labels.tag('sw-x9')!.classList.contains('fv-sel')).toBe(true);
     labels.setSelected(null);
     expect(root.querySelectorAll('.fv-sel')).toHaveLength(0);
@@ -196,14 +196,14 @@ describe('the label layer', () => {
     labels.setSelected(deskTarget('oa-c3'));
     expect(stops()).toEqual(['ps-d4']);
     // When its desk leaves, the stop goes to the selected desk's tag, or with none selected to the first.
-    const islands = checkoutIslands();
-    islands[2]!.desks.shift();
-    labels.sync(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[2]!.desks.shift();
+    labels.sync(makeFloor(checkouts));
     expect(stops()).toEqual(['oa-c3']);
     labels.setSelected(null);
     expect(stops()).toEqual(['oa-c3']);
-    islands[1]!.desks.shift();
-    labels.sync(makeFloor(islands));
+    checkouts[1]!.desks.shift();
+    labels.sync(makeFloor(checkouts));
     expect(stops()).toEqual(['sw-a1']);
   });
 
@@ -362,9 +362,9 @@ describe('the label layer', () => {
 
   it('hangs a session\'s tag over its robot wherever it is: on its lounge seat, at the head of its room', () => {
     const { labels } = layer();
-    const islands = checkoutIslands();
-    islands[0]!.desks[2] = { ...islands[0]!.desks[2]!, lounge: 2 };
-    const floor = makeFloor(islands, undefined, checkoutRooms());
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[2] = { ...checkouts[0]!.desks[2]!, lounge: 2 };
+    const floor = makeFloor(checkouts, undefined, checkoutRooms());
     labels.sync(floor);
     const camera = isoCamera(floor.size);
     labels.position(camera, 800, 500);

@@ -141,7 +141,9 @@ describe('client store', () => {
       last().send('scene', scene);
       last().send('floor', null);
       expect(store.get().connection).toBe('live');
-      last().send(event, { ...(event === 'scene' ? makeScene() : makeFloor(CHECKOUT)), version: 3 });
+      // The daemon went back to version 2: its floors have islands, not pods.
+      const { pods: _pods, ...floor } = makeFloor(CHECKOUT)!;
+      last().send(event, event === 'scene' ? { ...makeScene(), version: 2 } : { ...floor, islands: [], version: 2 });
       expect([event, store.get().connection, store.get().scene, last().readyState]).toEqual([event, 'outdated', scene, 2]);
       // Nothing opens the stream again: no retry, not the page shown again, not another floor.
       pg.set(true);

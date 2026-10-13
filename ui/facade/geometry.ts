@@ -72,8 +72,9 @@ export interface Label {
 }
 
 export interface WindowShape {
-  sessionId: string;
-  state: ShownState;
+  /** Null: a free desk, a dark window that leads nowhere. */
+  sessionId: string | null;
+  state: ShownState | null;
   points: string;
   /** Someone is at the desk and the screen is on. */
   lit: boolean;
@@ -84,9 +85,9 @@ export interface FacadeFloor {
   number: number;
   plate: Box;
   wall: Box;
-  /** One per desk, in the floor's desk order, left to right. */
+  /** One per desk of the floor's plan, in desk index order, left to right. */
   windows: WindowShape[];
-  /** The rest of the row, without a desk. */
+  /** The rest of the row, past the floor's plan. */
   blanks: string[];
   side: string;
   shutters: boolean;
@@ -178,7 +179,7 @@ export function facadeOf(floors: readonly FloorSummary[]): FacadeModel {
     for (let i = 0; i < W; i++) {
       const quad = points(onFront(D, i + 0.18, i + 0.82, z0 + 13, z0 + FLOOR_H - 6));
       const w = f.windows[i];
-      if (w) windows.push({ sessionId: w.sessionId, state: w.state, points: quad, lit: LIT.has(w.state) });
+      if (w) windows.push({ sessionId: w.sessionId, state: w.state, points: quad, lit: w.state !== null && LIT.has(w.state) });
       else blanks.push(quad);
       if (f.shutters) {
         for (let k = 1; k < 4; k++) {

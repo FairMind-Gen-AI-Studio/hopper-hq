@@ -78,7 +78,7 @@ describe('agent ids through the collector to the floor', () => {
     for (const id of ['a58cb74ebedcc3070', 'a58cb74ebedcc3070 ', 'a58cb74e\u0000bedcc3070', 'a'.repeat(301)]) for (const e of mapHookPayload(start(id), NOW)) await c.ingest(e);
     expect(c.view(SID)!.children.map((child) => child.id)).toEqual(['a58cb74ebedcc3070']);
     const floor = c.floor(c.scene().floors[0]!.key)!;
-    expect(floor.islands[0]!.desks[0]!.interns.map((i) => i.agentId)).toEqual(['a58cb74ebedcc3070']);
+    expect(floor.pods[0]!.desks[0]!.occupant!.interns.map((i) => i.agentId)).toEqual(['a58cb74ebedcc3070']);
   });
 });
 

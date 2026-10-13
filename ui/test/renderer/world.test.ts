@@ -42,7 +42,7 @@ import {
   visibleWalls,
   type Point,
 } from '../../renderer/world';
-import { checkoutOf, checkoutIslands, makeOccupant } from './fixtures';
+import { checkoutOf, checkoutSpecs, makeOccupant } from './fixtures';
 
 const RECT = { x: 3, y: 7, w: 2, h: 2 };
 /** A desk of a pod's south row, chair on its south edge (as every version 2 desk), and one of its north row. */
@@ -53,7 +53,7 @@ const QUARTER = Math.PI / 2;
 const MONITOR_Z = 0.24;
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 /** A session in this state, at this place. */
-const who = (state: Occupant['state'], at: Place) => makeOccupant({ id: 'x', state }, 0, null, checkoutOf(checkoutIslands()[0]!), at);
+const who = (state: Occupant['state'], at: Place) => makeOccupant({ id: 'x', state }, 0, null, checkoutOf(checkoutSpecs()[0]!), at);
 
 describe('world maths', () => {
   it('maps a grid cell to the ground plane, one cell per metre', () => {
@@ -246,7 +246,7 @@ describe('world maths', () => {
 });
 
 describe('meeting rooms', () => {
-  /** The demo's room: east of the islands, at the top of the wing. */
+  /** The demo's room: east of the checkouts, at the top of the wing. */
   const ROOM = { x: 22, y: 2, w: 8, h: 6 };
   const inside = (p: Point) => p.x > ROOM.x && p.x < ROOM.x + ROOM.w && p.z > ROOM.y && p.z < ROOM.y + ROOM.h;
 

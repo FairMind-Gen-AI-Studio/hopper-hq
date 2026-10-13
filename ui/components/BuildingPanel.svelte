@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { FloorSummary } from '../../src/scene/types';
-  import { STATES, STATE_ORDER, floorMeta, needYou, plural } from '../lib/words';
+  import { STATES, STATE_ORDER, floorMeta, needYou, plural, sessionsOf } from '../lib/words';
 
   /** The floor directory, top to bottom as on the façade, and what the colours mean. */
   interface Props {
@@ -9,7 +9,7 @@
   }
   let { floors, onFloor }: Props = $props();
 
-  const sessions = $derived(floors.reduce((n, f) => n + f.windows.length, 0));
+  const sessions = $derived(floors.reduce((n, f) => n + sessionsOf(f), 0));
 </script>
 
 <div>

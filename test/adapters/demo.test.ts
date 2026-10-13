@@ -58,7 +58,8 @@ function demoCollector() {
       after?.(step.at);
     }
   };
-  const desk = (id: string) => c.floor(CHECKOUT)!.islands.flatMap((i) => i.desks).find((d) => d.sessionId === id)!;
+  /** A session on the checkout floor, at its desk. */
+  const desk = (id: string) => c.floor(CHECKOUT)!.pods.flatMap((p) => p.desks).find((d) => d.occupant?.sessionId === id)!.occupant!;
   return { c, clock, play, desk };
 }
 
@@ -79,7 +80,6 @@ describe('the demo workflow run', () => {
         counts: { running: 1, finished: 0 },
         agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: true }],
         look,
-        host: { pose: 'still', badge: 'meeting', ...look },
         rect: { x: 18, y: 2, w: 8, h: 6 },
         slot: 0,
       },
@@ -93,7 +93,7 @@ describe('the demo workflow run', () => {
     await play(0, BASE, (at) => {
       const room = c.floor(CHECKOUT)!.rooms[0];
       const host = desk('demo-ps-d4');
-      seen.push([at, room?.phases.find((p) => p.state === 'current')?.title ?? null, room?.counts ?? null, host.state, host.away]);
+      seen.push([at, room?.phases.find((p) => p.state === 'current')?.title ?? null, room?.counts ?? null, host.state, host.at.kind === 'room']);
     });
     const meeting = (phase: string, running: number, finished: number) => [phase, { running, finished }, 'in_meeting', true];
     expect(seen).toEqual([
@@ -122,7 +122,8 @@ describe('the demo workflow run', () => {
     await play(0, BASE);
     clock.now = BASE + DEMO_LOOP_MS;
     for (const e of demoScript(1)[0]!.events(clock.now)) await c.ingest(e);
-    expect(c.floor(CHECKOUT)!.rooms.map((r) => [r.runId, r.agents.map((a) => a.agentId), r.host !== null])).toEqual([['wf_demo-checkout-2', ['demo-wf-0-2'], true]]);
+    expect(c.floor(CHECKOUT)!.rooms.map((r) => [r.runId, r.agents.map((a) => a.agentId), r.slot])).toEqual([['wf_demo-checkout-2', ['demo-wf-0-2'], 0]]);
+    expect(desk('demo-ps-d4').at).toEqual({ kind: 'room', slot: 0 });
     expect(desk('demo-ps-d4').runs.map((r) => [r.runId, r.status])).toEqual([['wf_demo-checkout-2', 'running'], ['wf_demo-checkout', 'completed']]);
     expect([demoRunIds(2).runId, demoRunIds(2).agent(3)]).toEqual(['wf_demo-checkout-3', 'demo-wf-3-3']);
   });

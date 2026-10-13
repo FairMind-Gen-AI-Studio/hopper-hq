@@ -18,24 +18,24 @@ import {
   standSpot,
   tableCenter,
 } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, checkoutRooms, makeFloor, roomFloor, seatsOf, type IslandSpec } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatsOf, type CheckoutSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at its desk. */
-function changedIslands(): IslandSpec[] {
-  const islands = checkoutIslands();
-  islands[0]!.desks = [
+function changedCheckouts(): CheckoutSpec[] {
+  const checkouts = checkoutSpecs();
+  checkouts[0]!.desks = [
     { id: 'sw-a1', state: 'needs_you', agents: 1 },
     { id: 'sw-b2', state: 'done' },
     { id: 'sw-x9', state: 'working' },
   ];
-  return islands;
+  return checkouts;
 }
 
 /** The checkout floor with sw-c3, idle, resting on lounge seat 2. */
 function loungeFloor() {
-  const islands = checkoutIslands();
-  islands[0]!.desks[2] = { ...islands[0]!.desks[2]!, lounge: 2 };
-  return makeFloor(islands);
+  const checkouts = checkoutSpecs();
+  checkouts[0]!.desks[2] = { ...checkouts[0]!.desks[2]!, lounge: 2 };
+  return makeFloor(checkouts);
 }
 
 const deskTarget = (id: string): Target => ({ kind: 'desk', id });
@@ -85,7 +85,7 @@ describe('the floor scene', () => {
     const fs = sceneOf();
     const before = new Map([...fs.sessions].map(([id, e]) => [id, e.robot]));
     const gone = fs.sessions.get('sw-c3')!;
-    expect(fs.apply(makeFloor(changedIslands()))).toBe(false);
+    expect(fs.apply(makeFloor(changedCheckouts()))).toBe(false);
     expect(fs.sessions.get('sw-b2')!.robot).toBe(before.get('sw-b2'));
     const changed = fs.sessions.get('sw-a1')!;
     expect(changed.robot).toBe(before.get('sw-a1'));
@@ -103,14 +103,14 @@ describe('the floor scene', () => {
     const fs = sceneOf();
     const shell = fs.shell!;
     expect(fs.apply(checkoutFloor())).toBe(false);
-    expect(fs.apply(makeFloor(changedIslands()))).toBe(false);
+    expect(fs.apply(makeFloor(changedCheckouts()))).toBe(false);
     expect(fs.apply(roomFloor())).toBe(false);
     expect(fs.shell).toBe(shell);
     const slab = shell.group.children.find((c) => c instanceof Mesh && c.material === fs.mats.surface.floor) as Mesh;
     let freed = false;
     slab.geometry.addEventListener('dispose', () => (freed = true));
     // Nine sessions of one checkout take three pods: with the other two checkouts', the plan grows to three blocks.
-    const grown = checkoutIslands();
+    const grown = checkoutSpecs();
     grown[0]!.desks = Array.from({ length: 9 }, (_, k) => ({ id: `sw-${k}`, state: 'working' as const }));
     expect(fs.apply(makeFloor(grown))).toBe(true);
     expect(fs.shell).not.toBe(shell);
@@ -133,8 +133,8 @@ describe('the floor scene', () => {
 
   it('signs the layout by footprint, core, pods, the lounge and the room slots only', () => {
     const a = checkoutFloor();
-    expect(layoutSignature(makeFloor(changedIslands()))).toBe(layoutSignature(a));
-    const recoloured = checkoutIslands();
+    expect(layoutSignature(makeFloor(changedCheckouts()))).toBe(layoutSignature(a));
+    const recoloured = checkoutSpecs();
     recoloured[0]!.color = 6;
     expect(layoutSignature(makeFloor(recoloured))).toBe(layoutSignature(a));
     // Rooms open and close in their slots: the plan stays as it was until a third run opens the second column.
@@ -153,7 +153,7 @@ describe('the floor scene', () => {
     expect([pods.get('p0')!.rug.material, pods.get('p0')!.shade.material]).toEqual([fs.mats.rug(2), fs.mats.body(2)]);
     expect([pods.get('p3')!.rug.material, pods.get('p3')!.shade.material]).toEqual([fs.mats.surface.rug, fs.mats.surface.base]);
     const rug = pods.get('p0')!.rug;
-    const recoloured = checkoutIslands();
+    const recoloured = checkoutSpecs();
     recoloured[0]!.color = 6;
     expect(fs.apply(makeFloor(recoloured))).toBe(false);
     expect(fs.shell!.pods.get('p0')!.rug).toBe(rug);
@@ -167,14 +167,14 @@ describe('the floor scene', () => {
   it('rebuilds a robot for new colours, sends it home when its session goes dormant, and back again', () => {
     const fs = sceneOf();
     const robot = fs.sessions.get('sw-a1')!.robot!;
-    const recoloured = checkoutIslands();
+    const recoloured = checkoutSpecs();
     recoloured[0]!.color = 6;
     fs.apply(makeFloor(recoloured));
     const next = fs.sessions.get('sw-a1')!.robot!;
     expect(next).not.toBe(robot);
     expect(robot.group.parent).toBeNull();
     expect(next.body).toBe(6);
-    const asleep = checkoutIslands();
+    const asleep = checkoutSpecs();
     asleep[0]!.desks[0]!.state = 'dormant';
     fs.apply(makeFloor(asleep));
     expect(fs.sessions.get('sw-a1')!.robot).toBeNull();
@@ -204,13 +204,13 @@ describe('the floor scene', () => {
   });
 
   it('has no robot for a session that waits for a desk, and removes the robot of one that leaves the floor', () => {
-    const fs = sceneOf(makeFloor(checkoutIslands(), undefined, [], [{ id: 'sw-w1', state: 'working' }]));
+    const fs = sceneOf(makeFloor(checkoutSpecs(), undefined, [], [{ id: 'sw-w1', state: 'working' }]));
     const waiting = fs.sessions.get('sw-w1')!;
     expect([waiting.desk, waiting.robot, fs.focusPoint(deskTarget('sw-w1'))]).toEqual([null, null, null]);
     const robot = fs.sessions.get('oa-d5')!.robot!;
-    const islands = checkoutIslands();
-    islands[1]!.desks.pop();
-    fs.apply(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[1]!.desks.pop();
+    fs.apply(makeFloor(checkouts));
     expect([fs.sessions.has('oa-d5'), fs.sessions.has('sw-w1'), robot.group.parent]).toEqual([false, false, null]);
   });
 
@@ -227,9 +227,9 @@ describe('the floor scene', () => {
     expect(host.pickables.every((m) => picks.has(m))).toBe(true);
     expect(host.pickables[0]!.userData.pick).toEqual(deskTarget('ps-d4'));
     // A desk whose session leaves is free again, and picks nothing.
-    const islands = checkoutIslands();
-    islands[0]!.desks.pop();
-    fs.apply(makeFloor(islands, undefined, checkoutRooms()));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.pop();
+    fs.apply(makeFloor(checkouts, undefined, checkoutRooms()));
     const left = fs.shell!.desks.get('p0-2')!;
     const now = new Set(fs.pickables());
     expect(left.pickables.some((m) => now.has(m) || m.userData.pick)).toBe(false);
@@ -291,7 +291,7 @@ describe('the floor scene', () => {
     fs.setSelected(deskTarget('sw-c3'));
     fs.apply(checkoutFloor());
     expect(fs.ring.visible).toBe(true);
-    fs.apply(makeFloor(changedIslands()));
+    fs.apply(makeFloor(changedCheckouts()));
     expect(fs.ring.visible).toBe(false);
   });
 
@@ -506,14 +506,14 @@ describe('meeting rooms in the floor scene', () => {
   });
 
   it('takes away the interns of a session that leaves, also when two of them share an id', () => {
-    const islands = checkoutIslands();
-    islands[0]!.desks[0] = { ...islands[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true })) };
-    const fs = sceneOf(makeFloor(islands));
-    for (let i = 0; i < 5; i++) fs.apply(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true })) };
+    const fs = sceneOf(makeFloor(checkouts));
+    for (let i = 0; i < 5; i++) fs.apply(makeFloor(checkouts));
     const interns = () => fs.scene.children.filter((o) => o.name.startsWith('intern ')).length;
     expect(interns()).toBe(2);
-    islands[0]!.desks.shift();
-    fs.apply(makeFloor(islands));
+    checkouts[0]!.desks.shift();
+    fs.apply(makeFloor(checkouts));
     expect(interns()).toBe(0);
   });
 
@@ -534,10 +534,10 @@ describe('meeting rooms in the floor scene', () => {
 describe('interns', () => {
   const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running });
   /** The checkout floor with these interns at sw-a1's desk, sw-a1 in this state, and on this lounge seat if given. */
-  const withInterns = (interns: Intern[], state: IslandSpec['desks'][number]['state'] = 'working', lounge?: number) => {
-    const islands = checkoutIslands();
-    islands[0]!.desks[0] = { ...islands[0]!.desks[0]!, state, interns, ...(lounge === undefined ? {} : { lounge }) };
-    return makeFloor(islands);
+  const withInterns = (interns: Intern[], state: CheckoutSpec['desks'][number]['state'] = 'working', lounge?: number) => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, state, interns, ...(lounge === undefined ? {} : { lounge }) };
+    return makeFloor(checkouts);
   };
 
   it('flies the running interns over its desk, small and in its robot\'s colours, and none that finished', () => {
@@ -571,9 +571,9 @@ describe('interns', () => {
     const middle = internSpots(entry.desk!)[0]!;
     expect([i2!.group.position.x, i2!.group.position.z]).toEqual([middle.x, middle.z]);
     expect(i1!.group.parent).toBeNull();
-    const islands = checkoutIslands();
-    islands[0]!.desks.shift();
-    fs.apply(makeFloor(islands));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.shift();
+    fs.apply(makeFloor(checkouts));
     expect(i2!.group.parent).toBeNull();
   });
 

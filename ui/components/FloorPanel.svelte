@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Checkout, FloorDetail, FloorSummary, MeetingRoom, Occupant } from '../../src/scene/types';
   import { occupantsOf } from '../lib/occupants';
-  import { STATES, plural, runCounts, summaryAge } from '../lib/words';
+  import { STATES, plural, runCounts, sessionsOf, summaryAge } from '../lib/words';
 
   /**
    * One floor as a list: a group per checkout (repo, branch, path) and a row per session, at a desk or waiting for one,
@@ -34,7 +34,7 @@
 
   const head = $derived(floor ?? summary);
   const occupants = $derived(floor ? occupantsOf(floor) : []);
-  const sessions = $derived(floor ? occupants.length : (summary?.windows.length ?? 0));
+  const sessions = $derived(floor ? occupants.length : summary ? sessionsOf(summary) : 0);
   /** The route names a desk that is not on the floor any more. */
   const missing = $derived(selected !== null && !!floor && !occupants.some((o) => o.sessionId === selected));
   /** The floor's sessions by checkout path, ordered by repo, branch, then path. */

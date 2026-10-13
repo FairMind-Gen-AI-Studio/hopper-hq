@@ -140,7 +140,7 @@ async function centre(tag: Locator): Promise<{ x: number; y: number }> {
 
 /** What the smoke test reads of GET /api/scene. */
 interface Scene {
-  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string }> }>;
+  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string | null }> }>;
   attention: Record<'needsYou' | 'done', Array<{ sessionId: string; name: string; floorKey: string }>>;
 }
 
@@ -151,10 +151,17 @@ async function sceneOf(page: Page): Promise<Scene> {
   return (await answer.json()) as Scene;
 }
 
+/** A session on a floor, as the smoke test reads it. */
+interface Occupant {
+  sessionId: string;
+  summary: { text: string } | null;
+}
+
 /** What the smoke test reads of GET /api/floor. */
 interface Floor {
   rooms: Array<{ runId: string; hostSessionId: string; name: string | null; phases: Array<{ title: string; state: string }> }>;
-  islands: Array<{ desks: Array<{ sessionId: string; summary: { text: string } | null }> }>;
+  pods: Array<{ desks: Array<{ occupant: Occupant | null }> }>;
+  unseated: Occupant[];
 }
 
 /** One floor as the daemon sees it now, with its meeting rooms, asked with the page's own sign-in. */
@@ -340,7 +347,8 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     await page.keyboard.press('Enter');
     await expect.poll(() => route(page).floor).toBe(next!.key);
     await expect(canvas).toBeVisible();
-    await expect(page.locator(`button.fv-tag[data-session="${next!.windows[0]!.sessionId}"]`)).toBeVisible();
+    const seated = next!.windows.find((w) => w.sessionId !== null);
+    await expect(page.locator(`button.fv-tag[data-session="${seated!.sessionId}"]`)).toBeVisible();
     await expect(page.locator('.no-webgl, .load-failed')).toHaveCount(0);
   });
 
@@ -389,7 +397,8 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     // The demo writes it 8 s after the session's turn ends.
     const line = page.locator('aside section.summary .s-text');
     await expect(line).toBeVisible({ timeout: 20_000 });
-    const desk = (await floorOf(page, run.floor)).islands.flatMap((i) => i.desks).find((d) => d.sessionId === run.host);
+    const floor = await floorOf(page, run.floor);
+    const desk = [...floor.pods.flatMap((p) => p.desks.flatMap((d) => (d.occupant ? [d.occupant] : []))), ...floor.unseated].find((o) => o.sessionId === run.host);
     expect(desk?.summary?.text).toBeTruthy();
     await expect(line).toHaveText(desk!.summary!.text);
     await expect(page.locator('aside section.summary .s-age')).toHaveText(/^\d+[smhd] ago/);

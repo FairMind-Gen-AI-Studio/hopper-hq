@@ -29,10 +29,14 @@ describe('Facade', () => {
     }
   });
 
-  it('colours each window by its desk state and lowers the shutters on a dormant floor', () => {
+  it('colours each window by the state at its desk, leaves a free desk\'s window dark, and lowers the shutters on a dormant floor', () => {
     const { target, floor } = facade();
     const win = (id: string) => target.querySelector(`polygon[data-desk="${id}"]`)!;
     expect(target.querySelectorAll('polygon[data-desk]')).toHaveLength(13);
+    // 16 desks on the checkout floor, 8 on each other floor; 13 sessions sit at them.
+    const free = [...target.querySelectorAll('polygon.st-free')];
+    expect(free).toHaveLength(16 + 3 * 8 - 13);
+    expect(free.every((w) => !w.hasAttribute('data-desk') && !w.classList.contains('lit') && w.querySelector('title') === null)).toBe(true);
     expect(win('oa-c3').getAttribute('class')).toMatch(/\bst-needs_you\b/);
     expect(win('oa-c3').classList.contains('lit')).toBe(true);
     expect(win('ss-e5').classList.contains('st-no_signal')).toBe(true);
@@ -40,7 +44,7 @@ describe('Facade', () => {
     expect(win('oa-j0').classList.contains('lit')).toBe(false);
     expect(text(win('oa-c3').querySelector('title'))).toBe('Needs you');
     expect(floor(0).classList.contains('shut')).toBe(true);
-    expect(floor(0).querySelectorAll('line.slat')).toHaveLength(18);
+    expect(floor(0).querySelectorAll('line.slat')).toHaveLength(48);
     expect(floor(1).classList.contains('shut')).toBe(false);
   });
 
