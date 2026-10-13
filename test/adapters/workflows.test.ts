@@ -358,6 +358,32 @@ describe('FsAdapter with workflow runs', () => {
     ]);
   });
 
+  it('reads the end of a run that ended just before its process did, before the session ends', async () => {
+    await mkdir(join(root, 'sessions'), { recursive: true });
+    await writeFile(join(root, 'sessions', '4242.json'), JSON.stringify({ pid: 4242, sessionId: SID, cwd: CWD, startedAt: T0, status: 'busy', statusUpdatedAt: T0 + 5000 }));
+    await writeFile(join(session + '.jsonl'), '');
+    await writeRun(R1, [started('a1', 'plan:orders', 'Plan')], NEW);
+    let alive = true;
+    let now = NOW;
+    const a = new FsAdapter({
+      claudeDir: root,
+      emit: (e) => events.push(e),
+      resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: 'payments-svc', worktree: false, branch: 'feat/checkout-v2' }),
+      probe: async (pids) => new Map(alive ? pids.map((p) => [p, T0 - 1000]) : []),
+      now: () => now,
+      subagentScanMs: 60_000,
+    });
+    await a.poll();
+    await append(R1, [result('a1')], NOW + 1000);
+    await writeEnd(R1, { status: 'completed', startTime: NEW }, NOW + 2000);
+    alive = false;
+    now = NOW + 3000;
+    events = [];
+    await a.poll();
+    expect(events.map((e) => [e.type, e.ts])).toEqual([['agent.finished', NOW + 3000], ['workflow.finished', NOW + 2000], ['session.ended', NOW + 3000]]);
+    expect(events[1]).toMatchObject({ runId: R1, status: 'completed' });
+  });
+
   it('asks once, as it starts tracking a session, which runs the collector holds open, and kills the one that died', async () => {
     await mkdir(join(root, 'sessions'), { recursive: true });
     await writeFile(join(root, 'sessions', '4242.json'), JSON.stringify({ pid: 4242, sessionId: SID, cwd: CWD, startedAt: T0, status: 'idle', statusUpdatedAt: T0 + 5000 }));

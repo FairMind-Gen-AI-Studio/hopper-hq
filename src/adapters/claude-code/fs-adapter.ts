@@ -46,6 +46,11 @@ export function encodeProjectDir(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
 
+/** A session's directory, next to its transcript: its subagents and workflow runs live there. */
+function sessionDirOf(transcript: string): string {
+  return join(dirname(transcript), basename(transcript, '.jsonl'));
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -121,6 +126,8 @@ export class FsAdapter {
     for (const [id, t] of this.tracked) {
       if (t.ended || live.has(id)) continue;
       t.ended = true;
+      // A run that ended just before its process did left its end file: it is read before the session ends.
+      if (t.transcript) await t.workflows.scan(sessionDirOf(t.transcript), now);
       this.o.emit({ type: 'session.ended', sessionId: id, ts: now, source: 'fs', cwd: t.file.cwd, reason: 'process-gone' });
     }
 
@@ -242,7 +249,7 @@ export class FsAdapter {
   private async scanSubagents(t: Tracked, now: number): Promise<void> {
     if (!t.transcript || now - t.lastSubagentScan < (this.o.subagentScanMs ?? 3000)) return;
     t.lastSubagentScan = now;
-    const sessionDir = join(dirname(t.transcript), basename(t.transcript, '.jsonl'));
+    const sessionDir = sessionDirOf(t.transcript);
     await this.scanChildren(t, join(sessionDir, 'subagents'), now);
     await t.workflows.scan(sessionDir, now);
   }
