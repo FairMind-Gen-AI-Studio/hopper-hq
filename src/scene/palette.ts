@@ -31,7 +31,7 @@ export function fmix32(h: number): number {
 
 /**
  * A stable slot in 0..slots-1: the high bits of the mixed hash, so 'web' and 'Web', or 'api-v1' and 'api-v9', need not
- * share one. Repo slots are keyed by repo name, feature slots by feature key.
+ * share one. Repo slots are keyed by repo root (cwd outside git), feature slots by feature key.
  */
 export function slotOf(key: string, slots: number): number {
   return Math.floor((fmix32(fnv1a32(key)) * slots) / 2 ** 32);

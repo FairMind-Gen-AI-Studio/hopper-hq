@@ -39,7 +39,7 @@ describe('slotOf', () => {
   });
 
   it('pins the demo repos and features', () => {
-    expect(['orders-api', 'payments-svc', 'search-svc', 'storefront-web'].map((r) => slotOf(r, REPO_SLOTS))).toEqual([2, 7, 5, 2]);
+    expect(['/demo/orders-api', '/demo/payments-svc', '/demo/search-svc', '/demo/storefront-web'].map((r) => slotOf(r, REPO_SLOTS))).toEqual([6, 0, 1, 2]);
     expect(['checkout-v2', 'search-ranking'].map((f) => slotOf(f, FEATURE_SLOTS))).toEqual([4, 1]);
   });
 });

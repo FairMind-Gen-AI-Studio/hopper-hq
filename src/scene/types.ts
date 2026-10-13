@@ -29,9 +29,9 @@ export interface FloorSummary {
   /** 1 = bottom floor (oldest first-seen). Floors are listed top to bottom. */
   number: number;
   kind: 'feature' | 'department';
-  /** Feature key or repo name; a department name is suffixed ' (<parent dir>)' when two departments share it. */
+  /** Feature key or repo label: the repo name, with the shortest parent path that tells it apart when another live repository shares the name ('api (work)', 'api (a/work)'). */
   name: string;
-  /** Repo names on the floor, sorted. */
+  /** Repo labels on the floor, sorted. */
   repos: string[];
   /** One per desk, in the same order as the floor's desks (islands in order, desks in order). */
   windows: FacadeWindow[];

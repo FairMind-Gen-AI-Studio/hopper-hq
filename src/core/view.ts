@@ -1,4 +1,3 @@
-import { basename, dirname } from 'node:path';
 import { DEFAULT_THRESHOLDS, type Thresholds } from '../config.js';
 import { cleanText, KEY_MAX } from '../scene/text.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './feature.js';
@@ -53,6 +52,46 @@ export function islandKeyOf(v: Pick<SessionView, 'workspace'>): string {
   return cleanText(v.workspace.root ?? v.workspace.cwd, KEY_MAX);
 }
 
+/** The repository a session works in: its repo root, or its cwd outside git. Repo colours are keyed by it. */
+export function repoRootOf(v: Pick<SessionView, 'workspace'>): string {
+  return v.workspace.repoRoot ?? v.workspace.cwd;
+}
+
+/** A path's parent directories, outermost first: '/home/dev/work/api' gives ['home', 'dev', 'work']. */
+function parentsOf(root: string): string[] {
+  return root.split('/').filter(Boolean).slice(0, -1);
+}
+
+/**
+ * How the building names each repository, from the live sessions (ended ones do not count). A repo name that no other
+ * repository root shares stays bare. Repositories that share a name are told apart by the shortest run of trailing
+ * parent directories that no other one ends with: 'api (work)' and 'api (oss)', or 'api (a/work)' and 'api (b/work)'.
+ * One whose parent directories all end another's keeps its whole root: 'api (/a/api)' beside 'api (b/a)'.
+ * The labels depend only on the set of repositories, so a repository has the same label on every floor.
+ */
+export function repoLabels(views: readonly SessionView[]): (v: Pick<SessionView, 'workspace'>) => string {
+  const roots = new Map<string, Set<string>>();
+  for (const v of views) {
+    if (v.effectiveState === 'ended') continue;
+    const name = v.workspace.repoName;
+    const set = roots.get(name);
+    if (set) set.add(repoRootOf(v));
+    else roots.set(name, new Set([repoRootOf(v)]));
+  }
+  return (v) => {
+    const name = v.workspace.repoName;
+    const root = repoRootOf(v);
+    const others = [...(roots.get(name) ?? [])].filter((r) => r !== root).map(parentsOf);
+    if (others.length === 0) return name;
+    const parents = parentsOf(root);
+    for (let k = 1; k <= parents.length; k++) {
+      const tail = parents.slice(-k).join('/');
+      if (!others.some((o) => o.length >= k && o.slice(-k).join('/') === tail)) return `${name} (${tail})`;
+    }
+    return `${name} (${root})`;
+  };
+}
+
 export interface Floor {
   key: string;
   kind: 'feature' | 'department';
@@ -72,32 +111,24 @@ export function byCodeUnit(a: string, b: string): number {
 
 /** Floors, newest first. `firstSeen` holds each floor key's first-seen time, which keeps floors in place as sessions come and go. */
 export function buildFloors(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>): Floor[] {
+  const label = repoLabels(views);
   const map = new Map<string, Floor>();
-  const dirs = new Map<string, string>();
   for (const v of views) {
     if (v.effectiveState === 'ended') continue;
     const key = floorKeyOf(v);
+    const repo = label(v);
     let f = map.get(key);
     if (!f) {
-      f = { key, kind: v.feature ? 'feature' : 'department', name: v.feature ?? v.workspace.repoName, repos: [], sessions: [], counts: {}, openedAt: v.startedAt, dormant: true };
+      f = { key, kind: v.feature ? 'feature' : 'department', name: v.feature ?? repo, repos: [], sessions: [], counts: {}, openedAt: v.startedAt, dormant: true };
       map.set(key, f);
-      dirs.set(key, v.workspace.repoRoot ?? v.workspace.cwd);
     }
     f.sessions.push(v);
-    if (!f.repos.includes(v.workspace.repoName)) f.repos.push(v.workspace.repoName);
+    if (!f.repos.includes(repo)) f.repos.push(repo);
     f.counts[v.effectiveState] = (f.counts[v.effectiveState] ?? 0) + 1;
     f.openedAt = Math.min(f.openedAt, v.startedAt);
     if (v.effectiveState !== 'dormant') f.dormant = false;
   }
   const floors = [...map.values()];
-  // Departments sharing a repo name are told apart by the directory their repos sit in: 'api (work)', 'api (oss)'.
-  const named = new Map<string, number>();
-  for (const f of floors) if (f.kind === 'department') named.set(f.name, (named.get(f.name) ?? 0) + 1);
-  for (const f of floors) {
-    if (f.kind !== 'department' || (named.get(f.name) ?? 0) < 2) continue;
-    const parent = dirname(dirs.get(f.key) ?? '');
-    f.name = `${f.name} (${basename(parent) || parent})`;
-  }
   for (const f of floors) {
     f.openedAt = firstSeen?.get(f.key) ?? f.openedAt;
     f.repos.sort();

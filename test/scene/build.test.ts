@@ -78,9 +78,9 @@ describe('the demo building', () => {
 
   it('gives each checkout its own island, ordered by repo, branch and path', () => {
     expect(floors[0]!.islands.map((i) => [i.key, i.repo, i.branch, i.worktree, i.path, i.color])).toEqual([
-      ['/demo/orders-api/.worktrees/checkout-v2', 'orders-api', 'feat/checkout-v2', true, '/demo/orders-api/.worktrees/checkout-v2', slotOf('orders-api', REPO_SLOTS)],
-      ['/demo/payments-svc', 'payments-svc', 'feat/checkout-v2', false, '/demo/payments-svc', slotOf('payments-svc', REPO_SLOTS)],
-      ['/demo/storefront-web', 'storefront-web', 'feat/checkout-v2', false, '/demo/storefront-web', slotOf('storefront-web', REPO_SLOTS)],
+      ['/demo/orders-api/.worktrees/checkout-v2', 'orders-api', 'feat/checkout-v2', true, '/demo/orders-api/.worktrees/checkout-v2', slotOf('/demo/orders-api', REPO_SLOTS)],
+      ['/demo/payments-svc', 'payments-svc', 'feat/checkout-v2', false, '/demo/payments-svc', slotOf('/demo/payments-svc', REPO_SLOTS)],
+      ['/demo/storefront-web', 'storefront-web', 'feat/checkout-v2', false, '/demo/storefront-web', slotOf('/demo/storefront-web', REPO_SLOTS)],
     ]);
   });
 
@@ -97,7 +97,7 @@ describe('desks', () => {
   it('poses each robot by state, with the body in the repo colour and the tie in the feature colour', () => {
     const states: SessionState[] = ['working', 'needs_you', 'done', 'in_meeting', 'no_signal', 'idle', 'dormant'];
     const views = states.map((s, i) => view(`s${i}`, ws('/w/api', 'feat/robots'), s, { startedAt: NOW - DAY + i }));
-    const body = slotOf('api', REPO_SLOTS);
+    const body = slotOf('/w/api', REPO_SLOTS);
     const tie = slotOf('robots', FEATURE_SLOTS);
     expect(buildFloorDetail(views, 'feature:robots')!.islands[0]!.desks.map((d) => [d.state, d.robot])).toEqual([
       ['working', { pose: 'typing', badge: 'typing', body, tie }],
@@ -112,7 +112,28 @@ describe('desks', () => {
 
   it('gives robots on a department floor no tie', () => {
     const desk = buildFloorDetail([view('a', ws('/w/api', 'main'), 'working')], 'repo:/w/api')!.islands[0]!.desks[0]!;
-    expect(desk.robot).toEqual({ pose: 'typing', badge: 'typing', body: slotOf('api', REPO_SLOTS), tie: null });
+    expect(desk.robot).toEqual({ pose: 'typing', badge: 'typing', body: slotOf('/w/api', REPO_SLOTS), tie: null });
+  });
+
+  it('tells same-named repositories apart on a floor, and colours each by its root on every floor', () => {
+    const views = [
+      view('w1', ws('/home/dev/work/api', 'feat/x'), 'working'),
+      view('o1', ws('/home/dev/oss/api', 'feat/x'), 'working'),
+      view('w2', ws('/home/dev/work/api', 'main'), 'done'),
+    ];
+    const work = slotOf('/home/dev/work/api', REPO_SLOTS);
+    const oss = slotOf('/home/dev/oss/api', REPO_SLOTS);
+    expect(work).not.toBe(oss);
+    const feature = buildFloorDetail(views, 'feature:x')!;
+    expect(feature.repos).toEqual(['api (oss)', 'api (work)']);
+    expect(feature.islands.map((i) => [i.key, i.repo, i.color, i.desks.map((d) => d.robot?.body)])).toEqual([
+      ['/home/dev/oss/api', 'api (oss)', oss, [oss]],
+      ['/home/dev/work/api', 'api (work)', work, [work]],
+    ]);
+    const department = buildFloorDetail(views, 'repo:/home/dev/work/api')!;
+    expect([department.name, department.repos, department.islands.map((i) => [i.repo, i.color, i.desks.map((d) => d.robot?.body)])]).toEqual([
+      'api (work)', ['api (work)'], [['api (work)', work, [work]]],
+    ]);
   });
 
   it('lowers the shutters only when every desk on a floor is dormant', () => {

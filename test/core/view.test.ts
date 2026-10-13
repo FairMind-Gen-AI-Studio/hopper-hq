@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_THRESHOLDS as T } from '../../src/config.js';
 import { newSession } from '../../src/core/reducer.js';
 import type { Session, SessionState } from '../../src/core/types.js';
-import { buildAttention, buildFloors, effectiveState, floorKeyOf, islandKeyOf, toView } from '../../src/core/view.js';
+import { buildAttention, buildFloors, byCodeUnit, effectiveState, floorKeyOf, islandKeyOf, toView } from '../../src/core/view.js';
 import { WS } from '../helpers/events.js';
 
 const H = 60 * 60 * 1000;
@@ -102,6 +102,47 @@ describe('floor and island keys', () => {
   it('cleans keys and caps them at KEY_MAX', () => {
     expect(islandKeyOf(at('a', '/home/dev/a\u0007pi', 'main'))).toBe('/home/dev/api');
     expect(floorKeyOf(at('b', '/' + 'x'.repeat(600), 'main'))).toHaveLength(256);
+  });
+});
+
+describe('repository labels', () => {
+  const now = 10 * H;
+  const at = (id: string, root: string, branch: string, state: SessionState = 'working', repoName = root.split('/').pop()!) =>
+    toView({ ...sess(id, state, now - 1), workspace: { cwd: root, repoRoot: root, repoName, worktree: false, branch, root } }, now);
+  const labels = (views: ReturnType<typeof at>[]) =>
+    buildFloors(views).sort((a, b) => byCodeUnit(a.key, b.key)).map((f) => [f.key, f.name, f.repos]);
+
+  it('tells same-named repositories apart by the shortest run of parent directories no other one ends with', () => {
+    expect(labels([at('a', '/home/dev/a/work/api', 'main'), at('b', '/home/dev/b/work/api', 'main'), at('c', '/home/dev/oss/api', 'main'), at('d', '/home/dev/web', 'main')])).toEqual([
+      ['repo:/home/dev/a/work/api', 'api (a/work)', ['api (a/work)']],
+      ['repo:/home/dev/b/work/api', 'api (b/work)', ['api (b/work)']],
+      ['repo:/home/dev/oss/api', 'api (oss)', ['api (oss)']],
+      ['repo:/home/dev/web', 'web', ['web']],
+    ]);
+  });
+
+  it('gives a repository the same label on every floor, and lists same-named ones apart on a feature floor', () => {
+    expect(labels([at('a', '/home/dev/work/api', 'main'), at('b', '/home/dev/work/api', 'feat/x'), at('c', '/home/dev/oss/api', 'feat/x')])).toEqual([
+      ['feature:x', 'x', ['api (oss)', 'api (work)']],
+      ['repo:/home/dev/work/api', 'api (work)', ['api (work)']],
+    ]);
+  });
+
+  it('keeps the whole root when its parent directories all end another\'s', () => {
+    expect(labels([at('a', '/a/api', 'main'), at('b', '/b/a/api', 'main')])).toEqual([
+      ['repo:/a/api', 'api (/a/api)', ['api (/a/api)']],
+      ['repo:/b/a/api', 'api (b/a)', ['api (b/a)']],
+    ]);
+    expect(labels([at('a', '/x/svc.git', 'main', 'working', 'svc'), at('b', '/x/svc', 'main')])).toEqual([
+      ['repo:/x/svc', 'svc (/x/svc)', ['svc (/x/svc)']],
+      ['repo:/x/svc.git', 'svc (/x/svc.git)', ['svc (/x/svc.git)']],
+    ]);
+  });
+
+  it('counts only live sessions', () => {
+    expect(labels([at('a', '/home/dev/work/api', 'main'), at('b', '/home/dev/oss/api', 'main', 'ended')])).toEqual([
+      ['repo:/home/dev/work/api', 'api', ['api']],
+    ]);
   });
 });
 

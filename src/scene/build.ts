@@ -2,7 +2,7 @@
  * Session views -> the scene model the browser draws (types.ts). Server-only: it builds on core/view.ts.
  * Pure and deterministic: the same views in any order give the same scene, down to its JSON text. Every string is cleaned.
  */
-import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, type Floor, type SessionView } from '../core/view.js';
+import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { layoutFloor } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
 import { cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
@@ -46,7 +46,10 @@ const UNNAMED_AGENT = 'agent';
 /** A session with its island, ready to become a desk. */
 interface IslandGroup {
   key: string;
+  /** The repository's label (see repoLabels). */
   repo: string;
+  /** The repository's root: the key of its colour, the same on every floor. */
+  root: string;
   branch: string | null;
   worktree: boolean;
   path: string;
@@ -88,14 +91,14 @@ function activityOf(v: SessionView): DeskActivity | null {
   return last ? { label: last, since: v.lastActionAt ?? v.stateSince, running: false } : null;
 }
 
-function robotOf(state: ShownState, repo: string, feature: string | null): Robot | null {
+function robotOf(state: ShownState, root: string, feature: string | null): Robot | null {
   const look = ROBOT[state];
   if (!look) return null;
-  return { pose: look.pose, badge: look.badge, body: slotOf(repo, REPO_SLOTS), tie: feature === null ? null : slotOf(feature, FEATURE_SLOTS) };
+  return { pose: look.pose, badge: look.badge, body: slotOf(root, REPO_SLOTS), tie: feature === null ? null : slotOf(feature, FEATURE_SLOTS) };
 }
 
 /** One island per checkout, ordered by repo, branch and key: stable while sessions come and go. */
-function islandsOf(floor: Floor): IslandGroup[] {
+function islandsOf(floor: Floor, label: (v: SessionView) => string): IslandGroup[] {
   const byKey = new Map<string, SessionView[]>();
   for (const v of floor.sessions) {
     const key = islandKeyOf(v);
@@ -105,8 +108,9 @@ function islandsOf(floor: Floor): IslandGroup[] {
   }
   const groups = [...byKey].map(([key, views]): IslandGroup => {
     views.sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
-    const ws = views[0]!.workspace;
-    return { key, repo: cleanText(ws.repoName), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd), views };
+    const first = views[0]!;
+    const ws = first.workspace;
+    return { key, repo: cleanText(label(first)), root: repoRootOf(first), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd), views };
   });
   return groups.sort((a, b) => byCodeUnit(a.repo, b.repo) || byCodeUnit(a.branch ?? '', b.branch ?? '') || byCodeUnit(a.key, b.key));
 }
@@ -131,7 +135,7 @@ function summaryOf(floor: Floor, number: number, islands: IslandGroup[]): FloorS
   };
 }
 
-function deskOf(v: SessionView, rect: Desk['rect'], repo: string): Desk {
+function deskOf(v: SessionView, rect: Desk['rect'], root: string): Desk {
   const state = v.effectiveState as ShownState;
   return {
     sessionId: idOf(v),
@@ -146,7 +150,7 @@ function deskOf(v: SessionView, rect: Desk['rect'], repo: string): Desk {
     location: v.location,
     pane: cleanOrNull(v.tmuxPane),
     focusable: focusableOf(v),
-    robot: robotOf(state, repo, v.feature),
+    robot: robotOf(state, root, v.feature),
   };
 }
 
@@ -161,9 +165,9 @@ function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDet
       branch: g.branch,
       worktree: g.worktree,
       path: g.path,
-      color: slotOf(g.repo, REPO_SLOTS),
+      color: slotOf(g.root, REPO_SLOTS),
       rect: placed.rect,
-      desks: g.views.map((v, k) => deskOf(v, placed.desks[k]!.rect, g.repo)),
+      desks: g.views.map((v, k) => deskOf(v, placed.desks[k]!.rect, g.root)),
     };
   });
   return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands };
@@ -194,9 +198,10 @@ function attentionOf(views: readonly SessionView[], state: AttentionEntry['state
 /** The building every client sees: floors top to bottom, and the attention queue. */
 export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>): BuildingScene {
   const floors = buildFloors(views, firstSeen);
+  const label = repoLabels(views);
   return {
     version: SCENE_VERSION,
-    floors: floors.map((f, i) => summaryOf(f, floors.length - i, islandsOf(f))),
+    floors: floors.map((f, i) => summaryOf(f, floors.length - i, islandsOf(f, label))),
     attention: { needsYou: attentionOf(views, 'needs_you'), done: attentionOf(views, 'done') },
   };
 }
@@ -206,5 +211,5 @@ export function buildFloorDetail(views: readonly SessionView[], key: string, fir
   const floors = buildFloors(views, firstSeen);
   const i = floors.findIndex((f) => f.key === key);
   const floor = floors[i];
-  return floor ? detailOf(floor, floors.length - i, islandsOf(floor)) : null;
+  return floor ? detailOf(floor, floors.length - i, islandsOf(floor, repoLabels(views))) : null;
 }
