@@ -1,5 +1,6 @@
 import type { AttentionSummary, Snapshot } from './collector.js';
 import type { SessionState } from './core/types.js';
+import { repoLabels } from './core/view.js';
 import { cleanText, formatAgo, reasonText, STATE_LABEL, taskTitle } from './scene/text.js';
 
 export { formatAgo };
@@ -32,14 +33,16 @@ const MARK: Record<SessionState, string> = {
   needs_you: '◉', done: '✓', working: '●', in_meeting: '◎', no_signal: '…', idle: '○', dormant: '·', ended: '×',
 };
 
+/** The building, floor by floor. A repository is named as its floors name it: same-named ones told apart. */
 export function formatBuilding(s: Snapshot): string {
   if (s.floors.length === 0) return 'No sessions yet.';
+  const label = repoLabels(s.floors.flatMap((f) => f.sessions));
   const out: string[] = [];
   for (const f of s.floors) {
     out.push(`${cleanText(f.name)}  (${f.kind === 'feature' ? `feature · ${f.repos.map((r) => cleanText(r)).join(', ')}` : 'department'})`);
     for (const v of f.sessions) {
       const detail = v.effectiveState === 'needs_you' ? reasonText(v.waitReason) : (taskTitle(v) ?? '');
-      const repo = cleanText(v.workspace.repoName) + (v.workspace.worktree ? '*' : '');
+      const repo = cleanText(label(v)) + (v.workspace.worktree ? '*' : '');
       out.push(`  ${MARK[v.effectiveState]} ${pad(STATE_LABEL[v.effectiveState], 10)} ${pad(repo, 22)} ${pad(formatAgo(s.generatedAt - v.effectiveSince), 5)} ${cleanText(detail, 60)}${pane(v.tmuxPane)}`);
     }
   }

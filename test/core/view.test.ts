@@ -151,6 +151,13 @@ describe('repository labels', () => {
     ]);
   });
 
+  it('names a department floor after the first of its labels, whatever the order of its sessions', () => {
+    // A session in a bare clone's directory, outside git, and one in a worktree of that clone, share its floor.
+    const bare = toView({ ...sess('a', 'working', now - 1), workspace: { cwd: '/x/svc.git', repoRoot: null, repoName: 'svc.git', worktree: false, branch: null, root: null } }, now);
+    const trunk = at('b', '/x/svc.git', 'main', 'working', 'svc');
+    for (const views of [[bare, trunk], [trunk, bare]]) expect(labels(views)).toEqual([['repo:/x/svc.git', 'svc', ['svc', 'svc.git']]]);
+  });
+
   it('counts only live sessions', () => {
     expect(labels([at('a', '/home/dev/work/api', 'main'), at('b', '/home/dev/oss/api', 'main', 'ended')])).toEqual([
       ['repo:/home/dev/work/api', 'api', ['api']],

@@ -111,7 +111,10 @@ export function byCodeUnit(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Floors, newest first. `firstSeen` holds each floor key's first-seen time, which keeps floors in place as sessions come and go. */
+/**
+ * Floors, newest first. `firstSeen` holds each floor key's first-seen time, which keeps floors in place as sessions come
+ * and go. A department floor is named after the first of its repositories' labels, whatever the order of its sessions.
+ */
 export function buildFloors(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>): Floor[] {
   const label = repoLabels(views);
   const map = new Map<string, Floor>();
@@ -134,6 +137,7 @@ export function buildFloors(views: readonly SessionView[], firstSeen?: ReadonlyM
   for (const f of floors) {
     f.openedAt = firstSeen?.get(f.key) ?? f.openedAt;
     f.repos.sort();
+    if (f.kind === 'department') f.name = f.repos[0]!;
     f.sessions.sort((a, b) => byCodeUnit(a.workspace.repoName, b.workspace.repoName) || a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   }
   return floors.sort((a, b) => b.openedAt - a.openedAt || byCodeUnit(a.key, b.key));

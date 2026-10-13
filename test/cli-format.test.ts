@@ -53,6 +53,13 @@ describe('formatBuilding', () => {
     expect(formatBuilding({ generatedAt: NOW, floors: [], attention: { needsYou: [], done: [] } })).toBe('No sessions yet.');
   });
 
+  it('names same-named repositories as their floors do', () => {
+    const at = (id: string, cwd: string) => toView({ ...newSession(id, NOW - 60_000, { cwd, repoRoot: cwd, repoName: 'api', worktree: false, branch: 'feat/x', root: cwd }), state: 'working', stateSince: NOW - 5000, lastEventAt: NOW - 5000 }, NOW);
+    const sessions = [at('S1', '/home/dev/oss/api'), at('S2', '/home/dev/work/api')];
+    const lines = formatBuilding({ generatedAt: NOW, floors: [{ key: 'feature:x', kind: 'feature', name: 'x', repos: ['api (oss)', 'api (work)'], sessions, counts: {}, openedAt: 0, dormant: false }], attention: { needsYou: [], done: [] } }).split('\n');
+    expect(lines.map((l) => l.trim().replace(/\s+/g, ' '))).toEqual(['x (feature \u00B7 api (oss), api (work))', '\u25CF working api (oss) 5s', '\u25CF working api (work) 5s']);
+  });
+
   it('describes a session by its title, else its latest prompt, else its first one, like every other view', () => {
     const at = (extra: object) => toView({ ...newSession('S1', NOW - 60_000, WS), state: 'working', stateSince: NOW - 5000, lastEventAt: NOW - 5000, ...extra }, NOW);
     const line = (v: ReturnType<typeof at>) =>
