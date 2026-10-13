@@ -5,6 +5,7 @@
   import { SIGNED_OUT, focusSession, markSeen } from './lib/api';
   import { loadRenderer, type RendererModule } from './lib/renderer';
   import { parseHash, toHash, type Route } from './lib/route';
+  import { occupantsOf } from './lib/occupants';
   import { findRun, runName } from './lib/runs';
   import { browserStoreDeps, createClientStore, type ClientStore } from './lib/store';
   import { applyTheme, browserStorage, loadTheme, nextTheme, resolvedTheme, saveTheme, systemPrefersDark, watchSystemTheme } from './lib/theme';
@@ -81,14 +82,8 @@
   /** The watched floor's detail, once it has arrived for the floor the route shows. */
   const floor = $derived($store.floorKey === route.floor ? $store.floor : undefined);
   const summary = $derived(route.floor === null ? undefined : scene?.floors.find((f) => f.key === route.floor));
-  const desk = $derived.by(() => {
-    if (!route.desk || !floor) return undefined;
-    for (const island of floor.islands) {
-      const found = island.desks.find((d) => d.sessionId === route.desk);
-      if (found) return { desk: found, island };
-    }
-    return undefined;
-  });
+  /** The session the route points at: at a desk on the floor, or waiting for one. */
+  const desk = $derived(route.desk && floor ? occupantsOf(floor).find((o) => o.sessionId === route.desk) : undefined);
   const run = $derived(route.run !== null && floor ? findRun(floor, route.run) : null);
   /** What the route points at on the floor, for the 3D view. */
   const target = $derived<Target | null>(
@@ -100,7 +95,7 @@
     if (route.floor === null) return list;
     list.push({ label: summary ? `${summary.number} · ${summary.name}` : 'Floor', route: { floor: route.floor, desk: null, run: null } });
     if (route.desk !== null) {
-      const name = desk?.desk.name ?? [...(scene?.attention.needsYou ?? []), ...(scene?.attention.done ?? [])].find((e) => e.sessionId === route.desk)?.name;
+      const name = desk?.name ?? [...(scene?.attention.needsYou ?? []), ...(scene?.attention.done ?? [])].find((e) => e.sessionId === route.desk)?.name;
       list.push({ label: name ?? 'Desk', route });
     } else if (route.run !== null) {
       list.push({ label: run ? runName(run, route.run) : floor ? route.run : 'Run', route });
@@ -280,8 +275,7 @@
           {/if}
         {:else if desk && floor}
           <DeskPanel
-            desk={desk.desk}
-            island={desk.island}
+            {desk}
             {floor}
             now={clock}
             onBack={() => navigate({ floor: route.floor, desk: null, run: null })}

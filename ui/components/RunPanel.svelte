@@ -7,7 +7,7 @@
 
   /**
    * One workflow run on a floor. While it has a room: its phases, its agents and how many run. Once the room has closed,
-   * what the host desk's runs still say of it. Go takes the host's tmux pane.
+   * what the host's runs still say of it. Go takes the host's tmux pane.
    */
   interface Props {
     floor: FloorDetail;
@@ -29,15 +29,15 @@
   const counts = $derived(found?.room?.counts ?? found?.run?.counts ?? null);
   /** Why Go is off, when it is. */
   const cannotGo = $derived.by(() => {
-    if (!found || found.desk.focusable) return null;
-    if (found.desk.location === 'cloud') return 'Its host runs in the cloud: there is no tmux pane to go to.';
+    if (!found || found.host.focusable) return null;
+    if (found.host.location === 'cloud') return 'Its host runs in the cloud: there is no tmux pane to go to.';
     return 'Its host does not run in a tmux pane, so there is nowhere to go.';
   });
 </script>
 
 <button type="button" class="linkbtn back" onclick={singleClick(onBack)}>← Floor {floor.number} · {floor.name}</button>
 <div>
-  <p class="eyebrow">Workflow run{found ? ` · ${found.island.repo}` : ''}</p>
+  <p class="eyebrow">Workflow run{found ? ` · ${found.host.checkout.repo}` : ''}</p>
   <div class="head-row">
     <h2 tabindex="-1" class="p-title mono">{found ? runName(found, runId) : runId}</h2>
     {#if status}<span class="pill {TONE[status]}">{RUN_STATUS[status]}</span>{/if}
@@ -62,7 +62,7 @@
       <dd>{runCounts(counts)}</dd>
     {/if}
     <dt>Host</dt>
-    <dd><button type="button" class="linkbtn host" onclick={singleClick(() => onDesk(found.desk.sessionId))}>{found.desk.name}</button></dd>
+    <dd><button type="button" class="linkbtn host" onclick={singleClick(() => onDesk(found.host.sessionId))}>{found.host.name}</button></dd>
     <dt>Run id</dt>
     <dd><code>{runId}</code></dd>
   </dl>
@@ -99,8 +99,8 @@
     </section>
   {/if}
   <div class="actions">
-    <button type="button" class="btn primary" disabled={!found.desk.focusable} onclick={singleClick(() => onGo(found.desk.sessionId))}>
-      Go to pane{found.desk.pane ? ` ${found.desk.pane}` : ''}
+    <button type="button" class="btn primary" disabled={!found.host.focusable} onclick={singleClick(() => onGo(found.host.sessionId))}>
+      Go to pane{found.host.pane ? ` ${found.host.pane}` : ''}
     </button>
   </div>
   {#if cannotGo}<p class="p-note">{cannotGo}</p>{/if}

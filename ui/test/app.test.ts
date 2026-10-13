@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import App from '../App.svelte';
 import type { FocusResult } from '../lib/api';
+import { occupantsOf } from '../lib/occupants';
 import { THEME_KEY } from '../lib/theme';
 import { toHash } from '../lib/route';
 import { WebGLUnavailableError } from '../renderer/index';
@@ -452,6 +453,21 @@ describe('App shell', () => {
     expect(text(target.querySelector('aside .gone'))).toBe('That session has left this floor.');
   });
 
+  it('opens the panel of a session that waits for a desk, from the address and from the floor panel', () => {
+    const store = roomStore((floor) => {
+      const sw = occupantsOf(floor).find((o) => o.sessionId === 'sw-b2');
+      if (sw) floor.unseated.push({ ...sw, sessionId: 'sw-w9', name: 'storefront-web-w9', at: { kind: 'gone' } });
+    });
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-w9' });
+    const { target, crumbs } = app(store);
+    expect([text(target.querySelector('aside h2')), crumbs()]).toEqual(['storefront-web-w9', 'Building / 4 · checkout-v2 / storefront-web-w9']);
+    click(target.querySelector('aside .back'));
+    const row = [...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'storefront-web-w9')!;
+    expect(text(row.querySelector('.r-state'))).toBe('Done, to review · no desk');
+    click(row);
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'sw-w9' }));
+  });
+
   it('says when the floor in the address is gone, and goes back to the building', () => {
     location.hash = toHash({ floor: 'feature:gone', desk: null });
     const { target, crumbs } = app();
@@ -523,7 +539,7 @@ describe('App focus', () => {
     go.focus();
     const floor = checkoutWithRoom();
     floor.rooms = [];
-    const host = floor.islands.flatMap((i) => i.desks).find((d) => d.sessionId === 'ps-d4')!;
+    const host = occupantsOf(floor).find((d) => d.sessionId === 'ps-d4')!;
     host.runs[0] = { ...host.runs[0]!, status: 'completed', endedAt: NOW };
     store.set({ floor });
     flushSync();
@@ -536,7 +552,7 @@ describe('App focus', () => {
     const { target, store } = app();
     ([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen') as HTMLElement).focus();
     const floor = makeFloor(CHECKOUT)!;
-    for (const island of floor.islands) for (const desk of island.desks) if (desk.sessionId === 'sw-b2') desk.state = 'idle';
+    occupantsOf(floor).find((d) => d.sessionId === 'sw-b2')!.state = 'idle';
     store.set({ floor });
     flushSync();
     expect(active()).toBe(heading(target));
@@ -642,7 +658,7 @@ describe('App floor in 3D', () => {
     const view = renderer.views[0]!;
     expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan']);
     const floor = makeFloor(CHECKOUT)!;
-    floor.islands = floor.islands.slice(1);
+    floor.pods = floor.pods.slice(1);
     store.set({ floor });
     flushSync();
     expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', `floor ${CHECKOUT} 3`]);

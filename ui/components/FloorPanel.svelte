@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { FloorDetail, FloorSummary, MeetingRoom } from '../../src/scene/types';
+  import type { Checkout, FloorDetail, FloorSummary, MeetingRoom, Occupant } from '../../src/scene/types';
+  import { occupantsOf } from '../lib/occupants';
   import { STATES, plural, runCounts, summaryAge } from '../lib/words';
 
   /**
-   * One floor as a list: an island per checkout (its placard: repo, branch, path) and a row per desk, then a row per
-   * meeting room. It is also what a browser without WebGL uses to get around a floor.
+   * One floor as a list: a group per checkout (repo, branch, path) and a row per session, at a desk or waiting for one,
+   * then a row per meeting room. It is also what a browser without WebGL uses to get around a floor.
    */
   interface Props {
     /** From the building scene: number and name while the detail loads. */
@@ -21,10 +22,36 @@
   }
   let { summary, floor, selected, now, onDesk, onBack, onRun }: Props = $props();
 
+  /** A checkout's sessions: at their desks in pod and desk order, then those waiting for a desk. */
+  interface Group {
+    checkout: Checkout;
+    /** The repo colour slot of its robots; null while none of them is on the floor. */
+    color: number | null;
+    rows: { occupant: Occupant; seated: boolean }[];
+  }
+
+  const order = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
   const head = $derived(floor ?? summary);
-  const sessions = $derived(floor ? floor.islands.reduce((n, i) => n + i.desks.length, 0) : (summary?.windows.length ?? 0));
+  const occupants = $derived(floor ? occupantsOf(floor) : []);
+  const sessions = $derived(floor ? occupants.length : (summary?.windows.length ?? 0));
   /** The route names a desk that is not on the floor any more. */
-  const missing = $derived(selected !== null && !!floor && !floor.islands.some((i) => i.desks.some((d) => d.sessionId === selected)));
+  const missing = $derived(selected !== null && !!floor && !occupants.some((o) => o.sessionId === selected));
+  /** The floor's sessions by checkout path, ordered by repo, branch, then path. */
+  const groups = $derived.by((): Group[] => {
+    if (!floor) return [];
+    const waiting = new Set(floor.unseated);
+    const byPath = new Map<string, Group>();
+    for (const occupant of occupants) {
+      const row = { occupant, seated: !waiting.has(occupant) };
+      const group = byPath.get(occupant.checkout.path);
+      if (group) group.rows.push(row);
+      else byPath.set(occupant.checkout.path, { checkout: occupant.checkout, color: null, rows: [row] });
+    }
+    const list = [...byPath.values()];
+    for (const g of list) g.color = g.rows.find((r) => r.occupant.robot)?.occupant.robot?.body ?? null;
+    return list.sort((a, b) => order(a.checkout.repo, b.checkout.repo) || order(a.checkout.branch ?? '', b.checkout.branch ?? '') || order(a.checkout.path, b.checkout.path));
+  });
 
   function phaseOf(room: MeetingRoom): string {
     const current = room.phases.find((p) => p.state === 'current');
@@ -57,24 +84,24 @@
   {#if floor.shutters}
     <p class="p-text">Shutters down: everyone on this floor has been idle for days.</p>
   {/if}
-  {#each floor.islands as island (island.key)}
-    <section class="island">
-      <div class="island-head">
-        <span class="swatch repo-{island.color}" aria-hidden="true"></span>
-        <span class="repo">{island.repo}</span>
-        <span class="br">{island.branch ?? 'no branch'}{island.worktree ? ' · worktree' : ''}</span>
+  {#each groups as group, i (i)}
+    <section class="checkout">
+      <div class="checkout-head">
+        {#if group.color !== null}<span class="swatch repo-{group.color}" aria-hidden="true"></span>{/if}
+        <span class="repo">{group.checkout.repo}</span>
+        <span class="br">{group.checkout.branch ?? 'no branch'}{group.checkout.worktree ? ' · worktree' : ''}</span>
       </div>
-      <p class="path">{island.path}</p>
+      <p class="path">{group.checkout.path}</p>
       <ul class="rows">
-        {#each island.desks as desk (desk.sessionId)}
+        {#each group.rows as { occupant, seated } (occupant.sessionId)}
           <li>
-            <button type="button" class="row-btn sw-{desk.state}" onclick={() => onDesk(desk.sessionId)}>
+            <button type="button" class="row-btn sw-{occupant.state}" onclick={() => onDesk(occupant.sessionId)}>
               <span class="dot" aria-hidden="true"></span>
-              <span class="r-name">{desk.name}</span>
-              <span class="r-state">{STATES[desk.state].label}</span>
-              <span class="r-task">{desk.title ?? 'No task yet'}</span>
-              {#if desk.summary}
-                <span class="r-sum" class:stale={desk.summary.stale}>{desk.summary.text} · {summaryAge(desk.summary, now)}</span>
+              <span class="r-name">{occupant.name}</span>
+              <span class="r-state">{STATES[occupant.state].label}{seated ? '' : ' · no desk'}</span>
+              <span class="r-task">{occupant.title ?? 'No task yet'}</span>
+              {#if occupant.summary}
+                <span class="r-sum" class:stale={occupant.summary.stale}>{occupant.summary.text} · {summaryAge(occupant.summary, now)}</span>
               {/if}
             </button>
           </li>
@@ -107,7 +134,7 @@
 <style>
   .back { align-self: flex-start; }
   .gone { color: var(--needs-ink); }
-  .island-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
+  .checkout-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 4px 0 2px; }
   .swatch { width: 12px; height: 12px; border-radius: 50%; background: var(--rc); align-self: center; }
   .repo { font-weight: 600; }
   .br { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }

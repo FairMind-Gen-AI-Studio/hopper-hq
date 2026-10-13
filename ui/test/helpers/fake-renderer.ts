@@ -1,4 +1,5 @@
 import type { FloorDetail } from '../../../src/scene/types';
+import { occupantsOf } from '../../lib/occupants';
 import type { RendererModule } from '../../lib/renderer';
 import type { FloorView, Target, ThemeTokens } from '../../renderer/index';
 import { readThemeTokens } from '../../renderer/theme';
@@ -9,7 +10,7 @@ export interface FakeView extends FloorView {
   /** The theme it was mounted with: the `data-theme` of <html> when the stage read it ('system' without one). */
   theme: ThemeTokens;
   mountedTheme: string;
-  /** In order: 'floor <key> <desks>', 'theme <data-theme>', 'select <kind> <id> [pan]' or 'select - [pan]', 'rotate <step>', 'reset', 'dispose'. */
+  /** In order: 'floor <key> <sessions>', 'theme <data-theme>', 'select <kind> <id> [pan]' or 'select - [pan]', 'rotate <step>', 'reset', 'dispose'. */
   calls: string[];
   emit(event: 'select' | 'activate', target: Target | null): void;
 }
@@ -22,7 +23,7 @@ export interface FakeRenderer {
 
 type Listener = (target: Target | null) => void;
 
-const deskCount = (floor: FloorDetail) => floor.islands.reduce((n, island) => n + island.desks.length, 0);
+const sessionCount = (floor: FloorDetail) => occupantsOf(floor).length;
 
 export function fakeRenderer(opts: { fail?: unknown } = {}): FakeRenderer {
   const views: FakeView[] = [];
@@ -44,7 +45,7 @@ export function fakeRenderer(opts: { fail?: unknown } = {}): FakeRenderer {
         theme,
         mountedTheme: themeOf(theme),
         calls,
-        setFloor: (floor: FloorDetail) => void calls.push(`floor ${floor.key} ${deskCount(floor)}`),
+        setFloor: (floor: FloorDetail) => void calls.push(`floor ${floor.key} ${sessionCount(floor)}`),
         setTheme: (next: ThemeTokens) => void calls.push(`theme ${themeOf(next)}`),
         select: (target: Target | null, o?: { pan?: boolean }) => void calls.push(`select ${target ? `${target.kind} ${target.id}` : '-'}${o?.pan ? ' pan' : ''}`),
         rotate: (step: -1 | 1) => void calls.push(`rotate ${step}`),

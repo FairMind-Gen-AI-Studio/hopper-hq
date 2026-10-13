@@ -1,28 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DeskPanel from '../../components/DeskPanel.svelte';
-import type { Desk, FloorDetail, Island } from '../../../src/scene/types';
+import type { FloorDetail, Occupant } from '../../../src/scene/types';
+import { occupantsOf } from '../../lib/occupants';
 import { CHECKOUT, NOW, ORDERS, SEARCH, makeFloor } from '../helpers/fixtures';
 import { cleanup, click, render, text } from '../helpers/render';
 import { RUN, checkoutWithRoom } from '../helpers/rooms';
 
 afterEach(cleanup);
 
-function find(floor: FloorDetail, id: string): { desk: Desk; island: Island } {
-  for (const island of floor.islands) {
-    const desk = island.desks.find((d) => d.sessionId === id);
-    if (desk) return { desk, island };
-  }
-  throw new Error(`no desk ${id}`);
+function find(floor: FloorDetail, id: string): Occupant {
+  const desk = occupantsOf(floor).find((o) => o.sessionId === id);
+  if (!desk) throw new Error(`no desk ${id}`);
+  return desk;
 }
 
-function panel(key: string, id: string, now = NOW, change: (d: Desk) => void = () => {}, floor: FloorDetail = makeFloor(key)!) {
-  const { desk, island } = find(floor, id);
+function panel(key: string, id: string, now = NOW, change: (d: Occupant) => void = () => {}, floor: FloorDetail = makeFloor(key)!) {
+  const desk = find(floor, id);
   change(desk);
   const onBack = vi.fn();
   const onGo = vi.fn();
   const onSeen = vi.fn();
   const onRun = vi.fn();
-  const target = render(DeskPanel, { desk, island, floor, now, onBack, onGo, onSeen, onRun });
+  const target = render(DeskPanel, { desk, floor, now, onBack, onGo, onSeen, onRun });
   const facts = () => Object.fromEntries([...target.querySelectorAll('dt')].map((dt) => [text(dt), text(dt.nextElementSibling)]));
   const button = (label: string) => [...target.querySelectorAll('.actions button')].find((b) => text(b).startsWith(label)) as HTMLButtonElement | undefined;
   /** A list section by its heading: one line per row, its parts joined with ' | '. */

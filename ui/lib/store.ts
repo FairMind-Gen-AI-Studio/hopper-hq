@@ -85,7 +85,7 @@ function isScene(x: unknown): x is BuildingScene {
 
 function isFloor(x: unknown): x is FloorDetail {
   const f = x as FloorDetail | null;
-  return typeof f === 'object' && f !== null && f.version === SCENE_VERSION && typeof f.key === 'string' && Array.isArray(f.islands);
+  return typeof f === 'object' && f !== null && f.version === SCENE_VERSION && typeof f.key === 'string' && Array.isArray(f.pods);
 }
 
 /** A scene or a floor of a version this page does not draw: the daemon was updated, or went back, since it loaded. */

@@ -184,7 +184,7 @@ describe('client store', () => {
     store.watchFloor(CHECKOUT);
     watch();
     const floor = makeFloor(CHECKOUT)!;
-    for (const bad of ['{not json', 42, { ...floor, version: '1' }, { ...floor, islands: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
+    for (const bad of ['{not json', 42, { ...floor, version: '1' }, { ...floor, pods: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
       last().send('floor', bad);
     }
     expect(store.get().floor).toBeUndefined();

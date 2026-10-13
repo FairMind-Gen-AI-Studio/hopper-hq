@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FloorPanel from '../../components/FloorPanel.svelte';
 import source from '../../components/FloorPanel.svelte?raw';
-import type { FloorDetail } from '../../../src/scene/types';
+import type { FloorDetail, Occupant } from '../../../src/scene/types';
+import { occupantsOf } from '../../lib/occupants';
 import { CHECKOUT, DOCS, NOW, ORDERS, makeFloor, makeScene } from '../helpers/fixtures';
 import { cleanup, click, render, text } from '../helpers/render';
 import { RUN, checkoutWithRoom } from '../helpers/rooms';
@@ -15,14 +16,20 @@ function panel(key: string, floor: FloorDetail | null | undefined = makeFloor(ke
   const onBack = vi.fn();
   const onRun = vi.fn();
   const target = render(FloorPanel, { summary: summaryOf(key), floor, selected, now, onDesk, onBack, onRun });
-  const islands = () => [...target.querySelectorAll('section.island')];
+  const groups = () => [...target.querySelectorAll('section.checkout')];
+  /** A group's rows: name, state and task. */
+  const rows = (group: Element) =>
+    [...group.querySelectorAll('.row-btn')].map((r) => `${text(r.querySelector('.r-name'))} | ${text(r.querySelector('.r-state'))} | ${text(r.querySelector('.r-task'))}`);
   /** The meeting rooms' rows: name, counts and phase. */
   const rooms = () =>
     [...target.querySelectorAll('section.meetings .row-btn')].map((r) => `${text(r.querySelector('.r-name'))} | ${text(r.querySelector('.r-state'))} | ${text(r.querySelector('.r-task'))}`);
-  return { target, onDesk, onBack, onRun, islands, rooms };
+  return { target, onDesk, onBack, onRun, groups, rows, rooms };
 }
 
 const MIN = 60_000;
+
+/** The session of a floor by id. */
+const sessionOf = (floor: FloorDetail, id: string): Occupant => occupantsOf(floor).find((o) => o.sessionId === id)!;
 
 describe('FloorPanel', () => {
   it('heads the panel with the floor number, kind and size', () => {
@@ -36,28 +43,56 @@ describe('FloorPanel', () => {
     expect(text(department.querySelector('.p-sub'))).toBe('Sessions with no feature branch · 5 sessions');
   });
 
-  it('gives each island its placard: repo colour, repo, branch, worktree and path', () => {
-    const { islands } = panel(CHECKOUT);
+  it('gives each checkout its group, ordered by repo, branch and path: repo colour, repo, branch, worktree and path', () => {
+    const { groups } = panel(CHECKOUT);
     const floor = makeFloor(CHECKOUT)!;
-    expect(islands().map((s) => text(s.querySelector('.island-head')))).toEqual([
+    expect(groups().map((s) => text(s.querySelector('.checkout-head')))).toEqual([
       'orders-api feat/checkout-v2 · worktree',
       'payments-svc feat/checkout-v2',
       'storefront-web feat/checkout-v2',
     ]);
-    expect(islands().map((s) => text(s.querySelector('.path')))).toEqual(floor.islands.map((i) => i.path));
-    expect(islands()[0]!.querySelector('.swatch')!.classList.contains(`repo-${floor.islands[0]!.color}`)).toBe(true);
+    expect(groups().map((s) => text(s.querySelector('.path')))).toEqual(['oa-c3', 'ps-d4', 'sw-a1'].map((id) => sessionOf(floor, id).checkout.path));
+    expect(groups()[0]!.querySelector('.swatch')!.classList.contains(`repo-${sessionOf(floor, 'oa-c3').robot!.body}`)).toBe(true);
   });
 
-  it('lists each desk with its state and task, and opens it on click', () => {
-    const { islands, onDesk } = panel(CHECKOUT);
-    const rows = islands()[2]!.querySelectorAll('.row-btn');
-    expect([...rows].map((r) => `${text(r.querySelector('.r-name'))} | ${text(r.querySelector('.r-state'))} | ${text(r.querySelector('.r-task'))}`)).toEqual([
+  it('lists each session with its state and task, and opens it on click', () => {
+    const { groups, rows, onDesk } = panel(CHECKOUT);
+    expect(rows(groups()[2]!)).toEqual([
       'storefront-web-a1 | Working | Build the address step of the new checkout',
       'storefront-web-b2 | Done, to review | Rewrite checkout copy and empty states',
     ]);
-    expect(rows[1]!.classList.contains('sw-done')).toBe(true);
-    click(rows[1]);
+    const buttons = groups()[2]!.querySelectorAll('.row-btn');
+    expect(buttons[1]!.classList.contains('sw-done')).toBe(true);
+    click(buttons[1]);
     expect(onDesk).toHaveBeenCalledWith('sw-b2');
+  });
+
+  it('keeps a checkout that spans two pods in one group, in desk order, and two checkouts that share a pod apart', () => {
+    const department = panel(ORDERS);
+    expect(department.groups()).toHaveLength(1);
+    expect(department.rows(department.groups()[0]!).map((r) => r.split(' | ')[0])).toEqual(['orders-api-g7', 'orders-api-h8', 'orders-api-i9', 'orders-api-j0', 'orders-api-k1']);
+    cleanup();
+    const floor = makeFloor(CHECKOUT)!;
+    // payments-svc-d4 sits in the pod of orders-api-c3.
+    floor.pods[0]!.desks[1]!.occupant = floor.pods[1]!.desks[0]!.occupant;
+    floor.pods[1]!.desks[0]!.occupant = null;
+    const { groups } = panel(CHECKOUT, floor);
+    expect(groups().map((g) => text(g.querySelector('.repo')))).toEqual(['orders-api', 'payments-svc', 'storefront-web']);
+  });
+
+  it('lists a session waiting for a desk in its checkout\'s group, after those at a desk, and says it has no desk', () => {
+    const floor = makeFloor(CHECKOUT)!;
+    floor.unseated.push({ ...sessionOf(floor, 'sw-a1'), sessionId: 'sw-w9', name: 'storefront-web-w9', title: 'Wait for a desk', at: { kind: 'gone' } });
+    const { target, groups, rows, onDesk } = panel(CHECKOUT, floor, 'sw-w9');
+    expect(rows(groups()[2]!)).toEqual([
+      'storefront-web-a1 | Working | Build the address step of the new checkout',
+      'storefront-web-b2 | Done, to review | Rewrite checkout copy and empty states',
+      'storefront-web-w9 | Working · no desk | Wait for a desk',
+    ]);
+    expect(text(target.querySelector('.p-sub'))).toBe('3 repos on this feature · 5 sessions');
+    expect(target.querySelector('.gone')).toBeNull();
+    click(groups()[2]!.querySelectorAll('.row-btn')[2]);
+    expect(onDesk).toHaveBeenCalledWith('sw-w9');
   });
 
   it('marks no row for a desk the route points at on this floor: that desk has a panel of its own', () => {
@@ -73,7 +108,7 @@ describe('FloorPanel', () => {
 
   it('names a task-less desk plainly, and a floor with its shutters down', () => {
     const floor = makeFloor(DOCS)!;
-    floor.islands[0]!.desks[0]!.title = null;
+    sessionOf(floor, 'ds-m3').title = null;
     const { target } = panel(DOCS, floor);
     expect(text(target.querySelector('.r-task'))).toBe('No task yet');
     expect(text(target.querySelector('.p-text'))).toBe('Shutters down: everyone on this floor has been idle for days.');
@@ -84,7 +119,7 @@ describe('FloorPanel', () => {
     expect(text(target.querySelector('.p-title'))).toBe('checkout-v2');
     expect(text(target.querySelector('.p-sub'))).toBe('3 repos on this feature · 4 sessions');
     expect(text(target.querySelector('.p-note'))).toBe('Loading the floor…');
-    expect(target.querySelectorAll('section.island')).toHaveLength(0);
+    expect(target.querySelectorAll('section.checkout')).toHaveLength(0);
   });
 
   it('says when the floor is gone, and offers the way back', () => {
@@ -98,32 +133,31 @@ describe('FloorPanel', () => {
 
   it('shows hostile names, branches and paths as text', () => {
     const floor = makeFloor(CHECKOUT)!;
-    floor.islands[0]!.branch = '<script>alert(1)</script>';
-    floor.islands[0]!.path = '<img src=x onerror=alert(1)>';
-    floor.islands[0]!.desks[0]!.name = '<b>bold</b>';
-    const { target, islands } = panel(CHECKOUT, floor);
-    expect(text(islands()[0]!.querySelector('.br'))).toBe('<script>alert(1)</script> · worktree');
-    expect(text(islands()[0]!.querySelector('.path'))).toBe('<img src=x onerror=alert(1)>');
-    expect(text(islands()[0]!.querySelector('.r-name'))).toBe('<b>bold</b>');
+    const hostile = sessionOf(floor, 'oa-c3');
+    hostile.checkout = { ...hostile.checkout, branch: '<script>alert(1)</script>', path: '<img src=x onerror=alert(1)>' };
+    hostile.name = '<b>bold</b>';
+    const { target, groups } = panel(CHECKOUT, floor);
+    expect(text(groups()[0]!.querySelector('.br'))).toBe('<script>alert(1)</script> · worktree');
+    expect(text(groups()[0]!.querySelector('.path'))).toBe('<img src=x onerror=alert(1)>');
+    expect(text(groups()[0]!.querySelector('.r-name'))).toBe('<b>bold</b>');
     expect(target.querySelector('img, script, b')).toBeNull();
   });
 
   it('gives each desk row the line of where it stands, with its age, and says when a prompt came after it', () => {
     const floor = makeFloor(CHECKOUT)!;
-    const [a1, b2] = floor.islands[2]!.desks;
-    a1!.summary = { text: 'Builds the address step while two helpers check the form', at: NOW - 3 * MIN, stale: true };
-    b2!.summary = { text: 'Copy is rewritten and ready for review', at: NOW - 2 * MIN, stale: false };
-    const { islands } = panel(CHECKOUT, floor);
-    const lines = [...islands()[2]!.querySelectorAll('.row-btn')].map((r) => r.querySelector('.r-sum'));
+    sessionOf(floor, 'sw-a1').summary = { text: 'Builds the address step while two helpers check the form', at: NOW - 3 * MIN, stale: true };
+    sessionOf(floor, 'sw-b2').summary = { text: 'Copy is rewritten and ready for review', at: NOW - 2 * MIN, stale: false };
+    const { groups } = panel(CHECKOUT, floor);
+    const lines = [...groups()[2]!.querySelectorAll('.row-btn')].map((r) => r.querySelector('.r-sum'));
     expect(lines.map((l) => text(l))).toEqual([
       'Builds the address step while two helpers check the form · 3m ago (older than the last prompt)',
       'Copy is rewritten and ready for review · 2m ago',
     ]);
     expect(lines.map((l) => l!.classList.contains('stale'))).toEqual([true, false]);
-    expect(islands()[0]!.querySelector('.r-sum')).toBeNull();
+    expect(groups()[0]!.querySelector('.r-sum')).toBeNull();
   });
 
-  it("lists the floor's meeting rooms after its islands, and opens one", () => {
+  it("lists the floor's meeting rooms after its checkouts, and opens one", () => {
     const { target, rooms, onRun } = panel(CHECKOUT, checkoutWithRoom());
     const section = target.querySelector('section.meetings')!;
     expect(text(section.querySelector('h3'))).toBe('Meeting rooms');

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import RunPanel from '../../components/RunPanel.svelte';
-import type { Desk, FloorDetail, MeetingRoom } from '../../../src/scene/types';
+import type { FloorDetail, MeetingRoom, Occupant } from '../../../src/scene/types';
+import { occupantsOf } from '../../lib/occupants';
 import { NOW } from '../helpers/fixtures';
 import { DONE_RUN, RUN, checkoutWithRoom } from '../helpers/rooms';
 import { cleanup, click, render, text } from '../helpers/render';
@@ -8,9 +9,9 @@ import { cleanup, click, render, text } from '../helpers/render';
 afterEach(cleanup);
 
 /** The checkout floor with its room, changed as the test needs. */
-function floorWith(change: (room: MeetingRoom, host: Desk, floor: FloorDetail) => void = () => {}): FloorDetail {
+function floorWith(change: (room: MeetingRoom, host: Occupant, floor: FloorDetail) => void = () => {}): FloorDetail {
   const floor = checkoutWithRoom();
-  const host = floor.islands.flatMap((i) => i.desks).find((d) => d.sessionId === 'ps-d4')!;
+  const host = occupantsOf(floor).find((d) => d.sessionId === 'ps-d4')!;
   change(floor.rooms[0]!, host, floor);
   return floor;
 }

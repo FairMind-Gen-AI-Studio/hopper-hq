@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatAgo } from '../../src/scene/text';
-  import type { Desk, FloorDetail, Island } from '../../src/scene/types';
+  import type { FloorDetail, Occupant } from '../../src/scene/types';
   import { singleClick } from '../lib/click';
   import { plural, raisedBy, runSpan, summaryAge, waitText } from '../lib/words';
   import StatePill from './StatePill.svelte';
@@ -10,8 +10,8 @@
    * its interns and workflow runs.
    */
   interface Props {
-    desk: Desk;
-    island: Island;
+    /** The session: at a desk on the floor, or waiting for one. */
+    desk: Occupant;
     floor: Pick<FloorDetail, 'number' | 'name' | 'rooms'>;
     now: number;
     onBack: () => void;
@@ -20,7 +20,7 @@
     /** Opens a run that has a room on the floor. */
     onRun: (runId: string) => void;
   }
-  let { desk, island, floor, now, onBack, onGo, onSeen, onRun }: Props = $props();
+  let { desk, floor, now, onBack, onGo, onSeen, onRun }: Props = $props();
 
   const where = $derived(desk.location === 'cloud' ? 'remote' : desk.pane ? `tmux pane ${desk.pane}` : 'not in tmux');
   const by = $derived(raisedBy(desk.reason));
@@ -36,7 +36,7 @@
 
 <button type="button" class="linkbtn back" onclick={singleClick(onBack)}>← Floor {floor.number} · {floor.name}</button>
 <div>
-  <p class="eyebrow">{island.repo} · {where}</p>
+  <p class="eyebrow">{desk.checkout.repo} · {where}</p>
   <div class="head-row">
     <h2 tabindex="-1" class="p-title mono">{desk.name}</h2>
     <StatePill state={desk.state} />
@@ -70,11 +70,11 @@
     <dd>{plural(desk.agentsRunning, 'running', 'running')}</dd>
   {/if}
   <dt>Repo</dt>
-  <dd>{island.repo}</dd>
+  <dd>{desk.checkout.repo}</dd>
   <dt>Branch</dt>
-  <dd><code>{island.branch ?? 'none'}</code>{island.worktree ? ' · worktree' : ''}</dd>
+  <dd><code>{desk.checkout.branch ?? 'none'}</code>{desk.checkout.worktree ? ' · worktree' : ''}</dd>
   <dt>Folder</dt>
-  <dd><code>{island.path}</code></dd>
+  <dd><code>{desk.checkout.path}</code></dd>
   <dt>Pane</dt>
   <dd>{desk.pane ?? 'none'}</dd>
 </dl>
