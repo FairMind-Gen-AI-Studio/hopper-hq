@@ -107,29 +107,35 @@ describe('FsAdapter', () => {
   });
 
   describe('a scan that could not read', () => {
-    const failures: Array<[string, (a: { dir: string }) => Promise<void>, Partial<FsAdapterOptions>]> = [
-      ['a missing sessions directory', async ({ dir }) => rm(dir, { recursive: true, force: true }), {}],
-      ['a sessions path that is not a directory', async ({ dir }) => { await rm(dir, { recursive: true, force: true }); await writeFile(dir, 'x'); }, {}],
-      ['a probe that could not run ps', async () => {}, { probe: async () => null }],
+    let probeDown = false;
+    const failures: Array<[string, (dir: string) => Promise<void>, (dir: string) => Promise<void>]> = [
+      ['a missing sessions directory', async (dir) => rm(dir, { recursive: true, force: true }), async (dir) => { await mkdir(dir, { recursive: true }); }],
+      ['a sessions path that is not a directory', async (dir) => { await rm(dir, { recursive: true, force: true }); await writeFile(dir, 'x'); }, async (dir) => { await rm(dir, { force: true }); await mkdir(dir, { recursive: true }); }],
+      ['a probe that could not run ps', async () => { probeDown = true; }, async () => { probeDown = false; }],
     ];
 
-    for (const [name, breakIt, extra] of failures) {
-      it(`ends nothing and reports nothing on the first scan after ${name}, and reports on the first scan that reads`, async () => {
+    for (const [name, breakIt, restore] of failures) {
+      it(`ends nothing and reports nothing on the first scan after ${name}, and the next scan that reads reports once`, async () => {
         await writeSession(SESSION);
         const dir = join(root, 'sessions');
         const reports: string[][] = [];
-        const a = adapter({ ...extra, onFirstScan: (live) => reports.push([...live]) });
+        probeDown = false;
+        const a = adapter({
+          probe: async (pids) => (probeDown ? null : new Map(pids.map((p) => [p, T0 - 1000]))),
+          onFirstScan: (live) => reports.push([...live]),
+        });
         const saved = await readFile(join(dir, '4242.json'), 'utf8');
-        await breakIt({ dir });
+        await breakIt(dir);
         await a.poll();
         expect(events).toEqual([]);
         expect(reports).toEqual([]);
-        await rm(dir, { recursive: true, force: true });
-        await mkdir(dir, { recursive: true });
+        await a.poll();
+        expect(reports).toEqual([]);
+        await restore(dir);
         await writeFile(join(dir, '4242.json'), saved);
-        const healthy = adapter({ onFirstScan: (live) => reports.push([...live]) });
-        await healthy.poll();
-        await healthy.poll();
+        await a.poll();
+        expect(reports).toEqual([['S1']]);
+        await a.poll();
         expect(reports).toEqual([['S1']]);
       });
     }
