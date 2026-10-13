@@ -197,7 +197,8 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 - **M0 — Spikes**: find a supported channel to observe cloud sessions; static isometric mockup with synthetic data to validate the visual style.
 - **M1 — Collector**: fs adapter, the Claude Code mod (event forwarding and the band above the prompt), SQLite, state machine, feature rule, HTTP API, tmux status. Useful on its own.
 - **M2 — Building**: façade, floors, attention bar, tmux pane focus.
-- **M3 — Detail**: LLM summaries, meeting rooms for workflows and subagents.
+- **M3a — Detail**: "where it stands" LLM summaries, workflow runs and subagents as meeting rooms and interns (static), panels. See `2026-10-13-m3a-detail-design.md`.
+- **M3b — Motion**: aisles, A* walking on state changes, elevator arrivals and departures, mesh instancing.
 - **M4 — Basement**: archive, search, archive candidates.
 
 ## 15. Open questions
