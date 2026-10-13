@@ -364,24 +364,22 @@ export class Collector {
   /** The building every browser sees: façade, floor directory and attention. */
   scene(): BuildingScene {
     const views = this.liveViews();
-    this.seat(views);
-    return buildScene(views, this.firstSeen);
+    return buildScene(views, this.firstSeen, this.seat(views));
   }
 
   /** One floor in detail, or null when no live session is on it. */
   floor(key: string): FloorDetail | null {
     const views = this.liveViews();
-    this.seat(views);
-    return buildFloorDetail(views, key, this.firstSeen);
+    return buildFloorDetail(views, key, this.firstSeen, this.seat(views));
   }
 
   /** The building and the given floors (null for one nobody is on) from one reading of the clock: a session shows one state in all of them. */
   render(floorKeys: readonly string[]): { scene: BuildingScene; floors: Map<string, FloorDetail | null> } {
     const views = this.liveViews();
-    this.seat(views);
+    const seating = this.seat(views);
     return {
-      scene: buildScene(views, this.firstSeen),
-      floors: new Map(floorKeys.map((key) => [key, buildFloorDetail(views, key, this.firstSeen)])),
+      scene: buildScene(views, this.firstSeen, seating),
+      floors: new Map(floorKeys.map((key) => [key, buildFloorDetail(views, key, this.firstSeen, seating)])),
     };
   }
 

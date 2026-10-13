@@ -5,15 +5,16 @@
 import type { WorkflowRun } from '../core/types.js';
 import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
-import { INTERNS_MAX, layoutFloor, MEETING_AGENTS_MAX, ROOMS_MAX, RUNS_SHOWN } from './layout.js';
+import { INTERNS_MAX, layoutPlan, LOUNGE_SEATS, MEETING_AGENTS_MAX, POD_DESKS, RUNS_SHOWN } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
-import { roomRunsOf, type RoomRun } from './seating.js';
+import { roomRunsOf, seatFloor, type RoomRun, type Seating } from './seating.js';
 import { capKey, cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
 import {
   SCENE_VERSION,
   type AttentionEntry,
   type Badge,
   type BuildingScene,
+  type Checkout,
   type Desk,
   type DeskActivity,
   type DeskSummary,
@@ -25,7 +26,11 @@ import {
   type Island,
   type MeetingAgent,
   type MeetingRoom,
+  type Occupant,
   type PhaseState,
+  type Place,
+  type Pod,
+  type PodDesk,
   type Pose,
   type Robot,
   type RunSummary,
@@ -89,6 +94,9 @@ function firstOfEach<T>(items: T[], id: (item: T) => string): T[] {
 
 /** Start order, then id: how running runs and rooms line up. */
 const byStart = (a: WorkflowRun, b: WorkflowRun): number => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id);
+
+/** Start order, then id: how sessions line up. */
+const bySessionStart = (a: SessionView, b: SessionView): number => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id);
 
 /** Session name, or '<repo>-<first 4 characters of id>'. */
 function nameOf(v: SessionView): string {
@@ -220,7 +228,7 @@ function islandsOf(floor: Floor, label: (v: SessionView) => string): IslandGroup
     else byKey.set(key, [v]);
   }
   const groups = [...byKey].map(([key, views]): IslandGroup => {
-    views.sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
+    views.sort(bySessionStart);
     // The newest session says what the checkout is now: a branch switched since an older session started shows.
     const newest = views[views.length - 1]!;
     const ws = newest.workspace;
@@ -249,11 +257,17 @@ function summaryOf(floor: Floor, number: number, islands: IslandGroup[]): FloorS
   };
 }
 
-function deskOf(v: SessionView, rect: Desk['rect'], root: string, away: boolean): Desk {
+/** The checkout a session works in: its repository's label, branch, worktree flag and root (cwd outside git). */
+function checkoutOf(v: SessionView, label: (v: SessionView) => string): Checkout {
+  const ws = v.workspace;
+  return { repo: cleanText(label(v)), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd) };
+}
+
+/** A session on the floor, its robot at `at`, in its own repository's and feature's colours. */
+function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place): Occupant {
   const state = v.effectiveState as ShownState;
   return {
     sessionId: idOf(v),
-    rect,
     name: nameOf(v),
     title: taskTitle(v),
     state,
@@ -263,68 +277,158 @@ function deskOf(v: SessionView, rect: Desk['rect'], root: string, away: boolean)
     agentsRunning: v.children.filter((c) => c.running).length + v.runs.reduce((n, r) => n + countsOf(r).running, 0),
     summary: deskSummaryOf(v),
     ...internsOf(v),
-    away,
     runs: runsOf(v),
     location: v.location,
     pane: cleanOrNull(v.tmuxPane),
     focusable: focusableOf(v),
-    robot: robotOf(state, root, v.feature),
+    robot: robotOf(state, repoRootOf(v), v.feature),
+    at,
+    checkout: checkoutOf(v, label),
+  };
+}
+
+/** An occupant as a version 2 desk at `rect`: away while its robot sits at the head of a room. */
+function deskOf(o: Occupant, rect: GridRect): Desk {
+  return {
+    sessionId: o.sessionId,
+    rect,
+    name: o.name,
+    title: o.title,
+    state: o.state,
+    since: o.since,
+    reason: o.reason,
+    activity: o.activity,
+    agentsRunning: o.agentsRunning,
+    summary: o.summary,
+    interns: o.interns,
+    internsMore: o.internsMore,
+    away: o.at.kind === 'room',
+    runs: o.runs,
+    location: o.location,
+    pane: o.pane,
+    focusable: o.focusable,
+    robot: o.robot,
   };
 }
 
 /**
- * The rooms of the floor's first live runs. An in_meeting host sits at the head of its first room; its other rooms keep a
- * placard. `rootOf` gives each host's island's repository root: the colour key of its robots.
+ * A pod's rug colour and placard, from the sessions at its desks: the checkout of the newest while they all share one;
+ * the repository alone while they share only that; neither otherwise, or when the pod is empty.
  */
-function roomsOf(runs: RoomRun[], rects: { rect: GridRect }[], rootOf: ReadonlyMap<string, string>): MeetingRoom[] {
-  const seated = new Set<string>();
-  return runs.map(({ run, host }, i): MeetingRoom => {
-    const root = rootOf.get(host.id)!;
-    const head = host.effectiveState === 'in_meeting' && !seated.has(host.id);
-    if (head) seated.add(host.id);
-    return {
-      runId: capKey(run.id),
-      hostSessionId: idOf(host),
-      name: cleanOrNull(run.name, RUN_NAME_MAX),
-      summary: cleanOrNull(run.summary),
-      phases: phasesOf(run),
-      counts: countsOf(run),
-      agents: meetingAgentsOf(run),
-      look: lookOf(root, host.feature),
-      host: head ? robotOf('in_meeting', root, host.feature) : null,
-      rect: rects[i]!.rect,
-    };
-  });
+function podLook(views: SessionView[], label: (v: SessionView) => string): Pick<Pod, 'color' | 'placard'> {
+  const newest = [...views].sort(bySessionStart).at(-1);
+  if (!newest) return { color: null, placard: null };
+  const root = repoRootOf(newest);
+  const color = slotOf(root, REPO_SLOTS);
+  if (views.every((v) => islandKeyOf(v) === islandKeyOf(newest))) return { color, placard: checkoutOf(newest, label) };
+  if (views.every((v) => repoRootOf(v) === root)) return { color, placard: { repo: cleanText(label(newest)), branch: null, worktree: false, path: null } };
+  return { color: null, placard: null };
+}
+
+/** The room of a live run in its slot. Its host sits at the head of the table while the host's robot is there. */
+function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect, seat: Occupant | undefined): MeetingRoom {
+  const at = seat?.at;
+  return {
+    runId: capKey(run.id),
+    hostSessionId: idOf(host),
+    name: cleanOrNull(run.name, RUN_NAME_MAX),
+    summary: cleanOrNull(run.summary),
+    phases: phasesOf(run),
+    counts: countsOf(run),
+    agents: meetingAgentsOf(run),
+    look: lookOf(repoRootOf(host), host.feature),
+    host: at?.kind === 'room' && at.slot === slot ? seat!.robot : null,
+    rect,
+    slot,
+  };
 }
 
 /**
- * One floor: its islands, and one room per live run of its sessions, by run start, then run id. A run id two sessions
- * name gets one room, the one of the host that started first (then by id). The first ROOMS_MAX runs get rooms, and the
- * floor counts the rest, the other hosts' runs too. A host in_meeting with a room on the floor is away from its desk.
+ * One floor on its plan, filled from its seating: every desk of every pod with its occupant, the lounge, every room slot,
+ * a room for each live run that holds a slot (in slot order), and the sessions without a desk. Each occupant's `at` is,
+ * first match: gone when it has no desk or is dormant; the head of its first room run that holds a slot while it is
+ * in_meeting; its lounge seat; its desk. The floor counts the live runs without a room, every host's: a run two hosts
+ * name counts twice. The islands, and the rooms' hosts, show the same floor in version 2's shapes.
  */
-function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDetail {
-  // roomsMore counts every host's live runs: a run two hosts name counts twice.
-  const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length, 0);
-  const rootOf = new Map(groups.flatMap((g) => g.views.map((v): [string, string] => [v.id, g.root])));
-  const roomed = roomRunsOf(floor).slice(0, ROOMS_MAX);
-  const layout = layoutFloor(groups.map((g) => ({ key: g.key, deskIds: g.views.map((v) => v.id) })), roomed.map((r) => r.key));
-  const rooms = roomsOf(roomed, layout.rooms, rootOf);
-  const away = new Set(roomed.filter((r) => r.host.effectiveState === 'in_meeting').map((r) => r.host.id));
-  const { windows: _windows, ...summary } = summaryOf(floor, number, groups);
-  const islands = groups.map((g, i): Island => {
-    const placed = layout.islands[i]!;
+function detailOf(floor: Floor, number: number, groups: IslandGroup[], label: (v: SessionView) => string, seating: Seating): FloorDetail {
+  const plan = layoutPlan(seating);
+  const on = new Map(floor.sessions.map((v) => [v.id, v]));
+  const runs = roomRunsOf(floor);
+  const slotOfKey = (key: string): number => {
+    const slot = seating.rooms.indexOf(key);
+    return slot < plan.rooms.length ? slot : -1;
+  };
+  const placeOf = (v: SessionView): Place => {
+    if (v.effectiveState === 'dormant') return { kind: 'gone' };
+    if (v.effectiveState === 'in_meeting') {
+      const slot = runs.filter((r) => r.host.id === v.id).map((r) => slotOfKey(r.key)).find((s) => s !== -1);
+      if (slot !== undefined) return { kind: 'room', slot };
+    }
+    const seat = seating.lounge.indexOf(v.id);
+    return seat === -1 ? { kind: 'desk' } : { kind: 'lounge', seat };
+  };
+
+  const seated = new Map<string, Occupant>();
+  const sitting = plan.pods.map((p, i) =>
+    p.desks.map((_, n) => {
+      const v = on.get(seating.desks[i * POD_DESKS + n] ?? '');
+      if (!v || seated.has(v.id)) return null;
+      seated.set(v.id, occupantOf(v, label, placeOf(v)));
+      return v;
+    }),
+  );
+  const pods = plan.pods.map((p, i): Pod => {
+    const views = sitting[i]!.filter((v): v is SessionView => v !== null);
     return {
-      key: g.key,
-      repo: g.repo,
-      branch: g.branch,
-      worktree: g.worktree,
-      path: g.path,
-      color: slotOf(g.root, REPO_SLOTS),
-      rect: placed.rect,
-      desks: g.views.map((v, k) => deskOf(v, placed.desks[k]!.rect, g.root, away.has(v.id))),
+      id: p.id,
+      rect: p.rect,
+      ...podLook(views, label),
+      desks: p.desks.map((d, n): PodDesk => {
+        const v = sitting[i]![n];
+        return { ...d, occupant: v ? seated.get(v.id)! : null };
+      }),
     };
   });
-  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands, rooms, roomsMore: liveRuns - roomed.length };
+  const unseated = floor.sessions.filter((v) => !seated.has(v.id)).sort(bySessionStart).map((v) => occupantOf(v, label, { kind: 'gone' }));
+  const rooms = runs
+    .map((r) => ({ r, slot: slotOfKey(r.key) }))
+    .filter(({ slot }) => slot !== -1)
+    .sort((a, b) => a.slot - b.slot)
+    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!, seated.get(r.host.id)));
+  const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length, 0);
+
+  const islands = pods.flatMap((pod, i): Island[] => {
+    const first = sitting[i]!.find((v): v is SessionView => v !== null);
+    if (!first) return [];
+    const at = seated.get(first.id)!.checkout;
+    const look = pod.placard;
+    return [
+      {
+        key: pod.id,
+        repo: look?.repo ?? at.repo,
+        branch: look ? look.branch : at.branch,
+        worktree: look ? look.worktree : at.worktree,
+        path: look?.path ?? at.path,
+        color: pod.color ?? slotOf(repoRootOf(first), REPO_SLOTS),
+        rect: pod.rect,
+        desks: pod.desks.flatMap((d) => (d.occupant ? [deskOf(d.occupant, d.rect)] : [])),
+      },
+    ];
+  });
+  const { windows: _windows, ...summary } = summaryOf(floor, number, groups);
+  return {
+    version: SCENE_VERSION,
+    ...summary,
+    size: plan.size,
+    core: plan.core,
+    pods,
+    lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
+    roomSlots: plan.rooms,
+    islands,
+    rooms,
+    roomsMore: liveRuns - rooms.length,
+    unseated,
+  };
 }
 
 function entryOf(v: SessionView, state: AttentionEntry['state']): AttentionEntry {
@@ -351,7 +455,7 @@ function attentionOf(views: readonly SessionView[], state: AttentionEntry['state
 }
 
 /** The building every client sees: floors top to bottom, and the attention queue. */
-export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>): BuildingScene {
+export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>, seating?: ReadonlyMap<string, Seating>): BuildingScene {
   const floors = buildFloors(views, firstSeen);
   const label = repoLabels(views);
   return {
@@ -361,10 +465,15 @@ export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMa
   };
 }
 
-/** One floor in detail: its islands and desks laid out on the grid. Null when no live session is on it. */
-export function buildFloorDetail(views: readonly SessionView[], key: string, firstSeen?: ReadonlyMap<string, number>): FloorDetail | null {
+/**
+ * One floor in detail: its plan, filled from its seating in `seating` (a floor with none there is seated from scratch).
+ * Null when no live session is on it.
+ */
+export function buildFloorDetail(views: readonly SessionView[], key: string, firstSeen?: ReadonlyMap<string, number>, seating?: ReadonlyMap<string, Seating>): FloorDetail | null {
   const floors = buildFloors(views, firstSeen);
   const i = floors.findIndex((f) => f.key === key);
   const floor = floors[i];
-  return floor ? detailOf(floor, floors.length - i, islandsOf(floor, repoLabels(views))) : null;
+  if (!floor) return null;
+  const label = repoLabels(views);
+  return detailOf(floor, floors.length - i, islandsOf(floor, label), label, seating?.get(key) ?? seatFloor(null, floor));
 }

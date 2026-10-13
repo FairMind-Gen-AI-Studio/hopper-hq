@@ -1,7 +1,8 @@
 import { OrthographicCamera } from 'three';
-import { MEETING_AGENTS_MAX, layoutFloor } from '../../../src/scene/layout';
+import { LOUNGE_SEATS, MEETING_AGENTS_MAX, ROOMS_PER_COL, layoutFloor } from '../../../src/scene/layout';
 import {
   SCENE_VERSION,
+  type Checkout,
   type Desk,
   type FloorDetail,
   type GridRect,
@@ -9,10 +10,13 @@ import {
   type Island,
   type MeetingAgent,
   type MeetingRoom,
+  type Occupant,
+  type Place,
   type Robot,
   type ShownState,
 } from '../../../src/scene/types';
 import { HOME_AZIMUTH, cameraOffset, floorCenter, frustumFor } from '../../renderer/world';
+import { podsFor } from '../helpers/plan';
 
 /** The robot the scene builder gives each state (outline §2.6); dormant desks have none. */
 export const ROBOT_OF: Record<ShownState, Pick<Robot, 'pose' | 'badge'> | null> = {
@@ -32,6 +36,8 @@ export interface DeskSpec {
   agents?: number;
   cloud?: boolean;
   interns?: Intern[];
+  /** Its lounge seat, while it rests there. */
+  lounge?: number;
 }
 
 export interface IslandSpec {
@@ -69,6 +75,35 @@ export function makeDesk(spec: DeskSpec, rect: Desk['rect'], body: number, tie: 
   };
 }
 
+export function makeOccupant(spec: DeskSpec, body: number, tie: number | null, checkout: Checkout, at: Place): Occupant {
+  const look = ROBOT_OF[spec.state];
+  return {
+    sessionId: spec.id,
+    name: spec.name ?? spec.id,
+    title: null,
+    state: spec.state,
+    since: 1000,
+    reason: null,
+    activity: null,
+    agentsRunning: spec.agents ?? 0,
+    summary: null,
+    interns: spec.interns ?? [],
+    internsMore: 0,
+    runs: [],
+    location: spec.cloud ? 'cloud' : 'local',
+    pane: null,
+    focusable: false,
+    robot: look ? { ...look, body, tie } : null,
+    at,
+    checkout,
+  };
+}
+
+/** An island's checkout: its repo, branch and worktree flag, and its key as the path. */
+export function checkoutOf(spec: IslandSpec): Checkout {
+  return { repo: spec.repo, branch: spec.branch === undefined ? 'feat/checkout-v2' : spec.branch, worktree: spec.worktree ?? false, path: spec.key };
+}
+
 export interface RoomSpec {
   runId: string;
   /** The host desk's session id: its island gives the room's colours. */
@@ -91,7 +126,7 @@ export const PHASES: MeetingRoom['phases'] = [
   { title: 'Ship', state: 'upcoming' },
 ];
 
-export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: number | null): MeetingRoom {
+export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: number | null, slot = 0): MeetingRoom {
   const running = spec.running ?? 0;
   const finished = spec.finished ?? 0;
   const agent = (k: number, live: boolean): MeetingAgent => ({
@@ -113,11 +148,17 @@ export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: numb
     look: { body, tie },
     host: spec.seated ? { pose: 'still', badge: 'meeting', body, tie } : null,
     rect,
+    slot,
   };
 }
 
-/** A floor laid out by the real layout algorithm, as the server would send it, with a meeting room per room spec. */
-export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', rooms: RoomSpec[] = []): FloorDetail {
+/**
+ * A floor laid out by the real layout algorithms, as the server would send it, with a meeting room per room spec, in
+ * slot order. On the plan, each island takes pods of its own (helpers/plan.ts); a seated host sits at the head of its
+ * room, a desk with a lounge seat rests there, and a dormant one is gone. The `unseated` wait without a desk, in the
+ * first island's colours.
+ */
+export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', rooms: RoomSpec[] = [], unseated: DeskSpec[] = []): FloorDetail {
   const layout = layoutFloor(
     islands.map((i) => ({ key: i.key, deskIds: i.desks.map((d) => d.id) })),
     rooms.map((r) => r.runId),
@@ -137,6 +178,18 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', ro
     };
   });
   const hostIsland = (id: string) => islands.find((i) => i.desks.some((d) => d.id === id)) ?? islands[0]!;
+  const heads = new Map(rooms.flatMap((r, slot): Array<[string, number]> => (r.seated ? [[r.host, slot]] : [])));
+  const atOf = (d: DeskSpec): Place => {
+    if (d.state === 'dormant') return { kind: 'gone' };
+    const slot = heads.get(d.id);
+    if (slot !== undefined) return { kind: 'room', slot };
+    return d.lounge === undefined ? { kind: 'desk' } : { kind: 'lounge', seat: d.lounge };
+  };
+  const { plan, pods } = podsFor(
+    islands.map((i) => ({ color: i.color, placard: checkoutOf(i), occupants: i.desks.map((d) => makeOccupant(d, i.color, i.tie, checkoutOf(i), atOf(d))) })),
+    rooms.length > ROOMS_PER_COL ? 2 : 1,
+  );
+  const first = islands[0]!;
   const counts: FloorDetail['counts'] = {};
   for (const island of placed) for (const desk of island.desks) counts[desk.state] = (counts[desk.state] ?? 0) + 1;
   return {
@@ -152,8 +205,12 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', ro
     size: layout.size,
     core: layout.core,
     islands: placed,
-    rooms: rooms.map((r, n) => makeRoom(r, layout.rooms[n]!.rect, hostIsland(r.host).color, hostIsland(r.host).tie)),
+    rooms: rooms.map((r, n) => makeRoom(r, layout.rooms[n]!.rect, hostIsland(r.host).color, hostIsland(r.host).tie, n)),
     roomsMore: 0,
+    pods,
+    lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
+    roomSlots: plan.rooms,
+    unseated: unseated.map((d) => makeOccupant(d, first.color, first.tie, checkoutOf(first), { kind: 'gone' })),
   };
 }
 

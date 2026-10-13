@@ -6,6 +6,7 @@ import { Collector } from '../src/collector.js';
 import { newSession } from '../src/core/reducer.js';
 import type { RawEvent, Session } from '../src/core/types.js';
 import { emptySeating, parseSeating } from '../src/scene/seating.js';
+import type { FloorDetail } from '../src/scene/types.js';
 import { Store } from '../src/store/store.js';
 
 const resolver: WorkspaceResolver = async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
@@ -397,10 +398,9 @@ describe('scene', () => {
       ['demo-oa-c3', 'feature:checkout-v2', true],
       ['demo-oa-g7', 'repo:/demo/orders-api', true],
     ]);
-    expect(c.floor('feature:checkout-v2')!.islands.map((i) => [i.repo, i.desks.map((d) => d.sessionId)])).toEqual([
-      ['orders-api', ['demo-oa-c3']],
-      ['payments-svc', ['demo-ps-d4']],
-      ['storefront-web', ['demo-sw-b2', 'demo-sw-a1']],
+    expect(c.floor('feature:checkout-v2')!.pods.map((p) => p.desks.map((d) => d.occupant?.sessionId ?? null))).toEqual([
+      ['demo-ps-d4', 'demo-sw-b2', 'demo-sw-a1', null],
+      ['demo-oa-c3', null, null, null],
     ]);
     expect(c.floor('feature:nope')).toBeNull();
 
@@ -552,6 +552,18 @@ describe('seating', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('draws each floor it reads from the seating it keeps: a desk stays with its session while others come and go', async () => {
+    const c = collector();
+    for (let i = 1; i <= 3; i++) await c.ingest(prompt(`A${i}`, NOW + i));
+    c.scene();
+    await c.ingest(hook({ type: 'session.ended', reason: 'exit', sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 10 }));
+    await c.ingest(prompt('A4', NOW + 11));
+    const sitting = (floor: FloorDetail | null | undefined) => floor!.pods[0]!.desks.map((d) => d.occupant?.sessionId ?? null);
+    expect(sitting(c.floor(KEY))).toEqual(['A4', 'A2', 'A3', null]);
+    expect(sitting(c.render([KEY]).floors.get(KEY))).toEqual(['A4', 'A2', 'A3', null]);
+    expect(c.seatingOf(KEY)!.desks).toEqual(desks('A4', 'A2', 'A3'));
   });
 
   it('moves seating on at every scene read: render, floor and scene', async () => {

@@ -26,6 +26,9 @@ export function checkoutWithRoom(): FloorDetail {
     { runId: RUN, name: 'checkout-verify', status: 'running', startedAt: NOW - 9 * MIN, endedAt: null, counts: { running: 2, finished: 1 } },
     { runId: DONE_RUN, name: 'nightly-smoke', status: 'completed', startedAt: NOW - 70 * MIN, endedAt: NOW - 62 * MIN, counts: { running: 0, finished: 4 } },
   ];
+  const seat = floor.pods.flatMap((p) => p.desks).find((d) => d.occupant?.sessionId === desk.sessionId)!.occupant!;
+  seat.at = { kind: 'room', slot: 0 };
+  seat.runs = desk.runs;
   const room: MeetingRoom = {
     runId: RUN,
     hostSessionId: desk.sessionId,
@@ -46,6 +49,7 @@ export function checkoutWithRoom(): FloorDetail {
     look: { body: desk.robot!.body, tie: desk.robot!.tie },
     host: { ...desk.robot!, pose: 'still', badge: 'meeting' },
     rect: layout.rooms[0]!.rect,
+    slot: 0,
   };
   return { ...floor, size: layout.size, rooms: [room] };
 }

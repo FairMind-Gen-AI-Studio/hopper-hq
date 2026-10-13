@@ -1,22 +1,25 @@
 /**
  * A small building shaped like the demo's, for UI tests: four floors, put together the way src/scene/build.ts does
- * (layout from src/scene/layout.ts, colour slots from src/scene/palette.ts). Each call returns fresh objects, so a test
- * may change what it gets.
+ * (layout from src/scene/layout.ts, colour slots from src/scene/palette.ts). Each checkout sits in pods of its own
+ * (helpers/plan.ts). Each call returns fresh objects, so a test may change what it gets.
  */
-import { layoutFloor } from '../../../src/scene/layout';
+import { LOUNGE_SEATS, layoutFloor } from '../../../src/scene/layout';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../../src/scene/palette';
 import {
   SCENE_VERSION,
   type AttentionEntry,
   type Badge,
   type BuildingScene,
+  type Checkout,
   type Desk,
   type FloorDetail,
   type FloorSummary,
+  type Occupant,
   type Pose,
   type SceneReason,
   type ShownState,
 } from '../../../src/scene/types';
+import { podsFor } from './plan';
 
 export const NOW = Date.UTC(2026, 9, 11, 9, 30, 0);
 const MIN = 60_000;
@@ -281,6 +284,36 @@ export function makeFloor(key: string): FloorDetail | null {
   if (!f) return null;
   const layout = layoutFloor(f.islands.map((i) => ({ key: i.path, deskIds: i.desks.map((d) => d.id) })));
   const { windows: _windows, ...rest } = summary(f, FLOORS.length - index);
+  const checkout = (island: IslandSpec): Checkout => ({ repo: island.repo, branch: island.branch, worktree: island.worktree, path: island.path });
+  const occupant = (island: IslandSpec, d: DeskSpec): Occupant => {
+    const look = ROBOT[d.state];
+    return {
+      sessionId: d.id,
+      name: d.name,
+      title: d.title,
+      state: d.state,
+      since: d.since,
+      reason: d.reason ?? null,
+      activity: d.activity ?? null,
+      agentsRunning: d.agents ?? 0,
+      summary: null,
+      interns: [],
+      internsMore: 0,
+      runs: [],
+      location: d.location ?? 'local',
+      pane: d.pane,
+      focusable: focusable(d),
+      robot: look && {
+        pose: look.pose,
+        badge: look.badge,
+        body: slotOf(island.repo, REPO_SLOTS),
+        tie: f.kind === 'feature' ? slotOf(f.key.slice('feature:'.length), FEATURE_SLOTS) : null,
+      },
+      at: d.state === 'dormant' ? { kind: 'gone' } : { kind: 'desk' },
+      checkout: checkout(island),
+    };
+  };
+  const { plan, pods } = podsFor(f.islands.map((island) => ({ color: slotOf(island.repo, REPO_SLOTS), placard: checkout(island), occupants: island.desks.map((d) => occupant(island, d)) })));
   return {
     version: SCENE_VERSION,
     ...rest,
@@ -295,35 +328,15 @@ export function makeFloor(key: string): FloorDetail | null {
       color: slotOf(island.repo, REPO_SLOTS),
       rect: layout.islands[n]!.rect,
       desks: island.desks.map((d, k): Desk => {
-        const look = ROBOT[d.state];
-        return {
-          sessionId: d.id,
-          rect: layout.islands[n]!.desks[k]!.rect,
-          name: d.name,
-          title: d.title,
-          state: d.state,
-          since: d.since,
-          reason: d.reason ?? null,
-          activity: d.activity ?? null,
-          agentsRunning: d.agents ?? 0,
-          summary: null,
-          interns: [],
-          internsMore: 0,
-          away: false,
-          runs: [],
-          location: d.location ?? 'local',
-          pane: d.pane,
-          focusable: focusable(d),
-          robot: look && {
-            pose: look.pose,
-            badge: look.badge,
-            body: slotOf(island.repo, REPO_SLOTS),
-            tie: f.kind === 'feature' ? slotOf(f.key.slice('feature:'.length), FEATURE_SLOTS) : null,
-          },
-        };
+        const { at: _at, checkout: _checkout, ...seat } = occupant(island, d);
+        return { ...seat, rect: layout.islands[n]!.desks[k]!.rect, away: false };
       }),
     })),
     rooms: [],
     roomsMore: 0,
+    pods,
+    lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
+    roomSlots: plan.rooms,
+    unseated: [],
   };
 }

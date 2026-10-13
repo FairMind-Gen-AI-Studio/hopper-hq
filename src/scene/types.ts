@@ -144,6 +144,8 @@ export interface MeetingRoom {
   /** The host's robot at the head of the table while the host is in_meeting; else null (the head seat holds a placard). */
   host: Robot | null;
   rect: GridRect;
+  /** Its room slot: an index into FloorDetail.roomSlots. */
+  slot: number;
 }
 
 export interface Desk {
@@ -189,6 +191,93 @@ export interface Island {
   desks: Desk[];
 }
 
+/** Where a session's robot should be. The renderer walks it there. */
+export type Place =
+  | { kind: 'desk' }
+  | { kind: 'lounge'; seat: number }
+  | { kind: 'room'; slot: number }
+  | { kind: 'gone' };
+
+/** The checkout a session works in. */
+export interface Checkout {
+  /** The repository's label (see repoLabels). */
+  repo: string;
+  branch: string | null;
+  worktree: boolean;
+  /** The worktree root, or cwd outside git. */
+  path: string;
+}
+
+/** A session on the floor: at a desk, or waiting for one (FloorDetail.unseated). */
+export interface Occupant {
+  sessionId: string;
+  name: string;
+  title: string | null;
+  state: ShownState;
+  since: number;
+  reason: SceneReason | null;
+  activity: DeskActivity | null;
+  /** Running subagents and workflow agents. */
+  agentsRunning: number;
+  summary: DeskSummary | null;
+  /** Running interns first (by start), then the latest finished; at most INTERNS_MAX. */
+  interns: Intern[];
+  /** Interns not in `interns`. */
+  internsMore: number;
+  /** Running runs first (by start), then finished ones, latest ended first; at most RUNS_SHOWN. */
+  runs: RunSummary[];
+  location: 'local' | 'cloud';
+  /** tmux pane id (%N) for display; focus goes through POST /api/focus by sessionId. */
+  pane: string | null;
+  focusable: boolean;
+  /** Null when dormant: gone home. */
+  robot: Robot | null;
+  /** Where its robot should be: its desk, a lounge seat, the head of its run's room, or gone (dormant, or no desk). */
+  at: Place;
+  checkout: Checkout;
+}
+
+/** One of a pod's four desks. */
+export interface PodDesk {
+  /** 'p<pod>-<n>'; n 0..3: north row west to east, then south row west to east. */
+  id: string;
+  /** 2x2 cells. */
+  rect: GridRect;
+  /** The edge its chair is on. The monitor is on the opposite edge; a seated robot faces it. */
+  chair: 'north' | 'south';
+  /** Null: a free desk. */
+  occupant: Occupant | null;
+}
+
+export interface PodPlacard {
+  repo: string;
+  /** Null when the occupants share only their repository, or the branch is unknown. */
+  branch: string | null;
+  worktree: boolean;
+  /** Null when the occupants share only their repository. */
+  path: string | null;
+}
+
+/** Four desks back to back on one rug. */
+export interface Pod {
+  /** 'p<index>', in plan order. */
+  id: string;
+  /** The rug: POD cells. */
+  rect: GridRect;
+  /** Repo colour slot while every occupant shares one repository; null when they do not, or the pod is empty. */
+  color: number | null;
+  /** The checkout while every occupant shares one; the repository alone while they share only that; null otherwise. */
+  placard: PodPlacard | null;
+  /** Always POD_DESKS. */
+  desks: PodDesk[];
+}
+
+export interface Lounge {
+  rect: GridRect;
+  /** LOUNGE_SEATS. */
+  seats: number;
+}
+
 export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   version: typeof SCENE_VERSION;
   /** Floor footprint in cells (walls run along its edges). */
@@ -199,4 +288,11 @@ export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   rooms: MeetingRoom[];
   /** Running runs on this floor without a room. */
   roomsMore: number;
+  /** The plan's pods, in order. */
+  pods: Pod[];
+  lounge: Lounge;
+  /** Every room of the plan, by slot, open or not. */
+  roomSlots: GridRect[];
+  /** Sessions on the floor without a desk, in start order: dormant ones whose desk another session took, and those waiting at the cap. */
+  unseated: Occupant[];
 }

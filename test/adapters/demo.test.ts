@@ -63,7 +63,7 @@ function demoCollector() {
 }
 
 describe('the demo workflow run', () => {
-  it('opens a room for the payments desk, with its host at the head of the table, east of the islands', async () => {
+  it('opens a room for the payments desk in the first room slot, with its host at the head of the table', async () => {
     const { c, clock } = demoCollector();
     for (const e of demoScript()[0]!.events(BASE)) await c.ingest(e);
     clock.now = BASE + 100;
@@ -80,10 +80,11 @@ describe('the demo workflow run', () => {
         agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: true }],
         look,
         host: { pose: 'still', badge: 'meeting', ...look },
-        rect: { x: 22, y: 2, w: 8, h: 6 },
+        rect: { x: 18, y: 2, w: 8, h: 6 },
+        slot: 0,
       },
     ]);
-    expect([floor.roomsMore, floor.size]).toEqual([0, { w: 32, h: 12 }]);
+    expect([floor.roomsMore, floor.size]).toEqual([0, { w: 28, h: 20 }]);
   });
 
   it('moves the room through its phases, keeps its host in the meeting, and closes it before the loop ends', async () => {
