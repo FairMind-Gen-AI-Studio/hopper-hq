@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { STATES, STATE_ORDER, floorLabel, floorMeta, needYou, plural, raisedBy, waitText } from '../../lib/words';
-import { makeScene } from '../helpers/fixtures';
+import { PHASE, RUN_STATUS, STATES, STATE_ORDER, floorLabel, floorMeta, needYou, plural, raisedBy, runCounts, runSpan, waitText } from '../../lib/words';
+import { NOW, makeScene } from '../helpers/fixtures';
 
 describe('words', () => {
   it('names and explains every state a desk can show, needs-you first', () => {
@@ -41,5 +41,17 @@ describe('words', () => {
     expect(floorLabel(docs!)).toBe('Floor 1, docs-refresh: 2 sessions, shutters down');
     expect(floorLabel({ ...orders!, counts: { needs_you: 2 } })).toBe('Floor 2, orders-api: 5 sessions, 2 need you');
     expect(floorMeta({ ...orders!, counts: { needs_you: 2 } })[1]!.text).toBe('● 2 need you');
+  });
+
+  it('says how a workflow run stands, how long it has gone on, and where each phase is', () => {
+    const run = { startedAt: NOW - 9 * 60_000, endedAt: NOW - 30_000 };
+    expect(runSpan({ ...run, status: 'running', endedAt: null }, NOW)).toBe('Running for 9m');
+    expect(runSpan({ ...run, status: 'completed' }, NOW)).toBe('Completed in 8m');
+    expect(runSpan({ ...run, status: 'failed' }, NOW)).toBe('Failed after 8m');
+    expect(runSpan({ ...run, status: 'killed' }, NOW)).toBe('Stopped after 8m');
+    expect(runSpan({ ...run, status: 'killed', endedAt: null }, NOW)).toBe('Stopped');
+    expect(RUN_STATUS).toEqual({ running: 'Running', completed: 'Completed', failed: 'Failed', killed: 'Stopped' });
+    expect(runCounts({ running: 2, finished: 5 })).toBe('2 running · 5 done');
+    expect(Object.values(PHASE).map((p) => `${p.mark} ${p.word}`)).toEqual(['✓ done', '● current', '○ upcoming']);
   });
 });

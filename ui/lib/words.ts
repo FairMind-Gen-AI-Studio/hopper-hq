@@ -1,7 +1,7 @@
 /** The UI's wording: one place for state names, their meaning, wait reasons, floor metadata and plurals. */
-import type { WaitKind } from '../../src/core/types';
-import { reasonText } from '../../src/scene/text';
-import type { FloorSummary, SceneReason, ShownState } from '../../src/scene/types';
+import type { RunStatus, WaitKind } from '../../src/core/types';
+import { formatAgo, reasonText } from '../../src/scene/text';
+import type { FloorSummary, PhaseState, RunSummary, SceneReason, ShownState } from '../../src/scene/types';
 
 export const STATES: Record<ShownState, { label: string; description: string }> = {
   needs_you: { label: 'Needs you', description: 'Blocked on a permission, a question or a plan approval.' },
@@ -69,3 +69,27 @@ export function floorLabel(f: FloorSummary): string {
   if (f.shutters) parts.push('shutters down');
   return `Floor ${f.number}, ${f.name}: ${parts.join(', ')}`;
 }
+
+/** A workflow run's status in words. A killed run was stopped: by the user, or when its session ended. */
+export const RUN_STATUS: Record<RunStatus, string> = { running: 'Running', completed: 'Completed', failed: 'Failed', killed: 'Stopped' };
+
+const SPAN: Record<Exclude<RunStatus, 'running'>, string> = { completed: 'Completed in', failed: 'Failed after', killed: 'Stopped after' };
+
+/** How long a run has gone on, or went on: 'Running for 9m', 'Completed in 8m', 'Failed after 3m', 'Stopped after 1h'. */
+export function runSpan(run: Pick<RunSummary, 'status' | 'startedAt' | 'endedAt'>, now: number): string {
+  if (run.status === 'running') return `Running for ${formatAgo(now - run.startedAt)}`;
+  if (run.endedAt === null) return RUN_STATUS[run.status];
+  return `${SPAN[run.status]} ${formatAgo(run.endedAt - run.startedAt)}`;
+}
+
+/** A run's agents: '2 running · 5 done', as its room's board says. */
+export function runCounts(counts: { running: number; finished: number }): string {
+  return `${counts.running} running · ${counts.finished} done`;
+}
+
+/** A phase's mark, which the eye reads, and its word, which a screen reader says instead. */
+export const PHASE: Record<PhaseState, { mark: string; word: string }> = {
+  done: { mark: '✓', word: 'done' },
+  current: { mark: '●', word: 'current' },
+  upcoming: { mark: '○', word: 'upcoming' },
+};
