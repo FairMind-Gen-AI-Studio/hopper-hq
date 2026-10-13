@@ -107,13 +107,17 @@ export const psProbe: ProcessProbe = async (pids, now) => {
     ran = stdout.trim() !== '';
   }
   if (!ran) return null;
+  let listed = 0;
   for (const line of stdout.split('\n')) {
     const m = line.trim().match(/^(\d+)\s+(\S+)$/);
-    if (!m || !wanted.has(Number(m[1]))) continue;
+    if (!m) continue;
+    listed++;
+    if (!wanted.has(Number(m[1]))) continue;
     const seconds = parseEtime(m[2]!);
     if (seconds !== null) out.set(Number(m[1]), now - seconds * 1000);
   }
-  return out;
+  // A ps -A that ran lists at least itself: output with no line to read is a ps that could not tell.
+  return listed === 0 ? null : out;
 };
 
 /** True when the running process is the one that wrote the file, not a later process that reused its pid. */

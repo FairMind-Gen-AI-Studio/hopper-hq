@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isSameProcess, parseEtime, parseSessionFile, psProbe, readSessionsDir } from '../../src/adapters/claude-code/sessions-dir.js';
@@ -123,6 +123,41 @@ describe('psProbe', () => {
     } finally {
       process.env.PATH = path;
     }
+  });
+});
+
+describe('psProbe with a ps that printed something unusable', () => {
+  async function withFakePs(script: string, run: () => Promise<void>) {
+    const dir = await mkdtemp(join(tmpdir(), 'shq-fakeps-'));
+    await writeFile(join(dir, 'ps'), `#!/bin/sh\n${script}\n`);
+    await chmod(join(dir, 'ps'), 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = dir;
+    try {
+      await run();
+    } finally {
+      process.env.PATH = path;
+    }
+  }
+
+  it('reads a ps that fails and prints no line it can parse as a failed read', async () => {
+    await withFakePs('echo "ps: illegal option"\nexit 1', async () => {
+      expect(await psProbe([process.pid], Date.now())).toBeNull();
+    });
+  });
+
+  it('reads a ps that succeeds and prints nothing as a failed read', async () => {
+    await withFakePs('exit 0', async () => {
+      expect(await psProbe([process.pid], Date.now())).toBeNull();
+    });
+  });
+
+  it('reads a ps whose lines parse but do not list the wanted pid as no running process', async () => {
+    await withFakePs('echo "    1 10:00"\necho "  200 01:02:03"', async () => {
+      const starts = await psProbe([process.pid], Date.now());
+      expect(starts).not.toBeNull();
+      expect(starts!.size).toBe(0);
+    });
   });
 });
 
