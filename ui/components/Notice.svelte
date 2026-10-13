@@ -10,6 +10,11 @@
     <strong>You are signed out.</strong>
     <span>Run <code>scranton-hq ui</code> in a terminal: it opens a new sign-in link.</span>
   </div>
+{:else if connection === 'outdated'}
+  <div class="notice bad" role="alert">
+    <strong>The building was updated.</strong>
+    <span>Reload the page to see it.</span>
+  </div>
 {:else if connection === 'retrying'}
   <div class="notice" role="status">
     <strong>Lost contact with the daemon.</strong>

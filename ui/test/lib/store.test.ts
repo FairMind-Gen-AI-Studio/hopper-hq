@@ -119,15 +119,39 @@ describe('client store', () => {
     expect(store.get()).toMatchObject({ connection: 'live', scene });
   });
 
-  it('ignores events that are not JSON or not this version of the scene', () => {
+  it('ignores events that are not JSON or not a scene', () => {
     const { store, watch, last } = setup();
     watch();
     last().send('scene', '{not json');
-    last().send('scene', { ...makeScene(), version: 1 });
     last().send('scene', { version: 2, floors: 'no' });
+    last().send('scene', { floors: [] });
     last().send('floor', makeFloor(CHECKOUT));
     expect(store.get().scene).toBeNull();
     expect(store.get().floor).toBeUndefined();
+  });
+
+  it('asks for a reload, and listens no more, once the daemon sends a scene or a floor of another version', async () => {
+    for (const event of ['scene', 'floor'] as const) {
+      const pg = page();
+      const { store, streams, watch, last } = setup(200, pg.visibility);
+      store.watchFloor(CHECKOUT);
+      watch();
+      last().open();
+      const scene = makeScene();
+      last().send('scene', scene);
+      last().send('floor', null);
+      expect(store.get().connection).toBe('live');
+      last().send(event, { ...(event === 'scene' ? makeScene() : makeFloor(CHECKOUT)), version: 3 });
+      expect([event, store.get().connection, store.get().scene, last().readyState]).toEqual([event, 'outdated', scene, 2]);
+      // Nothing opens the stream again: no retry, not the page shown again, not another floor.
+      pg.set(true);
+      await vi.advanceTimersByTimeAsync(HIDDEN_GRACE_MS);
+      pg.set(false);
+      store.watchFloor(ORDERS);
+      await vi.advanceTimersByTimeAsync(60_000);
+      last().send('scene', makeScene());
+      expect([streams.length, store.get().connection]).toEqual([1, 'outdated']);
+    }
   });
 
   it('opens the stream on the watched floor when watched before anything subscribes', () => {
@@ -160,7 +184,7 @@ describe('client store', () => {
     store.watchFloor(CHECKOUT);
     watch();
     const floor = makeFloor(CHECKOUT)!;
-    for (const bad of ['{not json', 42, { ...floor, version: 1 }, { ...floor, islands: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
+    for (const bad of ['{not json', 42, { ...floor, version: '1' }, { ...floor, islands: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
       last().send('floor', bad);
     }
     expect(store.get().floor).toBeUndefined();

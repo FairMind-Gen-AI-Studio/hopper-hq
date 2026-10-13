@@ -136,6 +136,12 @@ describe('App shell', () => {
     expect(target.querySelector('.notice')).toBeNull();
   });
 
+  it('asks for a reload once the daemon speaks another version of the building', () => {
+    const store = fakeStore({ connection: 'outdated', scene: makeScene() });
+    const { target } = app(store);
+    expect(text(target.querySelector('[role="alert"]'))).toBe('The building was updated. Reload the page to see it.');
+  });
+
   it('cycles the theme system, day, night, and remembers the choice', () => {
     const { target, storage } = app(undefined, { prefersDark: true });
     const button = target.querySelector<HTMLButtonElement>('button.theme')!;

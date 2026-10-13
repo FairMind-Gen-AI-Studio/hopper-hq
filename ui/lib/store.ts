@@ -18,7 +18,8 @@
  */
 import { SCENE_VERSION, type BuildingScene, type FloorDetail } from '../../src/scene/types';
 
-export type Connection = 'connecting' | 'live' | 'retrying' | 'signed_out';
+/** 'outdated': the daemon sends another version of the scene than this page draws; only a reload helps. */
+export type Connection = 'connecting' | 'live' | 'retrying' | 'signed_out' | 'outdated';
 
 export interface ClientState {
   connection: Connection;
@@ -87,6 +88,12 @@ function isFloor(x: unknown): x is FloorDetail {
   return typeof f === 'object' && f !== null && f.version === SCENE_VERSION && typeof f.key === 'string' && Array.isArray(f.islands);
 }
 
+/** A scene or a floor of a version this page does not draw: the daemon was updated, or went back, since it loaded. */
+function otherVersion(x: unknown): boolean {
+  const version = typeof x === 'object' && x !== null ? (x as { version?: unknown }).version : undefined;
+  return typeof version === 'number' && version !== SCENE_VERSION;
+}
+
 export function createClientStore(deps: StoreDeps): ClientStore {
   let state: ClientState = { connection: 'connecting', scene: null, floorKey: null, floor: undefined };
   const subscribers = new Set<(s: ClientState) => void>();
@@ -99,6 +106,8 @@ export function createClientStore(deps: StoreDeps): ClientStore {
   /** The page has been hidden long enough: no stream and no retry until it is shown. */
   let paused = false;
   let hiding: ReturnType<typeof setTimeout> | null = null;
+  /** The daemon speaks another version of the scene: the stream stays closed, and the page asks for a reload. */
+  let outdated = false;
 
   function set(patch: Partial<ClientState>): void {
     const next = { ...state, ...patch };
@@ -118,7 +127,7 @@ export function createClientStore(deps: StoreDeps): ClientStore {
     stream?.close();
     stream = null;
     started = true;
-    if (paused) return;
+    if (paused || outdated) return;
     const key = state.floorKey;
     const es = deps.openStream('/api/events' + (key === null ? '' : '?floor=' + encodeURIComponent(key)));
     stream = es;
@@ -130,12 +139,15 @@ export function createClientStore(deps: StoreDeps): ClientStore {
     };
     es.addEventListener('scene', (e) => {
       const scene = parse(e.data);
-      if (current() && isScene(scene)) set({ scene, connection: 'live' });
+      if (!current()) return;
+      if (otherVersion(scene)) outdate();
+      else if (isScene(scene)) set({ scene, connection: 'live' });
     });
     es.addEventListener('floor', (e) => {
       const floor = parse(e.data);
       if (!current() || state.floorKey !== key) return;
-      if (floor === null) set({ floor: null, connection: 'live' });
+      if (otherVersion(floor)) outdate();
+      else if (floor === null) set({ floor: null, connection: 'live' });
       else if (isFloor(floor) && floor.key === key) set({ floor, connection: 'live' });
     });
     es.onerror = () => {
@@ -158,6 +170,15 @@ export function createClientStore(deps: StoreDeps): ClientStore {
         },
       );
     };
+  }
+
+  /** What the page shows stays as it is; nothing opens the stream again. */
+  function outdate(): void {
+    outdated = true;
+    stopRetry();
+    stream?.close();
+    stream = null;
+    set({ connection: 'outdated' });
   }
 
   function scheduleRetry(): void {
