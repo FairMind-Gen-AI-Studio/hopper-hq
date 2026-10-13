@@ -17,18 +17,20 @@ export class WebGLUnavailableError extends Error {
   }
 }
 
+export type Target = { kind: 'desk'; id: string } | { kind: 'room'; id: string };
+
 export interface FloorView {
   /** Replaces the floor. Desks are diffed by sessionId; the shell rebuilds only when size/core/island rects change. */
   setFloor(floor: FloorDetail): void;
   setTheme(theme: ThemeTokens): void;
-  /** Highlights a desk (ring + label); pan: true eases the camera to it. Null clears. */
-  select(sessionId: string | null, opts?: { pan?: boolean }): void;
+  /** Highlights a desk or a room (ring + label); pan: true eases the camera to it. Null clears. */
+  select(target: Target | null, opts?: { pan?: boolean }): void;
   /** Rotates the camera by one 90° step around the vertical axis. */
   rotate(step: -1 | 1): void;
   resetView(): void;
-  /** 'select': click on a desk, robot or label (null on empty floor). 'activate': double-click or Enter on a desk (the UI focuses its pane). */
-  on(event: 'select', fn: (sessionId: string | null) => void): () => void;
-  on(event: 'activate', fn: (sessionId: string) => void): () => void;
+  /** 'select': click on a desk, robot, room or label (null on empty floor). 'activate': double-click or Enter (the UI focuses the desk's pane, or the room's host's). */
+  on(event: 'select', fn: (target: Target | null) => void): () => void;
+  on(event: 'activate', fn: (target: Target) => void): () => void;
   dispose(): void;
 }
 

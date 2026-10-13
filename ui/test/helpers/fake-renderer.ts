@@ -1,6 +1,6 @@
 import type { FloorDetail } from '../../../src/scene/types';
 import type { RendererModule } from '../../lib/renderer';
-import type { FloorView, ThemeTokens } from '../../renderer/index';
+import type { FloorView, Target, ThemeTokens } from '../../renderer/index';
 import { readThemeTokens } from '../../renderer/theme';
 
 /** A floor view that records what the stage asks of it, and lets a test send its events. */
@@ -9,9 +9,9 @@ export interface FakeView extends FloorView {
   /** The theme it was mounted with: the `data-theme` of <html> when the stage read it ('system' without one). */
   theme: ThemeTokens;
   mountedTheme: string;
-  /** In order: 'floor <key> <desks>', 'theme <data-theme>', 'select <id or -> [pan]', 'rotate <step>', 'reset', 'dispose'. */
+  /** In order: 'floor <key> <desks>', 'theme <data-theme>', 'select <kind> <id> [pan]' or 'select - [pan]', 'rotate <step>', 'reset', 'dispose'. */
   calls: string[];
-  emit(event: 'select' | 'activate', sessionId: string | null): void;
+  emit(event: 'select' | 'activate', target: Target | null): void;
 }
 
 export interface FakeRenderer {
@@ -20,7 +20,7 @@ export interface FakeRenderer {
   views: FakeView[];
 }
 
-type Listener = (sessionId: string | null) => void;
+type Listener = (target: Target | null) => void;
 
 const deskCount = (floor: FloorDetail) => floor.islands.reduce((n, island) => n + island.desks.length, 0);
 
@@ -46,15 +46,15 @@ export function fakeRenderer(opts: { fail?: unknown } = {}): FakeRenderer {
         calls,
         setFloor: (floor: FloorDetail) => void calls.push(`floor ${floor.key} ${deskCount(floor)}`),
         setTheme: (next: ThemeTokens) => void calls.push(`theme ${themeOf(next)}`),
-        select: (id: string | null, o?: { pan?: boolean }) => void calls.push(`select ${id ?? '-'}${o?.pan ? ' pan' : ''}`),
+        select: (target: Target | null, o?: { pan?: boolean }) => void calls.push(`select ${target ? `${target.kind} ${target.id}` : '-'}${o?.pan ? ' pan' : ''}`),
         rotate: (step: -1 | 1) => void calls.push(`rotate ${step}`),
         resetView: () => void calls.push('reset'),
         on(event: 'select' | 'activate', fn: Listener) {
           listeners[event].add(fn);
           return () => void listeners[event].delete(fn);
         },
-        emit(event: 'select' | 'activate', id: string | null) {
-          for (const fn of [...listeners[event]]) fn(id);
+        emit(event: 'select' | 'activate', target: Target | null) {
+          for (const fn of [...listeners[event]]) fn(target);
         },
         dispose: () => void calls.push('dispose'),
       };

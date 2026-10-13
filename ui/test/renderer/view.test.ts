@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
-import type { FloorView } from '../../renderer/index';
+import type { FloorView, Target } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor } from '../../renderer/world';
@@ -127,6 +127,10 @@ class FakeEnv implements ViewEnv {
   }
 }
 
+const desk = (id: string): Target => ({ kind: 'desk', id });
+/** A target as the events list writes it: 'desk oa-c3', or 'null'. */
+const said = (target: Target | null): string => (target ? `${target.kind} ${target.id}` : 'null');
+
 /** happy-dom lays nothing out: the canvas's CSS size is whatever the test sets here. */
 const box = { width: W, height: H };
 
@@ -143,8 +147,8 @@ function setup(theme = dayTheme()) {
   const env = new FakeEnv();
   const view = createFloorView({ canvas, labels }, theme, renderer, env);
   const events: string[] = [];
-  view.on('select', (id) => events.push(`select ${id}`));
-  view.on('activate', (id) => events.push(`activate ${id}`));
+  view.on('select', (target) => events.push(`select ${said(target)}`));
+  view.on('activate', (target) => events.push(`activate ${said(target)}`));
   views.push(view);
   return { canvas, labels, renderer, env, view, events };
 }
@@ -246,7 +250,7 @@ describe('the floor view', () => {
     click(canvas, deskPoint(renderer, 'sw-b2'), DRAG_PX + 1);
     click(canvas, deskPoint(renderer, 'sw-b2'), 0, 2);
     click(canvas, deskPoint(renderer, 'sw-b2'), DRAG_PX);
-    expect(events).toEqual(['select oa-c3', 'select null', 'select sw-b2']);
+    expect(events).toEqual(['select desk oa-c3', 'select null', 'select desk sw-b2']);
   });
 
   it('activates the desk under a double-click', () => {
@@ -256,7 +260,7 @@ describe('the floor view', () => {
     const at = deskPoint(renderer, 'ps-d4');
     canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, bubbles: true }));
     canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 4, clientY: 4, bubbles: true }));
-    expect(events).toEqual(['activate ps-d4']);
+    expect(events).toEqual(['activate desk ps-d4']);
   });
 
   it('activates the desk the first click of a double-click picked, while the UI pans to each desk it selects', () => {
@@ -268,7 +272,7 @@ describe('the floor view', () => {
           env.flush();
           view.on('select', (picked) => view.select(picked, { pan: true }));
           doubleClick(env, canvas, deskPoint(renderer, id), gap);
-          expect([reduced, gap, events]).toEqual([reduced, gap, [`select ${id}`, `select ${id}`, `activate ${id}`]]);
+          expect([reduced, gap, events]).toEqual([reduced, gap, [`select desk ${id}`, `select desk ${id}`, `activate desk ${id}`]]);
           // The double-click took the desk's pane: the camera stays where it was.
           env.wait(DOUBLE_CLICK_MS);
           env.flush();
@@ -290,7 +294,7 @@ describe('the floor view', () => {
     env.wait(DOUBLE_CLICK_MS);
     env.flush();
     expect(cameraPose(renderer).zoom).toBe(1.25);
-    expect(events).toEqual(['select oa-c3']);
+    expect(events).toEqual(['select desk oa-c3']);
     // A press before then drops the pan: the camera is the user's.
     click(canvas, deskPoint(renderer, 'sw-a1'));
     click(canvas, { x: 4, y: 4 }, DRAG_PX + 1);
@@ -311,7 +315,7 @@ describe('the floor view', () => {
     click(canvas, at, 0, 0, 2);
     canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, detail: 2, bubbles: true }));
     click(canvas, at);
-    expect(events).toEqual(['select oa-c3', 'select oa-c3', 'activate oa-c3', 'select null']);
+    expect(events).toEqual(['select desk oa-c3', 'select desk oa-c3', 'activate desk oa-c3', 'select null']);
   });
 
   it('keeps the desk a double-click on a tag started with, and waits with its pan too', () => {
@@ -328,7 +332,7 @@ describe('the floor view', () => {
     tag('sw-b2').dispatchEvent(new MouseEvent('dblclick', { detail: 2, bubbles: true }));
     env.wait(DOUBLE_CLICK_MS);
     env.flush();
-    expect(events).toEqual(['select sw-a1', 'select sw-a1', 'activate sw-a1']);
+    expect(events).toEqual(['select desk sw-a1', 'select desk sw-a1', 'activate desk sw-a1']);
     expect(cameraPose(renderer).zoom).toBe(1);
     // A click from the keyboard starts no double-click: its pan does not wait.
     tag('ps-d4').click();
@@ -342,13 +346,13 @@ describe('the floor view', () => {
     env.flush();
     const enter = () => new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
     canvas.dispatchEvent(enter());
-    view.select('oa-c3');
+    view.select(desk('oa-c3'));
     const e = enter();
     canvas.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(true);
-    view.select('gone');
+    view.select(desk('gone'));
     canvas.dispatchEvent(enter());
-    expect(events).toEqual(['activate oa-c3']);
+    expect(events).toEqual(['activate desk oa-c3']);
     expect(canvas.tabIndex).toBe(0);
   });
 
@@ -357,7 +361,7 @@ describe('the floor view', () => {
     view.setFloor(checkoutFloor());
     env.flush();
     (labels.querySelector('[data-session="sw-a1"]') as HTMLElement).click();
-    expect(events).toEqual(['select sw-a1']);
+    expect(events).toEqual(['select desk sw-a1']);
   });
 
   it('zooms with the wheel over a tag, as over the canvas', () => {
@@ -391,7 +395,7 @@ describe('the floor view', () => {
     tag.dispatchEvent(new PointerEvent('pointerdown', at(300)));
     document.dispatchEvent(new PointerEvent('pointerup', at(300)));
     tag.dispatchEvent(new MouseEvent('click', { clientX: 300, clientY: 200, detail: 1, bubbles: true }));
-    expect(events).toEqual(['select sw-b2']);
+    expect(events).toEqual(['select desk sw-b2']);
   });
 
   it('pans on a right-button drag that starts on a tag, with no menu', () => {
@@ -447,19 +451,19 @@ describe('the floor view', () => {
     const { renderer, env, view, canvas } = setup();
     view.setFloor(checkoutFloor());
     env.flush();
-    const seen: Array<string | null> = [];
-    const off = view.on('select', (id) => seen.push(id));
+    const seen: Array<Target | null> = [];
+    const off = view.on('select', (target) => seen.push(target));
     click(canvas, deskPoint(renderer, 'oa-c3'));
     off();
     click(canvas, deskPoint(renderer, 'oa-c3'));
-    expect(seen).toEqual(['oa-c3']);
+    expect(seen).toEqual([{ kind: 'desk', id: 'oa-c3' }]);
   });
 
   it('rings the selected desk and pans to it when asked, keeping the selection across floor updates', () => {
     const { renderer, env, view } = setup();
     view.setFloor(checkoutFloor());
     env.flush();
-    view.select('oa-c3', { pan: true });
+    view.select(desk('oa-c3'), { pan: true });
     const ring = renderer.scene!.getObjectByName('selection')!;
     expect(ring.visible).toBe(true);
     env.flush(PAN_MS / 4);
@@ -472,6 +476,21 @@ describe('the floor view', () => {
     view.select(null);
     env.flush();
     expect(ring.visible).toBe(false);
+  });
+
+  it('marks no desk and pans nowhere for a room target', () => {
+    const { renderer, env, view, canvas, events } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.select(desk('oa-c3'));
+    env.flush();
+    const ring = renderer.scene!.getObjectByName('selection')!;
+    expect(ring.visible).toBe(true);
+    view.select({ kind: 'room', id: 'wf_0000aaaa-001' }, { pan: true });
+    env.flush();
+    expect([ring.visible, cameraPose(renderer).zoom]).toEqual([false, 1]);
+    canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(events).toEqual([]);
   });
 
   it('follows the centre of a floor that grows while the camera is on it, and stays on a desk it panned to', () => {
@@ -497,7 +516,7 @@ describe('the floor view', () => {
       const p = new Vector3(a.x, a.y, a.z).project(renderer.camera!);
       expect([desk.sessionId, Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1]).toEqual([desk.sessionId, true]);
     }
-    view.select('oa-c3', { pan: true });
+    view.select(desk('oa-c3'), { pan: true });
     env.flush();
     const atDesk = cameraPose(renderer).target;
     view.setFloor(checkoutFloor());
@@ -509,7 +528,7 @@ describe('the floor view', () => {
   it('pans to a desk asked for before the floor arrived, once it arrives', () => {
     const { renderer, env, view } = setup();
     env.flush();
-    view.select('oa-c3', { pan: true });
+    view.select(desk('oa-c3'), { pan: true });
     env.flush();
     view.setFloor(checkoutFloor());
     env.flush(PAN_MS / 4);
@@ -579,7 +598,7 @@ describe('the floor view', () => {
     islands.push({ key: '/demo/more', repo: 'more', color: 5, tie: 4, desks: [{ id: 'm1', state: 'working' }] });
     const grown = makeFloor(islands);
     view.setFloor(grown);
-    view.select('m1', { pan: true });
+    view.select(desk('m1'), { pan: true });
     env.flush();
     expect(cameraPose(renderer).target.z).toBeGreaterThan(h);
     view.setFloor(checkoutFloor());
@@ -660,7 +679,7 @@ describe('the floor view', () => {
     expect(renderer.shadowDraws).toBe(1);
     canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -300, bubbles: true, cancelable: true }));
     drag(canvas, 80, 40, 2);
-    view.select('oa-c3', { pan: true });
+    view.select(desk('oa-c3'), { pan: true });
     env.flush();
     expect(renderer.renders).toBeGreaterThan(3);
     expect(renderer.shadowDraws).toBe(1);
@@ -688,11 +707,11 @@ describe('the floor view', () => {
     const { renderer, env, view, canvas } = setup();
     view.setFloor(checkoutFloor());
     env.flush();
-    view.select('oa-c3');
+    view.select(desk('oa-c3'));
     expect(env.queue.size).toBe(1);
     canvas.dispatchEvent(new Event('webglcontextlost'));
     expect(env.queue.size).toBe(0);
-    view.select('sw-a1');
+    view.select(desk('sw-a1'));
     expect(env.queue.size).toBe(0);
     const shadows = renderer.shadowDraws;
     canvas.dispatchEvent(new Event('webglcontextrestored'));
@@ -776,7 +795,7 @@ describe('the floor view', () => {
       expect(env.ratioChanged).toBeNull();
       expect(labels.children).toHaveLength(0);
       click(canvas, { x: 400, y: 250 });
-      view.select('oa-c3');
+      view.select(desk('oa-c3'));
       expect(env.queue.size).toBe(0);
       expect(events).toEqual([]);
     } finally {

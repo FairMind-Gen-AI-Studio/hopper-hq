@@ -14,7 +14,7 @@ import { MIN_SIZE } from '../../src/scene/layout';
 import type { FloorDetail } from '../../src/scene/types';
 import { MAX_ZOOM, MIN_ZOOM, PAN_MS, RESET_MS, ROTATE_MS, Tween, clampZoom, deskPose, homePose, stepAzimuth, type CameraPose } from './camera';
 import { FloorScene } from './floor-scene';
-import type { FloorView } from './index';
+import type { FloorView, Target } from './index';
 import { LabelLayer } from './labels';
 import { pickSession, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
@@ -93,7 +93,10 @@ export const DRAG_PX = 6;
  */
 export const DOUBLE_CLICK_MS = 400;
 
-type Listener = (sessionId: string | null) => void;
+type Listener = (target: Target | null) => void;
+
+/** The target the view reports for a desk. */
+const deskTarget = (sessionId: string): Target => ({ kind: 'desk', id: sessionId });
 
 export function createFloorView(
   host: { canvas: HTMLCanvasElement; labels: HTMLElement },
@@ -119,8 +122,8 @@ export function createFloorView(
   renderer.setClearColor(0x000000, 0);
 
   const listeners = { select: new Set<Listener>(), activate: new Set<Listener>() };
-  const emit = (event: 'select' | 'activate', sessionId: string | null) => {
-    for (const fn of [...listeners[event]]) fn(sessionId);
+  const emit = (event: 'select' | 'activate', target: Target | null) => {
+    for (const fn of [...listeners[event]]) fn(target);
   };
   const labels = new LabelLayer(host.labels, {
     select: (id, clicks) => {
@@ -281,7 +284,7 @@ export function createFloorView(
     const id = clicks > 1 && clicked ? clicked.id : pick();
     // A click from the keyboard has no count, and starts no double-click.
     clicked = clicks > 0 ? { id, at: env.now() } : null;
-    emit('select', id);
+    emit('select', id === null ? null : deskTarget(id));
   }
 
   /** A double-click activates the desk its first click picked; one that follows no click, what `pick` names. */
@@ -289,7 +292,7 @@ export function createFloorView(
     stopPanLater();
     const id = clicked && env.now() - clicked.at <= DOUBLE_CLICK_MS ? clicked.id : pick();
     clicked = null;
-    if (id) emit('activate', id);
+    if (id) emit('activate', deskTarget(id));
   }
 
   // Only the main button selects: the others pan the camera. A press takes the camera from any move under way.
@@ -373,7 +376,7 @@ export function createFloorView(
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && selected !== null && world.desks.has(selected)) {
       e.preventDefault();
-      emit('activate', selected);
+      emit('activate', deskTarget(selected));
     }
   };
   const onVisibility = () => {
@@ -411,9 +414,9 @@ export function createFloorView(
   applyPose(homePose(size));
   resize();
 
-  function on(event: 'select', fn: (sessionId: string | null) => void): () => void;
-  function on(event: 'activate', fn: (sessionId: string) => void): () => void;
-  function on(event: 'select' | 'activate', fn: (sessionId: never) => void): () => void {
+  function on(event: 'select', fn: (target: Target | null) => void): () => void;
+  function on(event: 'activate', fn: (target: Target) => void): () => void;
+  function on(event: 'select' | 'activate', fn: (target: never) => void): () => void {
     const set = listeners[event];
     const listener = fn as Listener;
     set.add(listener);
@@ -455,8 +458,10 @@ export function createFloorView(
       renderer.shadowMap.needsUpdate = true;
       request();
     },
-    select(sessionId: string | null, opts?: { pan?: boolean }) {
+    select(target: Target | null, opts?: { pan?: boolean }) {
       if (disposed) return;
+      // A room target marks no desk, and clears the desk marked before.
+      const sessionId = target?.kind === 'desk' ? target.id : null;
       selected = sessionId;
       world.setSelected(sessionId);
       labels.setSelected(sessionId);

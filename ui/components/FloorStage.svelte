@@ -68,13 +68,17 @@
       try {
         const v = r.mountFloorView({ canvas, labels }, colours(r));
         // A desk clicked in the view is on screen: mark it without moving the camera, so that the second click of a
-        // double-click lands on the same desk.
-        v.on('select', (id) => {
+        // double-click lands on the same desk. The route names desks only: a room picked in the view is left alone.
+        v.on('select', (target) => {
+          if (target?.kind === 'room') return;
+          const id = target?.id ?? null;
           marked = id;
-          v.select(id);
+          v.select(target);
           onSelect(id);
         });
-        v.on('activate', (id) => onActivate(id));
+        v.on('activate', (target) => {
+          if (target.kind === 'desk') onActivate(target.id);
+        });
         renderer = r;
         painted = theme;
         view = v;
@@ -97,7 +101,7 @@
   $effect(() => {
     if (!view || selected === marked) return;
     marked = selected;
-    view.select(selected, { pan: true });
+    view.select(selected === null ? null : { kind: 'desk', id: selected }, { pan: true });
   });
   $effect(() => {
     if (!view || !renderer || theme === painted) return;

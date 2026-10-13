@@ -439,7 +439,7 @@ describe('App focus', () => {
     const view = renderer.views[0]!;
     view.host.canvas.tabIndex = 0;
     view.host.canvas.focus();
-    view.emit('select', 'oa-c3');
+    view.emit('select', { kind: 'desk', id: 'oa-c3' });
     await settle();
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
     expect(active()).toBe(view.host.canvas);
@@ -569,8 +569,8 @@ describe('App floor in 3D', () => {
     const view = renderer.views[0]!;
     const selects = () => view.calls.filter((c) => c.startsWith('select'));
     go({ floor: CHECKOUT, desk: 'sw-b2' });
-    expect(selects()).toEqual(['select - pan', 'select sw-b2 pan']);
-    view.emit('select', 'oa-c3');
+    expect(selects()).toEqual(['select - pan', 'select desk sw-b2 pan']);
+    view.emit('select', { kind: 'desk', id: 'oa-c3' });
     flushSync();
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
     expect(crumbs()).toBe('Building / 4 · checkout-v2 / orders-api-c3');
@@ -579,7 +579,7 @@ describe('App floor in 3D', () => {
     flushSync();
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: null }));
     click([...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'storefront-web-a1'));
-    expect(selects()).toEqual(['select - pan', 'select sw-b2 pan', 'select oa-c3', 'select -', 'select sw-a1 pan']);
+    expect(selects()).toEqual(['select - pan', 'select desk sw-b2 pan', 'select desk oa-c3', 'select -', 'select desk sw-a1 pan']);
     expect(renderer.views).toHaveLength(1);
   });
 
@@ -588,7 +588,7 @@ describe('App floor in 3D', () => {
     location.hash = toHash({ floor: CHECKOUT, desk: null });
     const { target, renderer } = app(undefined, { api: { focusSession, markSeen: vi.fn() } });
     await settle();
-    renderer.views[0]!.emit('activate', 'sw-a1');
+    renderer.views[0]!.emit('activate', { kind: 'desk', id: 'sw-a1' });
     await settle();
     expect(focusSession).toHaveBeenCalledWith('sw-a1');
     expect(text(target.querySelector('.toast span'))).toBe('Demo: would switch tmux to %4');
@@ -620,7 +620,7 @@ describe('App floor in 3D', () => {
     expect(renderer.views).toHaveLength(2);
     const second = renderer.views[1]!;
     expect(second.host.canvas).not.toBe(first.host.canvas);
-    expect(second.calls).toEqual([`floor ${ORDERS} 5`, 'select oa-g7 pan']);
+    expect(second.calls).toEqual([`floor ${ORDERS} 5`, 'select desk oa-g7 pan']);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     flushSync();

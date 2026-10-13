@@ -42,7 +42,7 @@ describe('FloorStage', () => {
     const view = renderer.views[0]!;
     expect(view.host.canvas).toBe(target.querySelector('.floor-stage canvas'));
     expect(view.host.labels.parentElement).toBe(target.querySelector('.floor-stage'));
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select sw-b2 pan']);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select desk sw-b2 pan']);
     expect(view.mountedTheme).toBe('system');
     expect(tool('Turn left').disabled).toBe(false);
     expect(target.querySelector('.no-webgl')).toBeNull();
@@ -74,12 +74,22 @@ describe('FloorStage', () => {
     const { renderer, onSelect, onActivate } = stage();
     await settle();
     const view = renderer.views[0]!;
-    view.emit('select', 'sw-a1');
+    view.emit('select', { kind: 'desk', id: 'sw-a1' });
     view.emit('select', null);
-    view.emit('activate', 'sw-a1');
+    view.emit('activate', { kind: 'desk', id: 'sw-a1' });
     expect(onSelect.mock.calls).toEqual([['sw-a1'], [null]]);
     expect(onActivate.mock.calls).toEqual([['sw-a1']]);
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', 'select sw-a1', 'select -']);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', 'select desk sw-a1', 'select -']);
+  });
+
+  it('leaves a room picked in 3D alone: the route names desks', async () => {
+    const { renderer, onSelect, onActivate } = stage(undefined, 'sw-b2');
+    await settle();
+    const view = renderer.views[0]!;
+    view.emit('select', { kind: 'room', id: 'wf_0000aaaa-001' });
+    view.emit('activate', { kind: 'room', id: 'wf_0000aaaa-001' });
+    expect([onSelect.mock.calls, onActivate.mock.calls]).toEqual([[], []]);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select desk sw-b2 pan']);
   });
 
   it('turns and resets the camera from its buttons and from Q, E and R', async () => {
