@@ -14,10 +14,11 @@ const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
 /**
  * Format characters. Bidirectional ones can make text read differently from what it is; others are invisible: zero-width
  * spaces, word joiners, soft hyphens, the language tag. The zero-width non-joiner and joiner stay: emoji and some scripts
- * need them. The tag characters U+E0020 to U+E007F stay only in a subdivision flag, such as Scotland's: U+1F3F4, tag
- * letters, then the cancel tag U+E007F (group 1, kept whole). Anywhere else they would hide ASCII text, and go.
+ * need them. The tag characters U+E0020 to U+E007F stay only in a well-formed subdivision flag, such as Scotland's: U+1F3F4,
+ * two tag letters (the region), one to four tag letters or digits (the subdivision), then the cancel tag U+E007F (group 1,
+ * kept whole). Anywhere else, and in a longer or other run, they would hide ASCII text, and go.
  */
-const FORMAT = /(\u{1F3F4}[\u{E0020}-\u{E007E}]+\u{E007F})|(?![\u200C\u200D])\p{Cf}/gu;
+const FORMAT = /(\u{1F3F4}[\u{E0061}-\u{E007A}]{2}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,4}\u{E007F})|(?![\u200C\u200D])\p{Cf}/gu;
 
 /** Cap for keys and ids: 256 code points are at most 512 UTF-16 code units, the longest key GET /api/floor accepts. */
 export const KEY_MAX = 256;
