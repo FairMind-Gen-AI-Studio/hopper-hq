@@ -260,6 +260,18 @@ describe('wait reasons', () => {
   });
 });
 
+describe('version 2', () => {
+  it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
+    const views = [view('a', ws('/w/api', 'main'), 'done')];
+    const floor = buildFloorDetail(views, 'repo:/w/api')!;
+    expect(SCENE_VERSION).toBe(2);
+    expect([floor.version, floor.rooms, floor.roomsMore]).toEqual([2, [], 0]);
+    const desk = floor.islands[0]!.desks[0]!;
+    expect([desk.summary, desk.interns, desk.internsMore, desk.away, desk.runs]).toEqual([null, [], 0, false, []]);
+    expect(buildScene(views).attention.done[0]!.summary).toBeNull();
+  });
+});
+
 describe('untrusted text', () => {
   const UNSAFE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
   const strings = (x: unknown): string[] =>

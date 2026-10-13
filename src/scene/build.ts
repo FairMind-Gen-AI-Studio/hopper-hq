@@ -148,6 +148,11 @@ function deskOf(v: SessionView, rect: Desk['rect'], root: string): Desk {
     reason: reasonOf(v),
     activity: activityOf(v),
     agentsRunning: v.children.filter((c) => c.running).length,
+    summary: null,
+    interns: [],
+    internsMore: 0,
+    away: false,
+    runs: [],
     location: v.location,
     pane: cleanOrNull(v.tmuxPane),
     focusable: focusableOf(v),
@@ -171,7 +176,7 @@ function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDet
       desks: g.views.map((v, k) => deskOf(v, placed.desks[k]!.rect, g.root)),
     };
   });
-  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands };
+  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands, rooms: [], roomsMore: 0 };
 }
 
 function entryOf(v: SessionView, state: AttentionEntry['state']): AttentionEntry {
@@ -185,6 +190,7 @@ function entryOf(v: SessionView, state: AttentionEntry['state']): AttentionEntry
     reason: reasonOf(v),
     title: taskTitle(v),
     focusable: focusableOf(v),
+    summary: null,
   };
 }
 

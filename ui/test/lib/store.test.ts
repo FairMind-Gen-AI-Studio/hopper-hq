@@ -123,8 +123,8 @@ describe('client store', () => {
     const { store, watch, last } = setup();
     watch();
     last().send('scene', '{not json');
-    last().send('scene', { ...makeScene(), version: 2 });
-    last().send('scene', { version: 1, floors: 'no' });
+    last().send('scene', { ...makeScene(), version: 1 });
+    last().send('scene', { version: 2, floors: 'no' });
     last().send('floor', makeFloor(CHECKOUT));
     expect(store.get().scene).toBeNull();
     expect(store.get().floor).toBeUndefined();
@@ -160,7 +160,7 @@ describe('client store', () => {
     store.watchFloor(CHECKOUT);
     watch();
     const floor = makeFloor(CHECKOUT)!;
-    for (const bad of ['{not json', 42, { ...floor, version: 2 }, { ...floor, islands: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
+    for (const bad of ['{not json', 42, { ...floor, version: 1 }, { ...floor, islands: 'no' }, { ...floor, key: 7 }, { ...floor, key: ORDERS }]) {
       last().send('floor', bad);
     }
     expect(store.get().floor).toBeUndefined();

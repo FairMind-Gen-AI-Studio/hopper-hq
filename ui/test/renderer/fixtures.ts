@@ -1,6 +1,6 @@
 import { OrthographicCamera } from 'three';
 import { layoutFloor } from '../../../src/scene/layout';
-import type { Desk, FloorDetail, Island, Robot, ShownState } from '../../../src/scene/types';
+import { SCENE_VERSION, type Desk, type FloorDetail, type Island, type Robot, type ShownState } from '../../../src/scene/types';
 import { HOME_AZIMUTH, cameraOffset, floorCenter, frustumFor } from '../../renderer/world';
 
 /** The robot the scene builder gives each state (outline §2.6); dormant desks have none. */
@@ -45,6 +45,11 @@ export function makeDesk(spec: DeskSpec, rect: Desk['rect'], body: number, tie: 
     reason: null,
     activity: null,
     agentsRunning: spec.agents ?? 0,
+    summary: null,
+    interns: [],
+    internsMore: 0,
+    away: false,
+    runs: [],
     location: spec.cloud ? 'cloud' : 'local',
     pane: null,
     focusable: false,
@@ -71,7 +76,7 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2'): F
   const counts: FloorDetail['counts'] = {};
   for (const island of placed) for (const desk of island.desks) counts[desk.state] = (counts[desk.state] ?? 0) + 1;
   return {
-    version: 1,
+    version: SCENE_VERSION,
     key,
     number: 1,
     kind: key.startsWith('feature:') ? 'feature' : 'department',
@@ -83,6 +88,8 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2'): F
     size: layout.size,
     core: layout.core,
     islands: placed,
+    rooms: [],
+    roomsMore: 0,
   };
 }
 

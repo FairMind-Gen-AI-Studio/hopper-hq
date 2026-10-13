@@ -258,7 +258,7 @@ function summary(f: FloorSpec, number: number): FloorSummary {
 }
 
 function entry(f: FloorSpec, island: IslandSpec, d: DeskSpec, state: 'needs_you' | 'done'): AttentionEntry {
-  return { sessionId: d.id, floorKey: f.key, name: d.name, repo: island.repo, state, since: d.since, reason: d.reason ?? null, title: d.title, focusable: focusable(d) };
+  return { sessionId: d.id, floorKey: f.key, name: d.name, repo: island.repo, state, since: d.since, reason: d.reason ?? null, title: d.title, focusable: focusable(d), summary: null };
 }
 
 export function makeScene(): BuildingScene {
@@ -306,6 +306,11 @@ export function makeFloor(key: string): FloorDetail | null {
           reason: d.reason ?? null,
           activity: d.activity ?? null,
           agentsRunning: d.agents ?? 0,
+          summary: null,
+          interns: [],
+          internsMore: 0,
+          away: false,
+          runs: [],
           location: d.location ?? 'local',
           pane: d.pane,
           focusable: focusable(d),
@@ -318,5 +323,7 @@ export function makeFloor(key: string): FloorDetail | null {
         };
       }),
     })),
+    rooms: [],
+    roomsMore: 0,
   };
 }

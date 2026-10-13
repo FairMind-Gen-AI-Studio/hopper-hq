@@ -3,9 +3,9 @@
  * Every string is cleaned by the server (control and bidi characters removed, length capped).
  * Grid: integer cells; x grows east, y grows south. The renderer maps cells to world units.
  */
-import type { SessionState, WaitKind } from '../core/types.js';
+import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 1;
+export const SCENE_VERSION = 2;
 
 /** States a desk can show. Ended sessions have left the building. */
 export type ShownState = Exclude<SessionState, 'ended'>;
@@ -54,6 +54,7 @@ export interface AttentionEntry {
   /** Title, else latest prompt, else first prompt. */
   title: string | null;
   focusable: boolean;
+  summary: DeskSummary | null;
 }
 
 export interface BuildingScene {
@@ -90,6 +91,61 @@ export interface DeskActivity {
   running: boolean;
 }
 
+export interface DeskSummary {
+  text: string;
+  /** When it was written (ms). */
+  at: number;
+  /** A prompt arrived after it: the line may be out of date. */
+  stale: boolean;
+}
+
+/** A plain subagent, hovering next to its parent desk. */
+export interface Intern {
+  agentId: string;
+  /** Agent type, e.g. 'Explore'; null when unknown. */
+  type: string | null;
+  label: string | null;
+  running: boolean;
+}
+
+/** One run of a session, for its desk panel. */
+export interface RunSummary {
+  runId: string;
+  name: string | null;
+  status: RunStatus;
+  startedAt: number;
+  endedAt: number | null;
+  counts: { running: number; finished: number };
+}
+
+export type PhaseState = 'done' | 'current' | 'upcoming';
+
+export interface MeetingAgent {
+  agentId: string;
+  label: string | null;
+  phase: string | null;
+  type: string | null;
+  running: boolean;
+}
+
+/** A running workflow run: a room in the meeting wing of its host's floor. */
+export interface MeetingRoom {
+  runId: string;
+  hostSessionId: string;
+  name: string | null;
+  summary: string | null;
+  /** Phase titles with their state; empty when the run's phases are unknown. */
+  phases: { title: string; state: PhaseState }[];
+  counts: { running: number; finished: number };
+  /** Running agents first, in start order, then finished ones, latest first; at most MEETING_AGENTS_MAX. The first min(SEATS_MAX, counts.running) sit at the table. */
+  agents: MeetingAgent[];
+  /** Body and tie colour slots of the run's robots: the host's repo and feature. */
+  look: { body: number; tie: number | null };
+  /** The host's robot at the head of the table while the host is in_meeting; else null (the head seat holds a placard). */
+  host: Robot | null;
+  rect: GridRect;
+}
+
 export interface Desk {
   sessionId: string;
   /** 2x2 cells. The monitor sits on the north edge, the chair on the south edge. */
@@ -100,8 +156,17 @@ export interface Desk {
   since: number;
   reason: SceneReason | null;
   activity: DeskActivity | null;
-  /** Running subagents and workflow agents (shown as a count until M3 brings interns). */
+  /** Running subagents and workflow agents. */
   agentsRunning: number;
+  summary: DeskSummary | null;
+  /** Running interns first (by start), then the latest finished; at most INTERNS_MAX. */
+  interns: Intern[];
+  /** Interns not in `interns`. */
+  internsMore: number;
+  /** The robot sits at the head of a meeting room on this floor (its desk chair is empty). */
+  away: boolean;
+  /** Running runs first (by start), then finished ones, latest ended first; at most RUNS_SHOWN. */
+  runs: RunSummary[];
   location: 'local' | 'cloud';
   /** tmux pane id (%N) for display; focus goes through POST /api/focus by sessionId. */
   pane: string | null;
@@ -131,4 +196,7 @@ export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   /** Elevator and plants corner (decor; never overlaps islands). */
   core: GridRect;
   islands: Island[];
+  rooms: MeetingRoom[];
+  /** Running runs on this floor without a room. */
+  roomsMore: number;
 }
