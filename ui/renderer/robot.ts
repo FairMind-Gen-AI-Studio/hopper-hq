@@ -2,8 +2,9 @@
  * A session's robot, from primitives (prototypes/floor-3d-mockup.html, dressBot): a monitor head with a glowing
  * visor, a body in the repo colour and a tie in the feature colour. M2 robots do not move: each state has one static
  * pose (outline §2.6), set by rotating the limb pivots.
+ * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
-import { CylinderGeometry, Group, type Mesh } from 'three';
+import { CylinderGeometry, Group, SphereGeometry, type Mesh } from 'three';
 import type { Pose, Robot } from '../../src/scene/types';
 import type { Materials } from './materials';
 import { part, type Geometries, type PickData } from './props';
@@ -11,6 +12,13 @@ import { SEAT_Y, isStanding, type Spot } from './world';
 
 /** Body measures: hip and torso heights, shoulder and leg offsets from the middle, and arm length. */
 export const BOT = { hip: 0.34, torso: 0.36, shoulderX: 0.22, legX: 0.09, arm: 0.32 } as const;
+
+/** A session's own robot, a workflow agent at a meeting table, or an intern hovering by its desk. */
+export type RobotKind = 'session' | 'intern' | 'workflow';
+/** How big each kind stands. */
+export const KIND_SCALE: Readonly<Record<RobotKind, number>> = { session: 1, intern: 0.55, workflow: 0.8 };
+/** How high an intern floats: its feet would be here, and its body above the top of the desk's monitor. */
+export const HOVER_Y = 1.2;
 
 /**
  * Pivot rotations of a pose, in radians. Arms are [x, z]: a negative x swings a limb forward and z splays an arm.
@@ -42,9 +50,10 @@ export function poseOf(robot: Pick<Robot, 'pose' | 'badge'>): PoseSpec {
   return robot.pose === 'still' && robot.badge === 'clock' ? { ...spec, neck: HEAD_DOWN } : spec;
 }
 
-/** Height of the robot's feet: a seated robot sinks until its hips rest on the chair. */
-export function rootHeight(pose: Pose): number {
-  return isStanding(pose) ? 0 : SEAT_Y - BOT.hip;
+/** Height of the robot's feet: a seated robot sinks until its hips, at its size, rest on the chair; an intern hovers. */
+export function rootHeight(pose: Pose, kind: RobotKind = 'session'): number {
+  if (kind === 'intern') return HOVER_Y;
+  return isStanding(pose) ? 0 : SEAT_Y - BOT.hip * KIND_SCALE[kind];
 }
 
 export interface RobotRig {
@@ -60,6 +69,7 @@ export interface RobotRig {
 
 export interface RobotObject {
   readonly sessionId: string;
+  readonly kind: RobotKind;
   readonly group: Group;
   readonly rig: RobotRig;
   /** The colour slots it was built with; a change of either rebuilds the robot. */
@@ -69,10 +79,10 @@ export interface RobotObject {
 }
 
 /**
- * Only the legs, the torso, the arms, the head and the paper cast shadows: joints, face, visor and tie would cost a
- * draw each for a texel or two of shadow.
+ * Only the legs, the torso, the arms, the head, the hard hat and the paper cast shadows: joints, face, visor, tie, brim
+ * and jetpack would cost a draw each for a texel or two of shadow.
  */
-export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mats: Materials): RobotObject {
+export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mats: Materials, kind: RobotKind = 'session'): RobotObject {
   const s = mats.surface;
   const small = { cast: false };
   const body = mats.body(robot.body);
@@ -80,6 +90,7 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
   const tie = mats.tie(robot.tie);
   const group = new Group();
   group.name = `robot ${sessionId}`;
+  group.scale.setScalar(KIND_SCALE[kind]);
   const pivot = (parent: Group, x: number, y: number) => {
     const g = new Group();
     g.position.set(x, y, 0);
@@ -93,7 +104,8 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
   const armR = pivot(waist, BOT.shoulderX, BOT.torso - 0.05);
   const neck = pivot(waist, 0, BOT.torso);
 
-  for (const leg of [legL, legR]) {
+  // An intern keeps its leg pivots, so that every kind poses alike, but has nothing below the hip.
+  for (const leg of kind === 'intern' ? [] : [legL, legR]) {
     part(leg, geo.rod(0.04, 0.04, BOT.hip), s.shell, 0, -BOT.hip / 2, 0);
     part(leg, geo.rbox(0.12, 0.07, 0.18, 0.03), joint, 0, -BOT.hip + 0.035, 0.03, small);
   }
@@ -108,6 +120,18 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
   part(neck, geo.rbox(0.38, 0.28, 0.26, 0.04), s.shell, 0, 0.2, 0);
   part(neck, geo.rbox(0.31, 0.2, 0.02, 0.008), s.monitor, 0, 0.2, 0.125, small);
   part(neck, geo.box(0.18, 0.035, 0.012), s.visor, 0, 0.21, 0.137, small);
+  // A workflow agent's hard hat: a dome on the top of the head and a brim, longer at the front.
+  if (kind === 'workflow') {
+    part(neck, dome(geo), s.hardhat, 0, 0.34, 0);
+    part(neck, geo.rod(0.205, 0.205, 0.025, 24), s.hardhat, 0, 0.34, 0.02, small);
+  }
+  // An intern's jetpack: two tanks on its back, each with a nozzle under it.
+  if (kind === 'intern') {
+    for (const x of [-0.08, 0.08]) {
+      part(waist, geo.rod(0.05, 0.05, 0.24), s.jet, x, BOT.torso / 2, -0.16, small);
+      part(waist, geo.rod(0.03, 0.05, 0.08), s.shell, x, BOT.torso / 2 - 0.16, -0.16, small);
+    }
+  }
   // The tie: a knot and a tapered blade, in the feature colour.
   const knotY = BOT.torso - 0.05;
   part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
@@ -122,14 +146,14 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
       pickables.push(o as Mesh);
     }
   });
-  return { sessionId, group, rig: { legL, legR, waist, armL, armR, neck, paper }, body: robot.body, tie: robot.tie, pickables };
+  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper }, body: robot.body, tie: robot.tie, pickables };
 }
 
 /** Puts the robot on its spot, facing its way, in the pose of its state. */
 export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>, spot: Spot): void {
   const spec = poseOf(robot);
   const r = obj.rig;
-  obj.group.position.set(spot.x, rootHeight(robot.pose), spot.z);
+  obj.group.position.set(spot.x, rootHeight(robot.pose, obj.kind), spot.z);
   obj.group.rotation.y = spot.facing;
   r.armL.rotation.set(spec.armL[0], 0, spec.armL[1]);
   r.armR.rotation.set(spec.armR[0], 0, spec.armR[1]);
@@ -138,6 +162,10 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
   r.neck.rotation.x = spec.neck;
   r.waist.rotation.x = spec.lean;
   r.paper.visible = spec.paper;
+}
+
+function dome(geo: Geometries) {
+  return geo.shared('hard hat', () => new SphereGeometry(0.155, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2));
 }
 
 function tieBlade(geo: Geometries) {
