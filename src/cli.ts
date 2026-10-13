@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdir, open, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -37,12 +37,24 @@ export interface Io {
   spawnDaemon?(args: string[], log: string): Promise<Background>;
 }
 
+/** How long to wait for the desktop's opener: a browser it starts can outlive it, and nothing it prints matters. */
+const OPEN_WAIT_MS = 3000;
+
 /** Opens a URL with the desktop's opener (macOS, Linux). Failures are ignored: the link is printed anyway. */
-function openInBrowser(url: string): Promise<void> {
+export function openInBrowser(url: string): Promise<void> {
   const opener = process.platform === 'darwin' ? 'open' : process.platform === 'linux' ? 'xdg-open' : null;
   if (!opener) return Promise.resolve();
   return new Promise((resolve) => {
-    execFile(opener, [url], { timeout: 10_000 }, () => resolve());
+    // No pipes: xdg-open can leave the browser holding its stdout and stderr, and then nothing would end.
+    const child = spawn(opener, [url], { stdio: 'ignore', detached: true });
+    const done = () => {
+      clearTimeout(cap);
+      resolve();
+    };
+    const cap = setTimeout(done, OPEN_WAIT_MS);
+    child.once('exit', done);
+    child.once('error', done);
+    child.unref();
   });
 }
 

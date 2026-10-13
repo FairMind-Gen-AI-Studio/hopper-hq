@@ -13,6 +13,8 @@ const FLUSH_MS = 500
 const POLL_MS = 3000
 // `scranton-hq up` returns once the building is open: in at most about 20 seconds, when the daemon is slow to start.
 const UP_TIMEOUT_MS = 30_000
+// A run that fails this close to the timeout was cut off by it: the binary did start.
+const TIMEOUT_MARGIN_MS = 1000
 const NOT_INSTALLED = 'scranton-hq is not installed, or not on your PATH'
 // C0 and C1 control characters, except tab and line feed.
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g
@@ -134,14 +136,16 @@ async function inSession($: EngineInterface, pane: string, session: string): Pro
 }
 
 // Opens the building in the browser with `scranton-hq up`, which starts the daemon in the background when it is not
-// running. Resolves what to tell the person, or null when scranton-hq could not run. Never the sign-in link up prints:
+// running. Resolves what to tell the person, or null when scranton-hq could not start. Never the sign-in link up prints:
 // a command's output is in the transcript, and the transcript reaches the model.
 async function openBuilding($: EngineInterface): Promise<string | null> {
   let r: ProcessRunResult
+  const startedAt = await $.clock.now()
   try {
     r = await $.process.run(['scranton-hq', 'up'], { timeoutMs: UP_TIMEOUT_MS })
   } catch {
-    return null
+    // The run rejects both when the binary cannot start and when it is still running at the timeout.
+    return (await $.clock.now()) - startedAt >= UP_TIMEOUT_MS - TIMEOUT_MARGIN_MS ? `scranton-hq up did not finish in ${UP_TIMEOUT_MS / 1000} seconds.` : null
   }
   if (r.exitCode === 0) return 'Opened the building in your browser.'
   const why = r.stderr.replace(CONTROL, '').trim().slice(0, 2000)

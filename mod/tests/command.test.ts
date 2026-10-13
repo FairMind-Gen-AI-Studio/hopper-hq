@@ -11,12 +11,12 @@ const TYPED = { command: 'scranton-hq', args: '', origin: { kind: 'composer' }, 
 type Up = { exitCode: number; stdout: string; stderr: string }
 
 // The host as the command meets it. Nothing runs for real: `scranton-hq up` answers `up`, or cannot start when it is null.
-function host(on: On, up: Up | null) {
+function host(on: On, up: Up | null, failAfterMs = 0) {
   const ran: { argv: string[]; timeoutMs?: number }[] = []
   const toasts: string[] = []
   const specs: unknown[] = []
   mock.env(on, { HOME: '/home/dev' })
-  mock.clock(on)
+  const clock = mock.clock(on)
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('command.register', async ($, e) => {
     specs.push(e)
@@ -28,7 +28,10 @@ function host(on: On, up: Up | null) {
   })
   on('process.run', async ($, e) => {
     ran.push({ argv: [...e.argv], timeoutMs: e.init?.timeoutMs })
-    if (!up) throw new Error('spawn scranton-hq ENOENT')
+    if (!up) {
+      await clock.advance(failAfterMs)
+      throw new Error(failAfterMs > 0 ? 'timed out' : 'spawn scranton-hq ENOENT')
+    }
     return { value: { ...up, isStdoutTruncated: false, isStderrTruncated: false } }
   })
   return { ran, toasts, specs }
@@ -65,4 +68,12 @@ test('says so, in a toast too, when scranton-hq cannot run', async ($, on) => {
   const r = await $.command.run(TYPED)
   expect(r.text).toBe(`${NOT_INSTALLED}.`)
   expect(h.toasts).toEqual([NOT_INSTALLED])
+})
+
+test('says up did not finish, not that scranton-hq is missing, when it was still running at the timeout', async ($, on) => {
+  const h = host(on, null, 30000)
+  await $.session.start(START)
+  const r = await $.command.run(TYPED)
+  expect(r.text).toBe('scranton-hq up did not finish in 30 seconds.')
+  expect(h.toasts).toEqual([])
 })

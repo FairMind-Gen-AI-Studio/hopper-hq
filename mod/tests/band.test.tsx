@@ -18,7 +18,7 @@ const ASK = ['tmux', 'display-message', '-p', '-t', '%7', '#{session_name}']
 const OTHER = 'The pane is on another tmux server or session'
 
 // `tmux.owner`: the tmux session this server's %7 is in; null when this server has no %7.
-function daemon(on: On, attention: object, env: Record<string, string>, ran: string[][], tmux: { owner: string | null } = { owner: 'work' }) {
+function daemon(on: On, attention: object, env: Record<string, string>, ran: string[][], tmux: { owner: string | null } = { owner: 'work' }, upFails?: () => Promise<void>) {
   mock.env(on, env)
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('session.id', async () => ({ value: 'S-OWN' }))
@@ -26,6 +26,10 @@ function daemon(on: On, attention: object, env: Record<string, string>, ran: str
   on('http.fetch', async () => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(attention) } }))
   on('process.run', async ($, e) => {
     ran.push([...e.argv])
+    if (upFails && e.argv[1] === 'up') {
+      await upFails()
+      throw new Error('timed out')
+    }
     const asked = e.argv[1] === 'display-message'
     const out = !asked ? { exitCode: 0, stdout: '' } : tmux.owner === null ? { exitCode: 1, stdout: '' } : { exitCode: 0, stdout: `${tmux.owner}\n` }
     return { value: { ...out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -130,4 +134,21 @@ test('opens the building from the band, in tmux or not, and says how it went', a
   }
   expect(ran).toEqual([['scranton-hq', 'up'], ['scranton-hq', 'up']])
   expect(toasts).toEqual(['Opened the building in your browser.', 'Opened the building in your browser.'])
+})
+
+test('says up did not finish when the band\'s button waited out the timeout', async ($, on) => {
+  const toasts: string[] = []
+  let clock!: ReturnType<typeof mock.clock>
+  daemon(on, ATTENTION, { HOME: '/home/dev' }, [], { owner: 'work' }, () => clock.advance(30000))
+  on('ui.toast', async ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await ui.press({ key: 'building' })
+  await ui.unmount()
+  expect(toasts).toEqual(['scranton-hq up did not finish in 30 seconds.'])
 })
