@@ -45,7 +45,7 @@ describe('scaffold', () => {
     expect(pkg.scripts['test:e2e']).toBe('npm run build && playwright test');
     const config = read('../playwright.config.ts');
     expect(config).toMatch(/channel: 'chrome'/);
-    expect(config).toMatch(/reporter: 'list'/);
+    expect(config).toContain("reporter: [['list'], ['./e2e/clean-output-reporter.ts']]");
     expect(read('../.github/workflows/ci.yml')).not.toMatch(/e2e|playwright/i);
   });
 });

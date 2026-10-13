@@ -164,7 +164,7 @@ The dev server listens on 127.0.0.1:17173 and forwards `/api` and `/ui/login` to
 
 ### Browser smoke test
 
-`npm run test:e2e` builds the package and tests it in a real browser. It starts its own demo daemon on a free port between 17000 and 17999, with a temporary data directory. Then it signs in through the demo's link and walks the building, a floor in 3D and a desk in headless Chrome, failing on any console error or content-policy violation.
+`npm run test:e2e` builds the package and tests it in a real browser. It starts its own demo daemon on a free port between 17000 and 17999, with a temporary data directory. Then it signs in through the demo's link and walks the building, a floor in 3D and a desk in headless Chrome, failing on any console error or content-policy violation. Its output goes to a temporary directory that is removed after a passing run and kept after a failing one, so the screenshot and error context stay for debugging.
 
 It runs on the Google Chrome installed on your machine and never downloads a browser. Without Chrome it stops with a message saying so. It is not part of `npm test` and does not run in CI.
 
