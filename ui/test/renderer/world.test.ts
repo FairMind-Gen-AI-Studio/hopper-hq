@@ -23,6 +23,7 @@ import {
   internSpots,
   labelAnchor,
   placardAnchor,
+  polarOf,
   robotSpot,
   roomKey,
   roomTagAnchor,
@@ -100,7 +101,7 @@ describe('world maths', () => {
     expect(placardAnchor({ x: 2, y: 6, w: 4, h: 4 })).toEqual({ x: 2.2, y: 0.02, z: 9.85 });
   });
 
-  it('places the camera on a sphere around its target, and reads the azimuth back', () => {
+  it('places the camera on a sphere around its target, and reads the azimuth and the tilt back', () => {
     const o = cameraOffset(HOME_AZIMUTH);
     expect(Math.hypot(o.x, o.y, o.z)).toBeCloseTo(CAMERA_DISTANCE, 10);
     expect(o.y).toBeCloseTo(CAMERA_DISTANCE * Math.cos(POLAR), 10);
@@ -108,6 +109,13 @@ describe('world maths', () => {
     expect(o.x).toBeGreaterThan(0);
     for (const a of [HOME_AZIMUTH, HOME_AZIMUTH + QUARTER, -HOME_AZIMUTH, -3 * HOME_AZIMUTH]) {
       expect(azimuthOf(cameraOffset(a))).toBeCloseTo(a, 10);
+    }
+    expect(polarOf(o)).toBeCloseTo(POLAR, 10);
+    for (const p of [0.2, 0.7, 1.3]) {
+      const tilted = cameraOffset(HOME_AZIMUTH + QUARTER, p);
+      expect(Math.hypot(tilted.x, tilted.y, tilted.z)).toBeCloseTo(CAMERA_DISTANCE, 10);
+      expect(polarOf(tilted)).toBeCloseTo(p, 10);
+      expect(azimuthOf(tilted)).toBeCloseTo(HOME_AZIMUTH + QUARTER, 10);
     }
   });
 

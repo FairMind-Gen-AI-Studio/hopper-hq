@@ -145,7 +145,7 @@ Floor order is stable (newest on top) to preserve spatial memory. Floors where e
 
 Rendering:
 
-- 3D diorama in WebGL (three.js): orthographic isometric camera that rotates around the vertical axis, zooms and pans. Walls facing the camera are cut away.
+- 3D diorama in WebGL (three.js): orthographic camera that rotates around the vertical axis, tilts within limits, zooms and pans. Walls facing the camera are cut away.
 - Everything is built from primitives in code (rounded boxes, cylinders, spheres): no model files, no rigging. Colors come from theme tokens, so light and dark themes (day and night) share one scene.
 - Characters walk on a grid with A* pathfinding. Walking, sitting and gestures are procedural (pivot rotations), not skeletal animation.
 - Labels, placards and the selection UI are HTML overlaid on the canvas, positioned by projecting 3D points.

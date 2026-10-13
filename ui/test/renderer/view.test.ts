@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { DESK_PULL, DESK_ZOOM, MAX_ZOOM, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
+import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
-import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, tableCenter } from '../../renderer/world';
+import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
 import { checkoutFloor, checkoutIslands, desksOf, makeFloor, roomFloor } from './fixtures';
 
@@ -189,7 +189,7 @@ function doubleClick(env: FakeEnv, target: HTMLElement, at: { x: number; y: numb
   target.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, detail: 2, bubbles: true }));
 }
 
-/** A drag across the canvas with a mouse button: the main one turns the camera, the right one pans it. */
+/** A drag across the canvas with a mouse button: the main one turns and tilts the camera, the right one pans it. */
 function drag(canvas: HTMLCanvasElement, dx: number, dy: number, button: number): void {
   const at = (x: number, y: number) => ({ clientX: x, clientY: y, button, pointerId: 7, pointerType: 'mouse', bubbles: true });
   canvas.dispatchEvent(new PointerEvent('pointerdown', at(W / 2, H / 2)));
@@ -216,7 +216,9 @@ function cameraPose(renderer: FakeRenderer) {
   // The ground point the camera looks at, from its position along its direction to y = 0.
   const t = camera.position.y / -dir.y;
   const target = { x: camera.position.x + dir.x * t, z: camera.position.z + dir.z * t };
-  return { target, azimuth: azimuthOf({ x: camera.position.x - target.x, z: camera.position.z - target.z }), zoom: camera.zoom };
+  // The tilt: the angle between the line of sight and straight down.
+  const polar = Math.acos(-dir.y);
+  return { target, azimuth: azimuthOf({ x: camera.position.x - target.x, z: camera.position.z - target.z }), polar, zoom: camera.zoom };
 }
 
 describe('the floor view', () => {
@@ -743,6 +745,58 @@ describe('the floor view', () => {
     expect(turned.target.z).toBeCloseTo(panned.target.z, 6);
     expect(turned.azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
     expect(renderer.camera!.position.y).toBeCloseTo(cameraOffset(HOME_AZIMUTH).y, 6);
+  });
+
+  it('tilts on a drag up or down, about the ground point at the centre of the view, within its limits', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const home = cameraPose(renderer);
+    expect(home.polar).toBeCloseTo(POLAR, 6);
+    drag(canvas, 0, 60, 0);
+    env.flush();
+    const tilted = cameraPose(renderer);
+    expect(tilted.polar).not.toBeCloseTo(POLAR, 2);
+    expect(tilted.azimuth).toBeCloseTo(home.azimuth, 6);
+    expect(tilted.target.x).toBeCloseTo(home.target.x, 6);
+    expect(tilted.target.z).toBeCloseTo(home.target.z, 6);
+    drag(canvas, 0, 3000, 0);
+    env.flush();
+    const one = cameraPose(renderer).polar;
+    drag(canvas, 0, -6000, 0);
+    env.flush();
+    const other = cameraPose(renderer).polar;
+    expect([Math.min(one, other), Math.max(one, other)].map((p) => Math.round(p * 1e6))).toEqual([MIN_POLAR, MAX_POLAR].map((p) => Math.round(p * 1e6)));
+  });
+
+  it('keeps the tilt through a floor update, a turn and a pan to a desk, and resets it home', () => {
+    const { renderer, env, view, canvas } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    drag(canvas, 0, 60, 0);
+    env.step(16);
+    env.step(16);
+    // A turn asked for while the tilt still glides keeps the tilt where the glide stopped.
+    view.rotate(1);
+    env.flush();
+    const tilt = cameraPose(renderer).polar;
+    expect(tilt).not.toBeCloseTo(POLAR, 2);
+    expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH + QUARTER, 6);
+    view.rotate(-1);
+    env.flush();
+    // Tilted, the camera is no longer home: a room that opens keeps the tilt.
+    view.setFloor(roomFloor());
+    env.flush();
+    expect(cameraPose(renderer).polar).toBeCloseTo(tilt, 6);
+    const before = cameraPose(renderer).target;
+    view.select(desk('oa-c3'), { pan: true });
+    env.flush();
+    expect(Math.hypot(cameraPose(renderer).target.x - before.x, cameraPose(renderer).target.z - before.z)).toBeGreaterThan(1);
+    expect(cameraPose(renderer).polar).toBeCloseTo(tilt, 6);
+    view.resetView();
+    env.flush();
+    expect(cameraPose(renderer).polar).toBeCloseTo(POLAR, 6);
+    expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
   });
 
   it('turns about the ground point at the centre of the view when dragged, also after a pan up or down', () => {

@@ -1,11 +1,14 @@
 /**
- * The floor camera's moves as plain maths: quarter turns around the vertical axis, the zoom limits, the home view,
- * the pan to a desk, and eased tweens between poses. The angle from the vertical never changes (world.POLAR).
+ * The floor camera's moves as plain maths: quarter turns around the vertical axis, the zoom and tilt limits, the home
+ * view, the pan to a desk, and eased tweens between poses.
  */
-import { HOME_AZIMUTH, floorCenter, type Point } from './world';
+import { HOME_AZIMUTH, POLAR, floorCenter, type Point } from './world';
 
 export const MIN_ZOOM = 0.55;
 export const MAX_ZOOM = 3.2;
+/** The camera's angle from the vertical: from nearly straight down to well above the ground (home is world.POLAR). */
+export const MIN_POLAR = 0.2;
+export const MAX_POLAR = 1.3;
 export const QUARTER = Math.PI / 2;
 /** A pan to a desk zooms in to at least DESK_ZOOM, and stops DESK_PULL of the way back toward the floor's centre. */
 export const DESK_ZOOM = 1.25;
@@ -19,6 +22,8 @@ export interface CameraPose {
   /** The point on the ground the camera looks at. */
   target: Point;
   azimuth: number;
+  /** The angle from the vertical. */
+  polar: number;
   zoom: number;
 }
 
@@ -41,17 +46,18 @@ export function homeAzimuthNear(azimuth: number): number {
   return HOME_AZIMUTH + Math.round((azimuth - HOME_AZIMUTH) / (2 * Math.PI)) * 2 * Math.PI;
 }
 
-/** The view a floor opens with: its centre, from the south-east, at zoom 1. */
+/** The view a floor opens with: its centre, from the south-east, at the home tilt and zoom 1. */
 export function homePose(size: { w: number; h: number }, azimuth = HOME_AZIMUTH): CameraPose {
-  return { target: floorCenter(size), azimuth: homeAzimuthNear(azimuth), zoom: 1 };
+  return { target: floorCenter(size), azimuth: homeAzimuthNear(azimuth), polar: POLAR, zoom: 1 };
 }
 
-/** Moves toward a desk without turning, keeping some of the floor around it in view. */
+/** Moves toward a desk without turning or tilting, keeping some of the floor around it in view. */
 export function deskPose(from: CameraPose, spot: Point, size: { w: number; h: number }): CameraPose {
   const c = floorCenter(size);
   return {
     target: { x: spot.x + (c.x - spot.x) * DESK_PULL, z: spot.z + (c.z - spot.z) * DESK_PULL },
     azimuth: from.azimuth,
+    polar: from.polar,
     zoom: clampZoom(Math.max(from.zoom, DESK_ZOOM)),
   };
 }
@@ -74,6 +80,7 @@ export function lerpPose(a: CameraPose, b: CameraPose, t: number): CameraPose {
   return {
     target: { x: mix(a.target.x, b.target.x), z: mix(a.target.z, b.target.z) },
     azimuth: a.azimuth + turnBetween(a.azimuth, b.azimuth) * t,
+    polar: mix(a.polar, b.polar),
     zoom: mix(a.zoom, b.zoom),
   };
 }

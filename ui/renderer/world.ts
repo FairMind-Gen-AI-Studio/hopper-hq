@@ -11,7 +11,7 @@ export const WALL_H = 2.6;
 export const WALL_T = 0.16;
 /** Seat height of a desk chair. */
 export const SEAT_Y = 0.48;
-/** The camera's fixed angle from the vertical, its home azimuth (looking from the south-east) and its distance. */
+/** The camera's angle from the vertical at home, its home azimuth (looking from the south-east) and its distance. */
 export const POLAR = 0.98;
 export const HOME_AZIMUTH = Math.PI / 4;
 export const CAMERA_DISTANCE = 60;
@@ -191,6 +191,11 @@ export function cameraOffset(azimuth: number, polar = POLAR, distance = CAMERA_D
 /** The azimuth of a camera offset: the inverse of cameraOffset. */
 export function azimuthOf(offset: Point): number {
   return Math.atan2(offset.x, offset.z);
+}
+
+/** The angle from the vertical of a camera offset: the inverse of cameraOffset. */
+export function polarOf(offset: Point3): number {
+  return Math.atan2(Math.hypot(offset.x, offset.z), offset.y);
 }
 
 export interface Frustum {

@@ -12,13 +12,13 @@ import { OrthographicCamera, PCFShadowMap, type Camera, type Object3D, type Shad
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MIN_SIZE } from '../../src/scene/layout';
 import type { FloorDetail } from '../../src/scene/types';
-import { MAX_ZOOM, MIN_ZOOM, PAN_MS, RESET_MS, ROTATE_MS, Tween, clampZoom, deskPose, homePose, stepAzimuth, type CameraPose } from './camera';
+import { MAX_POLAR, MAX_ZOOM, MIN_POLAR, MIN_ZOOM, PAN_MS, RESET_MS, ROTATE_MS, Tween, clampZoom, deskPose, homePose, stepAzimuth, type CameraPose } from './camera';
 import { FloorScene } from './floor-scene';
 import type { FloorView, Target } from './index';
 import { LabelLayer } from './labels';
 import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
-import { POLAR, azimuthOf, cameraOffset, frustumFor, sameTarget, type Point } from './world';
+import { azimuthOf, cameraOffset, frustumFor, polarOf, sameTarget, type Point } from './world';
 
 /** What the view needs of a three.js WebGLRenderer. */
 export interface RendererLike {
@@ -105,8 +105,8 @@ export function createFloorView(
   const world = new FloorScene(theme);
   const camera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
   const controls = new OrbitControls(camera, canvas);
-  controls.minPolarAngle = POLAR;
-  controls.maxPolarAngle = POLAR;
+  controls.minPolarAngle = MIN_POLAR;
+  controls.maxPolarAngle = MAX_POLAR;
   controls.minZoom = MIN_ZOOM;
   controls.maxZoom = MAX_ZOOM;
   controls.rotateSpeed = 0.6;
@@ -156,11 +156,12 @@ export function createFloorView(
 
   function pose(): CameraPose {
     const t = controls.target;
-    return { target: { x: t.x, z: t.z }, azimuth: azimuthOf({ x: camera.position.x - t.x, z: camera.position.z - t.z }), zoom: camera.zoom };
+    const offset = { x: camera.position.x - t.x, y: camera.position.y - t.y, z: camera.position.z - t.z };
+    return { target: { x: t.x, z: t.z }, azimuth: azimuthOf(offset), polar: polarOf(offset), zoom: camera.zoom };
   }
 
   function applyPose(p: CameraPose): void {
-    const o = cameraOffset(p.azimuth);
+    const o = cameraOffset(p.azimuth, p.polar);
     controls.target.set(p.target.x, 0, p.target.z);
     camera.position.set(p.target.x + o.x, o.y, p.target.z + o.z);
     camera.zoom = clampZoom(p.zoom);
@@ -186,11 +187,16 @@ export function createFloorView(
     p.add(shift);
   }
 
-  /** Whether the camera is where a floor opens: its centre, from the home side, at zoom 1. */
+  /** Whether the camera is where a floor opens: its centre, from the home side, at the home tilt and zoom 1. */
   function atHome(): boolean {
     const p = pose();
     const home = homePose(size, p.azimuth);
-    return Math.abs(p.zoom - home.zoom) < 1e-6 && Math.abs(p.azimuth - home.azimuth) < 1e-6 && Math.hypot(p.target.x - home.target.x, p.target.z - home.target.z) < 1e-6;
+    return (
+      Math.abs(p.zoom - home.zoom) < 1e-6 &&
+      Math.abs(p.azimuth - home.azimuth) < 1e-6 &&
+      Math.abs(p.polar - home.polar) < 1e-6 &&
+      Math.hypot(p.target.x - home.target.x, p.target.z - home.target.z) < 1e-6
+    );
   }
 
   function onControls(): void {
