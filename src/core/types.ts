@@ -88,6 +88,11 @@ export interface WorkflowRun {
   agents: RunAgent[];
   /** How many of the run's agents finished, including any dropped from `agents`. */
   agentsFinished: number;
+  /**
+   * Ids of the finished agents dropped from `agents`, the latest last, at most MAX_DROPPED_AGENTS: a start or an end read
+   * again for one of them counts nothing twice. Absent while none was dropped.
+   */
+  droppedAgents?: string[];
 }
 
 /** The "where it stands" line (M3a design §3). */

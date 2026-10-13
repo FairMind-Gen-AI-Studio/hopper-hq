@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvent, liveRun, markSeen, MAX_RUN_AGENTS, MAX_RUNS, newSession, normalizeSession, RUN_ID } from '../../src/core/reducer.js';
+import { applyEvent, liveRun, markSeen, MAX_DROPPED_AGENTS, MAX_RUN_AGENTS, MAX_RUNS, newSession, normalizeSession, RUN_ID } from '../../src/core/reducer.js';
 import type { CollectorEvent, Session } from '../../src/core/types.js';
 import { ev, seen, WS } from '../helpers/events.js';
 
@@ -181,6 +181,28 @@ describe('workflow runs', () => {
     expect([liveRun({ ...s.runs[0]!, onDisk: false }), liveRun({ ...s.runs[0]!, status: 'completed' })]).toEqual([false, false]);
   });
 
+  it("counts a run's finished agents once when its journal is read again, even those it let go of", () => {
+    // 70 agents one after another, then 10 at once: the run keeps 64 and remembers the 16 finished ones it let go of.
+    const journal: CollectorEvent[] = [];
+    for (let i = 1; i <= 70; i++) journal.push(fsAgent(1000 + i * 10, `a${i}`), ev('agent.finished', 1005 + i * 10, { agentId: `a${i}`, source: 'fs' }));
+    for (let i = 1; i <= 10; i++) journal.push(fsAgent(2000 + i, `b${i}`));
+    const before = run(seen(), ...journal);
+    const counts = (s: Session) => [s.runs[0]!.agents.length, s.runs[0]!.agents.filter((a) => a.running).length, s.runs[0]!.agentsFinished];
+    expect(counts(before)).toEqual([64, 10, 70]);
+    expect(before.runs[0]!.droppedAgents).toEqual(Array.from({ length: 16 }, (_, i) => `a${i + 1}`));
+    // After a restart the journal is read from its start again, and the mod's late word of an end changes nothing either.
+    const after = journal.reduce((s, e) => applyEvent(s, { ...e, ts: e.ts + 5000 })!, normalizeSession(before));
+    const late = applyEvent(after, ev('agent.finished', 9000, { agentId: 'a1' }))!;
+    expect([counts(after), late]).toEqual([[64, 10, 70], after]);
+    expect(late.children).toEqual([]);
+    // A run that let none go has no list; a long one remembers the latest MAX_DROPPED_AGENTS.
+    expect('droppedAgents' in run(seen(), fsAgent(1100, 'a1')).runs[0]!).toBe(false);
+    const long: CollectorEvent[] = [seen()];
+    for (let i = 1; i <= 364; i++) long.push(fsAgent(1000 + i * 10, `a${i}`), ev('agent.finished', 1005 + i * 10, { agentId: `a${i}`, source: 'fs' }));
+    const dropped = run(...long).runs[0]!.droppedAgents!;
+    expect([MAX_DROPPED_AGENTS, dropped.length, dropped[0], dropped.at(-1)]).toEqual([256, 256, 'a45', 'a300']);
+  });
+
   it('ignores workflow events whose run id is not one, and takes such an agent as a plain subagent', () => {
     const s = run(seen(), ev('workflow.started', 1100, { runId: 'wf_a/b', name: 'x', source: 'fs' }), ev('workflow.finished', 1200, { runId: 'run-1', status: 'completed', source: 'fs' }),
       ev('agent.started', 1300, { agentId: 'a1', agentType: 'Explore', description: 'Find callers', runId: '../wf_1', phase: 'Plan' }));
@@ -285,7 +307,8 @@ describe('normalizeSession', () => {
       ev('turn.finished', 1500, { backgroundTasks: 0 }));
     expect(s.state).toBe('in_meeting');
     const restored = normalizeSession(s);
-    expect(restored.runs.map((r) => [r.id, r.status, r.agentsFinished, r.agents.map((a) => a.running)])).toEqual([[R, 'running', 1, [false, true]], [R2, 'running', 0, [false]]]);
+    expect(restored.runs.map((r) => [r.id, r.status, r.agentsFinished, r.agents.map((a) => a.running)])).toEqual([[R, 'running', 1, [false, true]], [R2, 'running', 1, [false]]]);
+    expect(restored.runs[1]!.agents[0]!.updatedAt).toBe(1400);
     expect(restored).toMatchObject({ state: 'in_meeting', stateSince: 1500 });
   });
 

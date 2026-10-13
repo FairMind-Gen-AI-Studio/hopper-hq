@@ -6,6 +6,8 @@ const MAX_CHILDREN = 50;
 export const MAX_RUNS = 10;
 /** Agents kept per run; running ones are never dropped. */
 export const MAX_RUN_AGENTS = 64;
+/** Ids of dropped finished agents a run remembers. */
+export const MAX_DROPPED_AGENTS = 256;
 /** A workflow run id: 'wf_' and a short id of letters, digits, '_' and '-'. Anything else names no run. */
 export const RUN_ID = /^wf_[A-Za-z0-9_-]{1,64}$/;
 /** The main agent's last tool labels kept per session. */
@@ -128,6 +130,11 @@ function runOfAgent(s: Session, agentId: string): WorkflowRun | undefined {
   return s.runs.find((r) => r.agents.some((a) => a.id === agentId));
 }
 
+/** Whether a run dropped this agent, which had finished. */
+function droppedAgent(s: Session, agentId: string): boolean {
+  return s.runs.some((r) => r.droppedAgents?.includes(agentId));
+}
+
 /** Changes one agent of a run. */
 function withRunAgent(r: WorkflowRun, agentId: string, change: (a: RunAgent) => RunAgent): WorkflowRun {
   return { ...r, agents: r.agents.map((a) => (a.id === agentId ? change(a) : a)) };
@@ -163,11 +170,15 @@ function startRunAgent(s: Session, e: EventOf<'agent.started'>, runId: string): 
         updatedAt: Math.max(a.updatedAt, e.ts),
       }))
       : [...r.agents, { id: e.agentId, label: e.description ?? null, phase, type: e.agentType || 'agent', running: r.status === 'running', startedAt: e.ts, updatedAt: e.ts }];
-    if (agents.length > MAX_RUN_AGENTS) {
-      const drop = oldest(agents, (a) => !a.running);
-      if (drop !== -1) agents.splice(drop, 1);
-    }
-    return { ...r, agents, currentPhase: latest ? phase : r.currentPhase, onDisk: r.onDisk || e.source === 'fs' };
+    const drop = agents.length > MAX_RUN_AGENTS ? oldest(agents, (a) => !a.running) : -1;
+    const dropped = drop === -1 ? [] : agents.splice(drop, 1).map((a) => a.id);
+    return {
+      ...r,
+      agents,
+      ...(dropped.length ? { droppedAgents: [...(r.droppedAgents ?? []), ...dropped].slice(-MAX_DROPPED_AGENTS) } : {}),
+      currentPhase: latest ? phase : r.currentPhase,
+      onDisk: r.onDisk || e.source === 'fs',
+    };
   });
   return meetWhileRunning(next, runId, e.ts);
 }
@@ -229,16 +240,24 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     case 'branch':
       return e.branch ? { ...s, workspace: { ...s.workspace, branch: e.branch } } : s;
     case 'agent.started': {
+      // An agent a run dropped has finished: its start, read again, starts nothing.
+      if (droppedAgent(s, e.agentId)) return s;
       // A run id that is not one makes a plain subagent. An agent a run already has stays the run's, whoever reports it.
       const runId = e.runId && RUN_ID.test(e.runId) ? e.runId : runOfAgent(s, e.agentId)?.id;
       if (runId) return startRunAgent(s, e, runId);
+      // A subagent a hook ended does not start again on the filesystem's word of a transcript written before that end.
+      const known = s.children.find((c) => c.id === e.agentId);
+      if (e.source === 'fs' && known && !known.running && known.updatedAt >= e.ts) return s;
       return withChild(s, e.agentId, { type: e.agentType, description: e.description, running: true, updatedAt: e.ts });
     }
     case 'agent.finished':
       // A finish inferred from a transcript gone quiet (fs) proves nothing about a wait, as the subagent is quiet while it waits: only a hook's ends it.
       {
-        // Children first; then a run's agent; an id neither knows is a child that has finished.
-        const run = s.children.some((c) => c.id === e.agentId) ? undefined : runOfAgent(s, e.agentId);
+        // Children first; then a run's agent. An agent a run dropped was counted when it finished. An id nobody knows makes
+        // no subagent: it is the engine's own loop, or an agent whose start was missed, and there is nothing to show of it.
+        const child = s.children.some((c) => c.id === e.agentId);
+        const run = child ? undefined : runOfAgent(s, e.agentId);
+        if (!child && !run && droppedAgent(s, e.agentId)) return s;
         const finished = run
           ? withRun(s, run.id, e.ts, (r) => {
             const stopped = r.agents.some((a) => a.id === e.agentId && a.running)
@@ -246,7 +265,9 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
               : r;
             return { ...stopped, onDisk: r.onDisk || e.source === 'fs' };
           })
-          : withChild(s, e.agentId, { running: false, updatedAt: e.ts });
+          : child
+            ? withChild(s, e.agentId, { running: false, updatedAt: e.ts })
+            : s;
         return settleMeeting(e.source === 'fs' ? finished : endAgentWait(finished, e, e.agentId), e.ts);
       }
     case 'tool.started':
@@ -371,8 +392,9 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
 /**
  * A session as the store kept it, ready for this version: what a row saved by an older version lacks takes its default.
  * Nothing says its subagents still run: they start as not running, and the filesystem scan and the next hook event mark
- * the live ones again. So do the agents of a run seen only through the mod. A run the filesystem confirmed keeps its
- * agents as stored: its journal and its end file, read again, correct them. Runs keep their status. A meeting that
+ * the live ones again. So do the agents of a run seen only through the mod, which count as finished. A run the
+ * filesystem confirmed keeps its agents as stored: its journal and its end file, read again, correct them. Runs keep
+ * their status. A meeting that
  * nothing holds any more ended while the daemon was away: the session is done, as of when its meeting began, so it is
  * no news.
  */
@@ -380,7 +402,7 @@ export function normalizeSession(raw: Session): Session {
   const s: Session = {
     ...raw,
     children: (raw.children ?? []).map((c) => (c.running ? { ...c, running: false } : c)),
-    runs: (raw.runs ?? []).map((r) => (r.onDisk ? r : { ...r, agents: r.agents.map((a) => (a.running ? { ...a, running: false } : a)) })),
+    runs: (raw.runs ?? []).map((r) => (r.onDisk ? r : stopAgents(r, -Infinity))),
     recentActions: raw.recentActions ?? [],
     lastAnswer: raw.lastAnswer ?? null,
     lastAnswerAt: raw.lastAnswerAt ?? null,

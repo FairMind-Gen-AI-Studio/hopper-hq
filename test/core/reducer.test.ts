@@ -163,6 +163,27 @@ describe('applyEvent', () => {
     expect(wait('hook')).toMatchObject({ state: 'done', waitReason: null, waitAgentId: null });
   });
 
+  it('makes no subagent of an end it cannot place, and still ends the wait the agent raised', () => {
+    const waiting = run(seen(), ev('prompt', 1100, { text: 'x' }), ev('tool.started', 1200, { toolId: 'm1', tool: 'Agent', label: 'Agent: Review', agentId: null }),
+      ev('waiting', 1300, { reason: { kind: 'permission', text: 'Bash' }, agentId: 'ghost' }));
+    const ended = applyEvent(waiting, ev('agent.finished', 1400, { agentId: 'ghost' }))!;
+    expect(ended).toMatchObject({ state: 'working', stateSince: 1400, waitAgentId: null, children: [] });
+    const done = run(seen(), ev('prompt', 1100, { text: 'x' }), ev('turn.finished', 1200, { backgroundTasks: 0 }));
+    for (const source of ['hook', 'fs'] as const) expect(applyEvent(done, ev('agent.finished', 1300, { agentId: 'ghost', source }))!.children).toEqual([]);
+  });
+
+  it('does not start again a subagent a hook ended, on the word of a transcript written before that end', () => {
+    // The filesystem marks a subagent running while its transcript is fresh: one that a hook ended first stays ended.
+    let s = run(seen(), ev('prompt', 1050, { text: 'x' }), ev('agent.started', 1100, { agentId: 'c1', agentType: 'Explore', description: null }),
+      ev('agent.finished', 1200, { agentId: 'c1' }));
+    s = applyEvent(s, ev('agent.started', 1150, { agentId: 'c1', agentType: 'Explore', description: null, source: 'fs' }))!;
+    s = applyEvent(s, ev('turn.finished', 1250, { backgroundTasks: 0 }))!;
+    expect([s.state, s.children.map((c) => c.running)]).toEqual(['done', [false]]);
+    // A teammate that wakes up writes on: it runs again.
+    s = applyEvent(s, ev('agent.started', 1300, { agentId: 'c1', agentType: 'Explore', description: null, source: 'fs' }))!;
+    expect([s.state, s.children.map((c) => [c.running, c.updatedAt])]).toEqual(['done', [[true, 1300]]]);
+  });
+
   it('a wait raised over another one is ended only by the session itself', () => {
     let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
       ev('waiting', 1200, { reason: { kind: 'permission', text: 'Write', detail: 'Write a.ts' }, agentId: 'a1' }),
