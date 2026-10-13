@@ -497,6 +497,40 @@ describe('App focus', () => {
     expect(active()).toBe(document.body);
   });
 
+  it('keeps the focused chip to recover when the browser window loses focus and the element stays the active one', async () => {
+    const { target, store } = app();
+    const who = () => text(active()?.querySelector('.who'));
+    const open = target.querySelector<HTMLElement>('.attention .needs button.open')!;
+    open.focus();
+    // A window switch blurs the element and fires focusout, but it stays the document's active element.
+    open.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    await Promise.resolve();
+    expect(active()).toBe(open);
+    const scene = makeScene();
+    scene.attention.needsYou = scene.attention.needsYou.slice(1);
+    store.set({ scene });
+    flushSync();
+    expect(open.isConnected).toBe(false);
+    expect(active()).not.toBe(document.body);
+    expect(who()).toBe('orders-api-g7');
+  });
+
+  it('keeps the focused chip to recover when its removal fires the focusout that Chrome fires for it', async () => {
+    const { target, store } = app();
+    const open = target.querySelector<HTMLElement>('.attention .needs button.open')!;
+    open.focus();
+    const next = target.querySelectorAll<HTMLElement>('.attention .needs li.chip button.open')[1]!;
+    // The chip is taken away while it has focus; focus falls to the page and the focusout comes with the removal.
+    open.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+    open.remove();
+    expect(active()).toBe(document.body);
+    await Promise.resolve();
+    // The element is gone, so it is not the user leaving it for the page: the next update still recovers it.
+    store.set({ scene: makeScene() });
+    flushSync();
+    expect(active()).toBe(next);
+  });
+
   it('does not pull focus back to a chip the user left for the page', async () => {
     const { target, store } = app();
     const chip = target.querySelector<HTMLElement>('.attention .needs button.open')!;
