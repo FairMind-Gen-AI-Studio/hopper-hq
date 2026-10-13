@@ -1,7 +1,7 @@
 /** The UI's wording: one place for state names, their meaning, wait reasons, floor metadata and plurals. */
 import type { RunStatus, WaitKind } from '../../src/core/types';
 import { formatAgo, reasonText } from '../../src/scene/text';
-import type { FloorSummary, PhaseState, RunSummary, SceneReason, ShownState } from '../../src/scene/types';
+import type { DeskSummary, FloorSummary, PhaseState, RunSummary, SceneReason, ShownState } from '../../src/scene/types';
 
 export const STATES: Record<ShownState, { label: string; description: string }> = {
   needs_you: { label: 'Needs you', description: 'Blocked on a permission, a question or a plan approval.' },
@@ -93,3 +93,8 @@ export const PHASE: Record<PhaseState, { mark: string; word: string }> = {
   current: { mark: '●', word: 'current' },
   upcoming: { mark: '○', word: 'upcoming' },
 };
+
+/** A summary line's age, and in words whether a prompt came after it: '2m ago', '2m ago (older than the last prompt)'. */
+export function summaryAge(summary: DeskSummary, now: number): string {
+  return `${formatAgo(now - summary.at)} ago${summary.stale ? ' (older than the last prompt)' : ''}`;
+}

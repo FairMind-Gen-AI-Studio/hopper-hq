@@ -1,31 +1,39 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DeskPanel from '../../components/DeskPanel.svelte';
-import type { Desk, Island } from '../../../src/scene/types';
+import type { Desk, FloorDetail, Island } from '../../../src/scene/types';
 import { CHECKOUT, NOW, ORDERS, SEARCH, makeFloor } from '../helpers/fixtures';
 import { cleanup, click, render, text } from '../helpers/render';
+import { RUN, checkoutWithRoom } from '../helpers/rooms';
 
 afterEach(cleanup);
 
-function find(key: string, id: string): { desk: Desk; island: Island; floor: NonNullable<ReturnType<typeof makeFloor>> } {
-  const floor = makeFloor(key)!;
+function find(floor: FloorDetail, id: string): { desk: Desk; island: Island } {
   for (const island of floor.islands) {
     const desk = island.desks.find((d) => d.sessionId === id);
-    if (desk) return { desk, island, floor };
+    if (desk) return { desk, island };
   }
   throw new Error(`no desk ${id}`);
 }
 
-function panel(key: string, id: string, now = NOW, change: (d: Desk) => void = () => {}) {
-  const { desk, island, floor } = find(key, id);
+function panel(key: string, id: string, now = NOW, change: (d: Desk) => void = () => {}, floor: FloorDetail = makeFloor(key)!) {
+  const { desk, island } = find(floor, id);
   change(desk);
   const onBack = vi.fn();
   const onGo = vi.fn();
   const onSeen = vi.fn();
-  const target = render(DeskPanel, { desk, island, floor, now, onBack, onGo, onSeen });
+  const onRun = vi.fn();
+  const target = render(DeskPanel, { desk, island, floor, now, onBack, onGo, onSeen, onRun });
   const facts = () => Object.fromEntries([...target.querySelectorAll('dt')].map((dt) => [text(dt), text(dt.nextElementSibling)]));
   const button = (label: string) => [...target.querySelectorAll('.actions button')].find((b) => text(b).startsWith(label)) as HTMLButtonElement | undefined;
-  return { target, onBack, onGo, onSeen, facts, button };
+  /** A list section by its heading: one line per row, its parts joined with ' | '. */
+  const rows = (heading: string) => {
+    const section = [...target.querySelectorAll('section')].find((s) => text(s.querySelector('h3')) === heading);
+    return [...(section?.querySelectorAll('li') ?? [])].map((li) => [...li.querySelectorAll('.l-name, .l-state, .l-sub')].map(text).join(' | ') || text(li));
+  };
+  return { target, onBack, onGo, onSeen, onRun, facts, button, rows };
 }
+
+const MIN = 60_000;
 
 describe('DeskPanel', () => {
   it('heads the panel with the session, its state, its repo and its pane', () => {
@@ -133,5 +141,80 @@ describe('DeskPanel', () => {
     expect(text(target.querySelector('.p-text'))).toBe('<img src=x onerror=alert(1)>');
     expect(text(target.querySelector('.warn'))).toBe('Permission: <script>x</script>');
     expect(target.querySelector('img, script')).toBeNull();
+  });
+
+  it('says where the session stands, and how long ago that was written', () => {
+    const summary = { text: 'Copy is rewritten and ready for review', at: NOW - 2 * MIN, stale: false };
+    const { target } = panel(CHECKOUT, 'sw-b2', NOW, (d) => (d.summary = summary));
+    const line = target.querySelector('section.summary')!;
+    expect(text(line.querySelector('h3'))).toBe('Where it stands');
+    expect(text(line.querySelector('.s-text'))).toBe('Copy is rewritten and ready for review');
+    expect(text(line.querySelector('.s-age'))).toBe('2m ago');
+    expect(line.classList.contains('stale')).toBe(false);
+    cleanup();
+    const later = panel(CHECKOUT, 'sw-b2', NOW + MIN, (d) => (d.summary = summary)).target;
+    expect(text(later.querySelector('.s-age'))).toBe('3m ago');
+  });
+
+  it('dims a line older than the last prompt, and says so in words', () => {
+    const { target } = panel(CHECKOUT, 'oa-c3', NOW, (d) => (d.summary = { text: 'Waits for permission to rebuild dist', at: NOW - 12 * MIN, stale: true }));
+    const line = target.querySelector('section.summary')!;
+    expect(line.classList.contains('stale')).toBe(true);
+    expect(text(line.querySelector('.s-age'))).toBe('12m ago (older than the last prompt)');
+  });
+
+  it('shows no line, no interns and no runs where there are none', () => {
+    const { target } = panel(CHECKOUT, 'sw-b2');
+    expect(target.querySelectorAll('section')).toHaveLength(0);
+    expect(target.querySelector('h3')).toBeNull();
+  });
+
+  it('lists its interns, running first, and how many more there are', () => {
+    const { rows } = panel(CHECKOUT, 'sw-a1', NOW, (d) => {
+      d.interns = [
+        { agentId: 'a1', type: 'Explore', label: 'Find every caller of useCart()', running: true },
+        { agentId: 'a2', type: null, label: null, running: true },
+        { agentId: 'a3', type: 'general-purpose', label: 'Check the address form against the design', running: false },
+      ];
+      d.internsMore = 2;
+    });
+    expect(rows('Interns')).toEqual([
+      'Explore | running | Find every caller of useCart()',
+      'Subagent | running',
+      'general-purpose | finished | Check the address form against the design',
+      '+2 more',
+    ]);
+  });
+
+  it('lists its runs with how long each ran, and opens one that has a room', () => {
+    const { target, rows, onRun } = panel(CHECKOUT, 'ps-d4', NOW, () => {}, checkoutWithRoom());
+    expect(rows('Workflow runs')).toEqual(['checkout-verify | Running for 9m', 'nightly-smoke | Completed in 8m']);
+    const links = [...target.querySelectorAll('section button.l-name')];
+    expect(links.map(text)).toEqual(['checkout-verify']);
+    links[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+    expect(onRun).not.toHaveBeenCalled();
+    click(links[0]);
+    expect(onRun).toHaveBeenCalledWith(RUN);
+  });
+
+  it('names a run without a name by its id, and says how each finished', () => {
+    const { rows } = panel(CHECKOUT, 'ps-d4', NOW, (d) => {
+      d.runs = [
+        { runId: 'wf_0000aaaa-002', name: null, status: 'failed', startedAt: NOW - 5 * MIN, endedAt: NOW - 2 * MIN, counts: { running: 0, finished: 3 } },
+        { runId: 'wf_0000aaaa-003', name: 'release', status: 'killed', startedAt: NOW - 3 * 60 * MIN, endedAt: NOW - 60 * MIN, counts: { running: 0, finished: 1 } },
+      ];
+    });
+    expect(rows('Workflow runs')).toEqual(['wf_0000aaaa-002 | Failed after 3m', 'release | Stopped after 2h']);
+  });
+
+  it('shows a hostile summary, intern and run name as text', () => {
+    const { target } = panel(CHECKOUT, 'ps-d4', NOW, (d) => {
+      d.summary = { text: '<img src=x onerror=alert(1)>', at: NOW, stale: false };
+      d.interns = [{ agentId: 'x', type: '<b>t</b>', label: '<script>x</script>', running: true }];
+      d.runs = [{ runId: 'wf_x', name: '<i>run</i>', status: 'completed', startedAt: NOW - MIN, endedAt: NOW, counts: { running: 0, finished: 1 } }];
+    });
+    expect(text(target.querySelector('.s-text'))).toBe('<img src=x onerror=alert(1)>');
+    expect([...target.querySelectorAll('.l-name, .l-sub')].map(text)).toEqual(['<b>t</b>', '<script>x</script>', '<i>run</i>']);
+    expect(target.querySelector('img, script, b, i')).toBeNull();
   });
 });

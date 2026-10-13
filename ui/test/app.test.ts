@@ -8,6 +8,7 @@ import { WebGLUnavailableError } from '../renderer/index';
 import { CHECKOUT, NOW, ORDERS, makeFloor, makeScene } from './helpers/fixtures';
 import { fakeRenderer } from './helpers/fake-renderer';
 import { fakeStore, type FakeStore } from './helpers/fake-store';
+import { RUN, checkoutWithRoom } from './helpers/rooms';
 import { cleanup, click, render, text } from './helpers/render';
 
 function memoryStorage() {
@@ -358,6 +359,13 @@ describe('App shell', () => {
     await settle();
     expect(focusSession).toHaveBeenCalledWith('sw-a1');
     expect(text(target.querySelector('.toast span'))).toBe('Switched tmux to %4');
+  });
+
+  it('opens a run from the desk panel of its host', () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: 'ps-d4' });
+    const { target } = app(fakeStore({ scene: makeScene() }, (key) => (key === CHECKOUT ? checkoutWithRoom() : makeFloor(key))));
+    click([...target.querySelectorAll('aside section button')].find((b) => text(b) === 'checkout-verify'));
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, run: RUN }));
   });
 
   it('names a desk from the attention bar and shows its floor loading, until the floor arrives', () => {

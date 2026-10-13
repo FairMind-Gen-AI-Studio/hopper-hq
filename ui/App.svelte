@@ -276,6 +276,7 @@
             onBack={() => navigate({ floor: route.floor, desk: null, run: null })}
             onGo={focus}
             onSeen={seen}
+            onRun={(runId) => navigate({ floor: route.floor, desk: null, run: runId })}
           />
         {:else}
           <FloorPanel

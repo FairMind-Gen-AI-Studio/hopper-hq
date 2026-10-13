@@ -2,20 +2,25 @@
   import { formatAgo } from '../../src/scene/text';
   import type { Desk, FloorDetail, Island } from '../../src/scene/types';
   import { singleClick } from '../lib/click';
-  import { plural, raisedBy, waitText } from '../lib/words';
+  import { plural, raisedBy, runSpan, summaryAge, waitText } from '../lib/words';
   import StatePill from './StatePill.svelte';
 
-  /** One session: what it does, what it waits for, where it runs; and the two things to do from here. */
+  /**
+   * One session: what it does, where it stands, what it waits for, where it runs; the two things to do from here; and
+   * its interns and workflow runs.
+   */
   interface Props {
     desk: Desk;
     island: Island;
-    floor: Pick<FloorDetail, 'number' | 'name'>;
+    floor: Pick<FloorDetail, 'number' | 'name' | 'rooms'>;
     now: number;
     onBack: () => void;
     onGo: (sessionId: string) => void;
     onSeen: (sessionId: string) => void;
+    /** Opens a run that has a room on the floor. */
+    onRun: (runId: string) => void;
   }
-  let { desk, island, floor, now, onBack, onGo, onSeen }: Props = $props();
+  let { desk, island, floor, now, onBack, onGo, onSeen, onRun }: Props = $props();
 
   const where = $derived(desk.location === 'cloud' ? 'remote' : desk.pane ? `tmux pane ${desk.pane}` : 'not in tmux');
   const by = $derived(raisedBy(desk.reason));
@@ -25,6 +30,8 @@
     if (desk.location === 'cloud') return 'It runs in the cloud: there is no tmux pane to go to.';
     return 'It does not run in a tmux pane, so there is nowhere to go.';
   });
+  /** The runs with a room on the floor: their rows open them. */
+  const roomed = $derived(new Set(floor.rooms.map((r) => r.runId)));
 </script>
 
 <button type="button" class="linkbtn back" onclick={singleClick(onBack)}>← Floor {floor.number} · {floor.name}</button>
@@ -37,6 +44,13 @@
   </div>
 </div>
 <p class="p-text">{desk.title ?? 'No task yet.'}</p>
+{#if desk.summary}
+  <section class="summary" class:stale={desk.summary.stale}>
+    <h3 class="p-h3">Where it stands</h3>
+    <p class="s-text">{desk.summary.text}</p>
+    <p class="p-note s-age">{summaryAge(desk.summary, now)}</p>
+  </section>
+{/if}
 <dl class="facts">
   {#if desk.state === 'needs_you'}
     <dt>Waiting for</dt>
@@ -73,6 +87,40 @@
   {/if}
 </div>
 {#if cannotGo}<p class="p-note">{cannotGo}</p>{/if}
+{#if desk.interns.length > 0}
+  <section>
+    <h3 class="p-h3">Interns</h3>
+    <ul class="list">
+      {#each desk.interns as intern (intern.agentId)}
+        <li>
+          <span class="dot {intern.running ? 'sw-working' : 'sw-idle'}" aria-hidden="true"></span>
+          <span class="l-name">{intern.type ?? 'Subagent'}</span>
+          <span class="l-state">{intern.running ? 'running' : 'finished'}</span>
+          {#if intern.label}<span class="l-sub">{intern.label}</span>{/if}
+        </li>
+      {/each}
+      {#if desk.internsMore > 0}<li class="more">+{desk.internsMore} more</li>{/if}
+    </ul>
+  </section>
+{/if}
+{#if desk.runs.length > 0}
+  <section>
+    <h3 class="p-h3">Workflow runs</h3>
+    <ul class="list">
+      {#each desk.runs as run (run.runId)}
+        <li>
+          <span class="dot {run.status === 'running' ? 'sw-in_meeting' : 'sw-idle'}" aria-hidden="true"></span>
+          {#if roomed.has(run.runId)}
+            <button type="button" class="linkbtn l-name" onclick={singleClick(() => onRun(run.runId))}>{run.name ?? run.runId}</button>
+          {:else}
+            <span class="l-name">{run.name ?? run.runId}</span>
+          {/if}
+          <span class="l-state">{runSpan(run, now)}</span>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
 
 <style>
   .back { align-self: flex-start; }
@@ -83,4 +131,15 @@
   .warn { color: var(--needs-ink); font-weight: 500; }
   code { background: var(--hover); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .s-text { margin: 0; max-width: 62ch; overflow-wrap: anywhere; }
+  .s-age { margin-top: 2px; }
+  .stale .s-text { color: var(--muted); }
+  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .list li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; }
+  .l-name { overflow-wrap: anywhere; justify-self: start; text-align: left; }
+  button.l-name { padding: 0; }
+  .l-state { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .l-sub { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .more { color: var(--muted); font-size: 12.5px; }
+  .list li.more { display: block; padding-left: 20px; }
 </style>
