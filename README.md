@@ -8,12 +8,14 @@ Built for Claude Code (local and cloud) first, with an adapter interface meant t
 
 ## Status
 
-Early. The collector, the CLI, the tmux counter and the building in the browser work. Walking characters, interns, meeting rooms and the archive are planned. See [the design document](docs/plans/2026-10-09-scranton-hq-design.md).
+Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, and an optional line that says where each session stands. Walking characters and the archive are planned. See [the design document](docs/plans/2026-10-09-scranton-hq-design.md), and [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md).
 
 ## What it does
 
 - Shows which sessions work on the same feature. Sessions are grouped by branch, across repos.
 - Shows which sessions are waiting for you, and why.
+- Shows what runs inside each session: its workflow runs, phase by phase, and its subagents.
+- Says in one line where each session stands, once you turn [summaries](#summaries) on.
 - Keeps a record of finished sessions (coming).
 
 ## Install
@@ -27,6 +29,14 @@ npm install && npm run build && npm link
 ```
 
 Once it is published, `npm install -g scranton-hq` will do the same.
+
+### Upgrading
+
+In your clone, pull the new version and run `npm install && npm run build` again. Then:
+
+1. Restart the daemon: `scranton-hq down`, then `scranton-hq up`. If it runs in the foreground (`scranton-hq start`), stop it with Ctrl-C and start it again.
+2. Update the mod: with `/plugin` in Claude Code, or install it again as in [The Claude Code mod](#the-claude-code-mod-recommended).
+3. Reload every building tab you had open. A tab opened before this upgrade stops following the building without saying so. From now on, a tab that can no longer follow the building says so and asks for the reload.
 
 ## Quick start
 
@@ -55,15 +65,30 @@ The bar at the top lists who needs you (longest wait first) and what is done (ol
 
 Click a floor to go inside. Each checkout gets an island in its repository's colour, with a desk and a robot per session; the robot's pose and badge show its state. Click a desk to see what it is doing. Double-click it, press Enter, or use `Go to pane` to switch tmux to its pane.
 
+A desk's panel also lists the session's interns and its latest workflow runs, with how long each has run and how it ended. With [summaries](#summaries) on, it says in one line where the session stands, and so do the desk's row in the floor's side panel and its entry in the bar at the top.
+
+Subagents that a session starts outside a workflow run are its interns: small robots that hover on jetpacks behind its monitor while they run, three at most.
+
+Each workflow run that is going on has a meeting room, in a wing east of the islands on its session's floor:
+
+- its agents sit at the table as robots in hard hats, eight at most;
+- the session that started the run sits at the head of the table while it waits for the run, and its own chair stays empty;
+- a tag over the door names the run, and adds its current phase and its counts up close or when the room is selected;
+- up close, the whiteboard lists the run's phases (✓ done, ● current, ○ upcoming) and how many agents run and have finished.
+
+A floor shows four rooms at most; its side panel counts the other runs. A room closes when its run ends, and the session's desk panel keeps how it ended. Click a room or its tag to open the run's panel: its phases, its agents and a link to the session's desk. Double-click the room, press Enter, or use `Go to pane` to switch tmux to that session's pane.
+
+The page's address names the floor, and the desk or the run on screen: a link opens it, and Back and reload keep your place.
+
 | Key or gesture | Does |
 | --- | --- |
-| Esc | Goes up one level: desk, floor, building. |
+| Esc | Goes up one level: desk or run, floor, building. |
 | Q, E | Turns the floor a quarter left or right. |
 | R | Resets the view. |
-| Enter | With the floor or the selected desk's label focused, goes to that desk's pane. |
+| Enter | With the floor or the selected desk's or room's label focused, goes to that desk's pane, or for a room to the pane of the session that started its run. |
 | Drag, scroll, right-drag | Turns, zooms and pans the floor. |
 
-The theme button cycles through system, day and night. A browser without WebGL still lists a floor's desks in the side panel.
+The theme button cycles through system, day and night. A browser without WebGL still lists a floor's desks and meeting rooms in the side panel. When the page can no longer follow the building, because the daemon was updated since it loaded, it says so and asks you to reload it.
 
 Going to a pane switches the most recently used tmux client to it. The daemon talks to the tmux server it was started under, or the default one. It cannot bring the terminal window to the front.
 
@@ -109,6 +134,65 @@ claude --plugin-dir /path/to/scranton-hq/mod
 
 Without the mod, scranton-hq still works from the files Claude Code writes. It has up to a second of delay and less detail about why a session waits.
 
+## Summaries
+
+scranton-hq can write one line per session that says where it stands: what is done, what is in progress, or what it waits for. A language model writes the line, so summaries are off by default. To turn them on:
+
+```sh
+scranton-hq summaries on
+```
+
+The full form is `scranton-hq summaries on|off|status [--provider claude-cli|anthropic-api] [--model <id>]`:
+
+- `on` and `off` turn summaries on and off, and say what is now set. `status`, the default, prints the setting and what the running daemon does: its last summary, its last error, and a pause.
+- `--provider` chooses where the notes go, below. `claude-cli` is the default. A `--provider` without `--model` goes back to that provider's default model.
+- `--model` names another model: 1 to 64 letters, digits, `.`, `_`, `:` or `-`, starting with a letter or a digit. The defaults are `haiku` for `claude-cli` and `claude-haiku-5-5` for `anthropic-api`.
+
+The setting lives in `~/.scranton-hq/config.json`, readable by you only. The daemon reads it again before each summary, so it needs no restart.
+
+The line shows in the desk's panel with its age, under the desk's row in the floor's side panel, and under its entry in the bar at the top. It is dimmed once you have sent the session a prompt since.
+
+### When a summary is written
+
+When a session comes to a stop (it is done, needs you, or waits in a meeting), the daemon waits 8 seconds and reads the session again. Unless it is working again, it asks for a line.
+
+- Only turns that end while the daemon runs are summarized. Notes that have not changed since the last line are not sent again.
+- At most one summary per session every 3 minutes, and one at a time across the daemon.
+- A failed summary is tried again later, while the session still stands where it did. Each failure makes the session wait longer for its next try: 1 minute, then twice as long each time, up to 30 minutes, and never less than the 3 minutes between two summaries.
+- After 3 failures in a row, every summary pauses for 15 minutes. Changing the provider or the model lifts the pause.
+- `scranton-hq summaries status` shows the last error and the pause. The daemon's log gets one line per failure, with the error.
+
+### What is sent, and to whom
+
+Each summary sends a fixed instruction and these notes about one session, each cut to one line:
+
+- its title;
+- its last request: your last prompt, or the first one;
+- its state, with what it waits for when it waits: the tool that asks for permission and its command or file, or the question;
+- the labels of its last 10 tool calls, such as `Bash: npm test` or `Edit src/app.ts`;
+- its last reply, up to 2,000 characters.
+
+The notes are cut to about 4,000 characters: the end of the reply goes first, then the oldest actions. scranton-hq sends nothing else.
+
+Where they go depends on the provider:
+
+- **`claude-cli`**, the default, runs `claude -p --safe-mode` with the notes on its standard input. It runs on your account: wherever your `claude` sends its requests.
+  - `--safe-mode` starts it without your plugins, hooks, CLAUDE.md, skills and MCP servers. It gets no tools and saves no session.
+  - It runs in its own directory, `~/.scranton-hq/summarizer`, with `SCRANTON_HQ_SUMMARIZER=1` set. The building leaves its sessions out, and the mod reports nothing from it.
+  - Its environment is the daemon's, without `ANTHROPIC_API_KEY`, so it is never billed to a key. It also goes without the variables of a Claude Code session that may have started the daemon: `CLAUDECODE`, `AI_AGENT`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLUGIN_ROOT`, and every `CLAUDE_CODE_*` but `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` and `CLAUDE_CODE_USE_FOUNDRY`.
+  - It needs `claude` on the daemon's `PATH`, and is stopped after 60 seconds.
+- **`anthropic-api`** sends the notes to the Anthropic Messages API, at `api.anthropic.com`, with the key in `ANTHROPIC_API_KEY`.
+  - The daemon reads the key from its own environment, which it takes from where you ran `scranton-hq up` or `scranton-hq start`. Set it there, and restart the daemon to change it.
+  - The key is never written to disk. A request gives up after 30 seconds.
+
+`--safe-mode` is a recent option of Claude Code. Once summaries are on, check that a line appears and that `scranton-hq summaries status` shows the last summary, with no new session in the building.
+
+The demo (`scranton-hq demo`) writes fixed lines of its own and sends nothing anywhere.
+
+### Cost
+
+Each summary is one call to the model, a small one by default. A session gets at most one per finished turn, and one more each time a failed summary is tried again, spaced by the waits above: never more than one every 3 minutes. With `claude-cli` it counts against your account's usage, like any `claude -p`. With `anthropic-api` it is billed to the key.
+
 ## Commands
 
 | Command | What it does |
@@ -120,11 +204,14 @@ Without the mod, scranton-hq still works from the files Claude Code writes. It h
 | `scranton-hq ls` | Lists floors and their sessions. |
 | `scranton-hq ack` | Marks finished sessions as seen. |
 | `scranton-hq ui` | Opens the building in your browser, signed in through a one-time link. Use `--no-open` to print the link only. |
+| `scranton-hq summaries` | Turns the one-line summaries `on` or `off`, or prints how they stand (`status`). See [Summaries](#summaries). |
 | `scranton-hq demo` | Runs a daemon with synthetic sessions, and prints a sign-in link for its building. |
 
 ## How it works
 
 There are two sources of data: the mod, and Claude Code's own files under `~/.claude`. Both feed one collector. The collector serves a localhost API.
+
+Workflow runs come from both: the mod reports their agents as they start and finish, and the files give each run's name, phases and end.
 
 The files under `~/.claude` are internal to Claude Code and can change between versions. scranton-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
 
@@ -132,7 +219,7 @@ The files under `~/.claude` are internal to Claude Code and can change between v
 
 - scranton-hq listens on 127.0.0.1 only.
 - The CLI and the mod authenticate with a token stored in `~/.scranton-hq/token` (mode 600). Browsers sign in with a one-time link: see [Signing in](#signing-in).
-- There is no telemetry. Nothing leaves your machine.
+- There is no telemetry. Nothing leaves your machine unless you turn [summaries](#summaries) on: each summary then sends one session's notes to the provider you chose.
 
 ## Development
 
@@ -148,7 +235,7 @@ npm run test:e2e
 
 `npm run test:mod` needs the `claude` CLI. It is not run in CI.
 
-To try it with synthetic sessions, run `scranton-hq demo` (or `node dist/bin.js demo`). Then run `scranton-hq ls --data-dir ~/.scranton-hq/demo`.
+To try it with synthetic sessions, run `scranton-hq demo` (or `node dist/bin.js demo`). Then run `scranton-hq ls --data-dir ~/.scranton-hq/demo`. The demo runs a workflow on its payments desk, gives a desk two interns, and writes fixed summary lines.
 
 ### The browser UI
 
@@ -164,7 +251,7 @@ The dev server listens on 127.0.0.1:17173 and forwards `/api` and `/ui/login` to
 
 ### Browser smoke test
 
-`npm run test:e2e` builds the package and tests it in a real browser. It starts its own demo daemon on a free port between 17000 and 17999, with a temporary data directory. Then it signs in through the demo's link and walks the building, a floor in 3D and a desk in headless Chrome, failing on any console error or content-policy violation. Its output goes to a temporary directory that is removed after a passing run and kept after a failing one, so the screenshot and error context stay for debugging.
+`npm run test:e2e` builds the package and tests it in a real browser. It starts its own demo daemon on a free port between 17000 and 17999, with a temporary data directory. Then it signs in through the demo's link and walks the building, a floor in 3D, a desk, and a meeting room with its run's phases and its session's summary line, in headless Chrome. It fails on any console error or content-policy violation. Its output goes to a temporary directory that is removed after a passing run and kept after a failing one, so the screenshot and error context stay for debugging.
 
 It runs on the Google Chrome installed on your machine and never downloads a browser. Without Chrome it stops with a message saying so. It is not part of `npm test` and does not run in CI.
 
