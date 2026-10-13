@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
   import type { AttentionEntry } from '../src/scene/types';
+  import type { Target } from './renderer/index';
   import { SIGNED_OUT, focusSession, markSeen } from './lib/api';
   import { loadRenderer, type RendererModule } from './lib/renderer';
   import { parseHash, toHash, type Route } from './lib/route';
+  import { findRun, runName } from './lib/runs';
   import { browserStoreDeps, createClientStore, type ClientStore } from './lib/store';
   import { applyTheme, browserStorage, loadTheme, nextTheme, resolvedTheme, saveTheme, systemPrefersDark, watchSystemTheme } from './lib/theme';
   import { createToasts } from './lib/toast';
@@ -14,6 +16,7 @@
   import FloorPanel from './components/FloorPanel.svelte';
   import FloorStage from './components/FloorStage.svelte';
   import Notice from './components/Notice.svelte';
+  import RunPanel from './components/RunPanel.svelte';
   import Toast from './components/Toast.svelte';
   import TopBar, { type Crumb } from './components/TopBar.svelte';
 
@@ -86,6 +89,11 @@
     }
     return undefined;
   });
+  const run = $derived(route.run !== null && floor ? findRun(floor, route.run) : null);
+  /** What the route points at on the floor, for the 3D view. */
+  const target = $derived<Target | null>(
+    route.desk !== null ? { kind: 'desk', id: route.desk } : route.run !== null ? { kind: 'room', id: route.run } : null,
+  );
 
   const crumbs = $derived.by((): Crumb[] => {
     const list: Crumb[] = [{ label: 'Building', route: { floor: null, desk: null, run: null } }];
@@ -94,6 +102,8 @@
     if (route.desk !== null) {
       const name = desk?.desk.name ?? [...(scene?.attention.needsYou ?? []), ...(scene?.attention.done ?? [])].find((e) => e.sessionId === route.desk)?.name;
       list.push({ label: name ?? 'Desk', route });
+    } else if (route.run !== null) {
+      list.push({ label: run ? runName(run, route.run) : floor ? route.run : 'Run', route });
     }
     return list;
   });
@@ -160,10 +170,10 @@
     (chips[Math.min(last.index, chips.length - 1)] ?? heading())?.focus();
   }
 
-  /** Esc goes up one level: desk, floor, building. */
+  /** Esc goes up one level: desk or run, floor, building. */
   function onKeydown(e: KeyboardEvent): void {
     if (e.key !== 'Escape' || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (route.desk !== null) navigate({ floor: route.floor, desk: null, run: null });
+    if (route.desk !== null || route.run !== null) navigate({ floor: route.floor, desk: null, run: null });
     else if (route.floor !== null) navigate({ floor: null, desk: null, run: null });
   }
 
@@ -251,10 +261,11 @@
           {#key route.floor}
             <FloorStage
               {floor}
-              selected={route.desk}
+              selected={target}
               theme={resolvedTheme(theme, systemDark)}
               load={renderer}
-              onSelect={(id) => navigate({ floor: route.floor, desk: id, run: null })}
+              onSelect={(picked) =>
+                navigate({ floor: route.floor, desk: picked?.kind === 'desk' ? picked.id : null, run: picked?.kind === 'room' ? picked.id : null })}
               onActivate={focus}
             />
           {/key}
@@ -277,6 +288,15 @@
             onGo={focus}
             onSeen={seen}
             onRun={(runId) => navigate({ floor: route.floor, desk: null, run: runId })}
+          />
+        {:else if route.run !== null && floor}
+          <RunPanel
+            {floor}
+            runId={route.run}
+            now={clock}
+            onBack={() => navigate({ floor: route.floor, desk: null, run: null })}
+            onDesk={(id) => navigate({ floor: route.floor, desk: id, run: null })}
+            onGo={focus}
           />
         {:else}
           <FloorPanel

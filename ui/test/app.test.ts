@@ -8,7 +8,7 @@ import { WebGLUnavailableError } from '../renderer/index';
 import { CHECKOUT, NOW, ORDERS, makeFloor, makeScene } from './helpers/fixtures';
 import { fakeRenderer } from './helpers/fake-renderer';
 import { fakeStore, type FakeStore } from './helpers/fake-store';
-import { RUN, checkoutWithRoom } from './helpers/rooms';
+import { DONE_RUN, RUN, checkoutWithRoom } from './helpers/rooms';
 import { cleanup, click, render, text } from './helpers/render';
 
 function memoryStorage() {
@@ -20,6 +20,15 @@ function go(r: Parameters<typeof toHash>[0]): void {
   location.hash = toHash(r);
   window.dispatchEvent(new HashChangeEvent('hashchange'));
   flushSync();
+}
+
+/** A store whose checkout floor has the payments desk's run in a room; `change` alters each floor it gives. */
+function roomStore(change: (floor: NonNullable<ReturnType<typeof makeFloor>>) => void = () => {}): FakeStore {
+  return fakeStore({ scene: makeScene() }, (key) => {
+    const floor = key === CHECKOUT ? checkoutWithRoom() : makeFloor(key);
+    if (floor) change(floor);
+    return floor;
+  });
 }
 
 function app(store: FakeStore = fakeStore({ scene: makeScene() }), extra: Record<string, unknown> = {}) {
@@ -363,9 +372,53 @@ describe('App shell', () => {
 
   it('opens a run from the desk panel of its host', () => {
     location.hash = toHash({ floor: CHECKOUT, desk: 'ps-d4' });
-    const { target } = app(fakeStore({ scene: makeScene() }, (key) => (key === CHECKOUT ? checkoutWithRoom() : makeFloor(key))));
+    const { target } = app(roomStore());
     click([...target.querySelectorAll('aside section button')].find((b) => text(b) === 'checkout-verify'));
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, run: RUN }));
+  });
+
+  it('opens a run in its own panel, names it in the breadcrumbs, and goes back to its floor with Esc', () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { target, crumbs } = app(roomStore());
+    go({ floor: CHECKOUT, run: RUN });
+    expect(crumbs()).toBe('Building / 4 · checkout-v2 / checkout-verify');
+    expect(text(target.querySelector('aside h2'))).toBe('checkout-verify');
+    expect(text(target.querySelector('aside .pill'))).toBe('Running');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    flushSync();
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: null }));
+    expect(crumbs()).toBe('Building / 4 · checkout-v2');
+    click(target.querySelector('aside section.meetings .row-btn'));
+    click(target.querySelector('aside dd button.host'));
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'ps-d4' }));
+    expect(crumbs()).toBe('Building / 4 · checkout-v2 / payments-svc-d4');
+  });
+
+  it('names a finished run from its host desk, and a run it cannot find plainly', () => {
+    location.hash = toHash({ floor: CHECKOUT, run: DONE_RUN });
+    const { target, crumbs } = app(roomStore());
+    expect(crumbs()).toBe('Building / 4 · checkout-v2 / nightly-smoke');
+    expect(text(target.querySelector('aside .p-note'))).toBe('This run has finished, and its room has closed.');
+    go({ floor: CHECKOUT, run: 'wf_gone' });
+    expect(crumbs()).toBe('Building / 4 · checkout-v2 / wf_gone');
+    expect(text(target.querySelector('aside .p-text'))).toBe('This run is no longer on this floor.');
+    go({ floor: 'feature:gone', run: 'wf_gone' });
+    expect(crumbs()).toBe('Building / Floor / Run');
+  });
+
+  it("switches tmux to a run's host from the run panel, once while the first request is out", async () => {
+    const answers: Array<() => void> = [];
+    const focusSession = vi.fn((_id: string) => new Promise<FocusResult>((r) => answers.push(() => r({ ok: true, pane: '%9', simulated: true }))));
+    location.hash = toHash({ floor: CHECKOUT, run: RUN });
+    const { target } = app(roomStore(), { api: { focusSession, markSeen: vi.fn() } });
+    const go = target.querySelector('aside .actions button.primary');
+    expect(text(go)).toBe('Go to pane %9');
+    click(go);
+    click(go);
+    expect(focusSession.mock.calls).toEqual([['ps-d4']]);
+    for (const answer of answers.splice(0)) answer();
+    await settle();
+    expect(text(target.querySelector('.toast span'))).toBe('Demo: would switch tmux to %9');
   });
 
   it('names a desk from the attention bar and shows its floor loading, until the floor arrives', () => {
@@ -451,6 +504,21 @@ describe('App focus', () => {
     await settle();
     expect(location.hash).toBe(toHash({ floor: CHECKOUT, desk: 'oa-c3' }));
     expect(active()).toBe(view.host.canvas);
+  });
+
+  it('keeps focus on Go when the room of the run in the panel closes', () => {
+    location.hash = toHash({ floor: CHECKOUT, run: RUN });
+    const { target, store } = app(roomStore());
+    const go = target.querySelector<HTMLElement>('aside .actions button.primary')!;
+    go.focus();
+    const floor = checkoutWithRoom();
+    floor.rooms = [];
+    const host = floor.islands.flatMap((i) => i.desks).find((d) => d.sessionId === 'ps-d4')!;
+    host.runs[0] = { ...host.runs[0]!, status: 'completed', endedAt: NOW };
+    store.set({ floor });
+    flushSync();
+    expect(text(target.querySelector('aside .p-note'))).toBe('This run has finished, and its room has closed.');
+    expect(active()).toBe(go);
   });
 
   it('keeps focus in the page when a live update takes the focused button away', () => {
@@ -589,6 +657,29 @@ describe('App floor in 3D', () => {
     click([...target.querySelectorAll('aside .row-btn')].find((b) => text(b.querySelector('.r-name')) === 'storefront-web-a1'));
     expect(selects()).toEqual(['select - pan', 'select desk sw-b2 pan', 'select desk oa-c3', 'select -', 'select desk sw-a1 pan']);
     expect(renderer.views).toHaveLength(1);
+  });
+
+  it('routes a room picked in 3D to its run, goes to its host when it is activated, and pans to a room the panel picks', async () => {
+    const focusSession = vi.fn(async () => ({ ok: true as const, pane: '%9', simulated: true }));
+    location.hash = toHash({ floor: CHECKOUT, desk: 'sw-b2' });
+    const { target, renderer, crumbs } = app(roomStore(), { api: { focusSession, markSeen: vi.fn() } });
+    await settle();
+    const view = renderer.views[0]!;
+    const selects = () => view.calls.filter((c) => c.startsWith('select'));
+    view.host.canvas.tabIndex = 0;
+    view.host.canvas.focus();
+    view.emit('select', { kind: 'room', id: RUN });
+    await settle();
+    expect(location.hash).toBe(toHash({ floor: CHECKOUT, run: RUN }));
+    expect(crumbs()).toBe('Building / 4 · checkout-v2 / checkout-verify');
+    expect(document.activeElement).toBe(view.host.canvas);
+    view.emit('activate', { kind: 'room', id: RUN });
+    await settle();
+    expect(focusSession).toHaveBeenCalledWith('ps-d4');
+    expect(text(target.querySelector('.toast span'))).toBe('Demo: would switch tmux to %9');
+    go({ floor: CHECKOUT, desk: null });
+    click(target.querySelector('aside section.meetings .row-btn'));
+    expect(selects()).toEqual(['select desk sw-b2 pan', `select room ${RUN}`, 'select - pan', `select room ${RUN} pan`]);
   });
 
   it('switches tmux to a desk activated in 3D', async () => {

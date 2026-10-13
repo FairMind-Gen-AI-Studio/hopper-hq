@@ -2,22 +2,22 @@
   import { onDestroy, onMount } from 'svelte';
   import type { FloorDetail } from '../../src/scene/types';
   import type { RendererModule } from '../lib/renderer';
-  import type { FloorView } from '../renderer/index';
+  import type { FloorView, Target } from '../renderer/index';
 
   /**
    * The open floor in 3D. The renderer loads on mount and draws on this component's own canvas: a view releases its
-   * WebGL context when it is disposed, so each floor gets a fresh stage. The route owns the selection: a desk clicked
-   * in the view is marked and reported, and a desk the route picks elsewhere is marked and panned to.
+   * WebGL context when it is disposed, so each floor gets a fresh stage. The route owns the selection: a desk or a room
+   * clicked in the view is marked and reported, and one the route picks elsewhere is marked and panned to.
    */
   interface Props {
     floor: FloorDetail;
-    /** The desk the route points at. */
-    selected: string | null;
+    /** The desk or the room the route points at. */
+    selected: Target | null;
     /** The theme in force. The stage reads the colours again when it changes. */
     theme: 'day' | 'night';
     load: () => Promise<RendererModule>;
-    onSelect: (sessionId: string | null) => void;
-    /** A double-click, or Enter on the selected desk: go to its pane. */
+    onSelect: (target: Target | null) => void;
+    /** A double-click, or Enter on the selected desk or room: go to the pane of the desk, or of the room's host. */
     onActivate: (sessionId: string) => void;
   }
   let { floor, selected, theme, load, onSelect, onActivate }: Props = $props();
@@ -30,9 +30,14 @@
   let renderer: RendererModule | null = null;
   /** The theme whose colours the view has. */
   let painted = '';
-  /** The desk the view marks; undefined until the first selection. */
-  let marked: string | null | undefined;
+  /** What the view marks; undefined until the first selection. */
+  let marked: Target | null | undefined;
   let gone = false;
+
+  /** The route gives a new target object for the desk or room it already points at: compare what they name. */
+  function same(a: Target | null | undefined, b: Target | null | undefined): boolean {
+    return a === b || (!!a && !!b && a.kind === b.kind && a.id === b.id);
+  }
 
   function reducedMotion(): boolean {
     try {
@@ -67,17 +72,17 @@
       if (gone || !canvas || !labels) return;
       try {
         const v = r.mountFloorView({ canvas, labels }, colours(r));
-        // A desk clicked in the view is on screen: mark it without moving the camera, so that the second click of a
-        // double-click lands on the same desk. The route names desks only: a room picked in the view is left alone.
+        // A desk or room clicked in the view is on screen: mark it without moving the camera, so that the second click
+        // of a double-click lands on the same one.
         v.on('select', (target) => {
-          if (target?.kind === 'room') return;
-          const id = target?.id ?? null;
-          marked = id;
+          marked = target;
           v.select(target);
-          onSelect(id);
+          onSelect(target);
         });
+        // A room is its host's: activating it goes to the host's pane.
         v.on('activate', (target) => {
-          if (target.kind === 'desk') onActivate(target.id);
+          const id = target.kind === 'desk' ? target.id : floor.rooms.find((r) => r.runId === target.id)?.hostSessionId;
+          if (id !== undefined) onActivate(id);
         });
         renderer = r;
         painted = theme;
@@ -97,11 +102,11 @@
   $effect(() => {
     if (view) view.setFloor(floor);
   });
-  // A desk picked in the address, the panel or the attention bar may be off screen: pan to it.
+  // A desk or room picked in the address, the panel or the attention bar may be off screen: pan to it.
   $effect(() => {
-    if (!view || selected === marked) return;
+    if (!view || same(selected, marked)) return;
     marked = selected;
-    view.select(selected === null ? null : { kind: 'desk', id: selected }, { pan: true });
+    view.select(selected, { pan: true });
   });
   $effect(() => {
     if (!view || !renderer || theme === painted) return;
@@ -148,7 +153,7 @@
       <button type="button" class="tool" title="Reset view (R)" aria-label="Reset view" disabled={!view} onclick={() => view?.resetView()}>Reset view</button>
     </div>
     {#if view}
-      <p class="hint">Drag to turn · scroll to zoom · right-drag to pan · double-click a desk for its pane</p>
+      <p class="hint">Drag to turn · scroll to zoom · right-drag to pan · double-click a desk or a room for its pane</p>
     {/if}
   {/if}
 </div>
