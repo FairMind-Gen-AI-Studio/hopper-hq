@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { HOOK_EVENTS, mapHookPayload } from '../src/adapters/claude-code/hooks.js';
 
 const source = readFileSync(new URL('../mod/hooks/register.tsx', import.meta.url), 'utf8');
@@ -13,6 +13,14 @@ describe('the mod and the daemon agree on payloads', () => {
   it('the mod sends only names the mapper understands', () => {
     expect(sent).toEqual(['PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionEnd', 'Stop', 'SubagentStart', 'UserPromptSubmit']);
     for (const name of sent) expect(HOOK_EVENTS).toContain(name);
+  });
+
+  it('the mod writes every field the fixtures carry', () => {
+    const fixtures = readdirSync(new URL('./fixtures/hooks/', import.meta.url)).filter((f) => f.endsWith('.json'));
+    const payloads = fixtures.flatMap((f) => [JSON.parse(readFileSync(new URL(`./fixtures/hooks/${f}`, import.meta.url), 'utf8'))].flat() as Record<string, unknown>[]);
+    const fields = [...new Set(payloads.flatMap((p) => Object.keys(p)))].sort();
+    expect(fields).toContain('workflow_run_id');
+    expect(fields.filter((f) => !new RegExp(`\\b${f}\\b`).test(source))).toEqual([]);
   });
 
   it('every payload the mod sends maps to at least one event', () => {

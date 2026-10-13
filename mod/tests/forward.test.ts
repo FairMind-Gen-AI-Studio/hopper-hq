@@ -17,6 +17,18 @@ function daemon(on: On, posts: Post[]) {
 }
 
 const START = { cwd: '/home/dev/shop', surface: null, isInteractive: true } as const
+const SPAWN = {
+  tool_use_id: 'toolu_05ABCDEFGHIJKLMNOPQRSTUV',
+  prompt: 'Find every caller of useCart.',
+  description: 'Find callers',
+  subagentType: 'Explore',
+  provider: { plugin: 'engine', tier: 'core' },
+  parentModel: 'claude-opus-5-5',
+  background: true,
+  fork: false,
+} as const
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {}, title: '', isFocused: false }
+const TYPED = { command: 'scranton-hq', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
 
 test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
   const posts: Post[] = []
@@ -41,6 +53,83 @@ test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
   expect(batch[0]).toMatchObject({ session_id: 'S-OWN', cwd: '/home/dev/shop', prompt: 'list the files' })
   expect(batch[1]).toMatchObject({ tool_name: 'Bash', tool_input: { command: 'ls' } })
   expect(typeof batch[0]?._scranton_ts).toBe('number')
+})
+
+test("forwards nothing and draws no band in the summarizer's own session, and still answers /scranton-hq", async ($, on) => {
+  const fetched: string[] = []
+  const ran: string[][] = []
+  mock.env(on, { HOME: '/home/dev', SCRANTON_HQ_SUMMARIZER: '1' })
+  const clock = mock.clock(on)
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'S-OWN' }))
+  on('fs.read', async () => ({ value: JSON.stringify({ port: 7337, token: 'tok' }) }))
+  on('http.fetch', async ($, e) => {
+    fetched.push(`${e.init?.method ?? 'GET'} ${e.url}`)
+    return { value: { status: 200, ok: true, headers: {}, text: '{"needsYou":1,"done":0,"items":[{"id":"S2","name":"orders-api-c3","repo":"orders-api","state":"needs_you","since":2,"reason":{"kind":"permission","text":"Bash"},"title":null,"tmuxPane":null}]}' } }
+  })
+  on('process.run', async ($, e) => {
+    ran.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('command.register', async ($, e) => ({ value: { command: e.name } }))
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+  on('tool.call', async () => ({ result: 'file-a' }))
+  on('turn.complete', async ($, e) => ({ text: e.answer }))
+  on('session.end', async ($, e) => ({ sessionId: e.sessionId }))
+  on('ui.render', async () => ({ type: 'Box', children: [] }))
+
+  await $.session.start(START)
+  await $.prompt.submit({ text: 'Write one status line', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await $.turn.complete({ reason: 'answer', answer: 'Tests pass; ready to merge.', durationMs: 800, isAborted: false, turnId: 't1' })
+  await clock.advance(5000)
+  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await ui.find({ type: 'Text' })).toBeUndefined()
+  await ui.unmount()
+  expect(await $.command.run(TYPED)).toEqual({ text: 'Opened the building in your browser.' })
+  await $.session.end({ reason: 'other', sessionId: 'S-OWN', resume: { id: 'S-OWN' } })
+
+  expect(fetched).toEqual([])
+  expect(ran).toEqual([['scranton-hq', 'up']])
+})
+
+test('forwards what a spawn says of its task, and the workflow run of a script agent', async ($, on) => {
+  const posts: Post[] = []
+  daemon(on, posts)
+  const clock = mock.clock(on)
+  on('agent.spawn', async ($, e) => ({ model: 'haiku', agentId: e.workflow ? `a7c41e09b2d35f68${e.workflow.agentIndex}` : 'a58cb74ebedcc3070' }))
+
+  await $.session.start(START)
+  await $.agent.spawn(SPAWN)
+  await $.agent.spawn({ ...SPAWN, description: 'plan:orders-api', subagentType: 'workflow-subagent', workflow: { runId: 'wf_0000aaaa-001', agentIndex: 1 } })
+  await $.agent.spawn({ ...SPAWN, description: 'outside a run', subagentType: 'workflow-subagent', workflow: { runId: '', agentIndex: 2 } })
+  await clock.advance(600)
+
+  const batch = posts[0]?.body ?? []
+  expect(batch.map(b => b.hook_event_name)).toEqual(['SubagentStart', 'SubagentStart', 'SubagentStart'])
+  expect(batch[0]).toMatchObject({ agent_id: 'a58cb74ebedcc3070', agent_type: 'Explore', description: 'Find callers' })
+  expect(batch[1]).toMatchObject({ agent_id: 'a7c41e09b2d35f681', agent_type: 'workflow-subagent', description: 'plan:orders-api', workflow_run_id: 'wf_0000aaaa-001' })
+  expect(['workflow_run_id' in (batch[0] ?? {}), 'workflow_run_id' in (batch[2] ?? {})]).toEqual([false, false])
+})
+
+test("sends the main loop's final reply up to 2000 code units, while every other text stays cut at 400", async ($, on) => {
+  const posts: Post[] = []
+  daemon(on, posts)
+  const clock = mock.clock(on)
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+  on('turn.complete', async ($, e) => ({ text: e.answer }))
+
+  await $.session.start(START)
+  await $.prompt.submit({ text: 'p'.repeat(1000), wait: false, origin: { kind: 'composer' } })
+  await $.turn.complete({ reason: 'answer', answer: 'r'.repeat(1500), durationMs: 900, isAborted: false, turnId: 't2', agentId: 'a58cb74ebedcc3070' })
+  await $.turn.complete({ reason: 'answer', answer: 'a'.repeat(2500), durationMs: 1000, isAborted: false, turnId: 't1' })
+  await clock.advance(600)
+
+  const batch = posts[0]?.body ?? []
+  expect(batch.map(b => b.hook_event_name)).toEqual(['UserPromptSubmit', 'Stop', 'Stop'])
+  expect(batch[0]?.prompt).toBe('p'.repeat(400))
+  expect('last_assistant_message' in (batch[1] ?? {})).toBe(false)
+  expect(batch[2]?.last_assistant_message).toBe('a'.repeat(2000))
 })
 
 test('tells the end of a subagent turn from the end of the session turn', async ($, on) => {

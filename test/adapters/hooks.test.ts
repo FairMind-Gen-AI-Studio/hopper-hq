@@ -39,9 +39,18 @@ describe('mapHookPayload with the mod fixtures', () => {
   });
 
   it('SubagentStart, Stop and SessionEnd', () => {
-    expect(mapHookPayload(fx('SubagentStart'), NOW)).toEqual([{ ...base(1791660004000), type: 'agent.started', agentId: 'a58cb74ebedcc3070', agentType: 'Explore', description: null }]);
-    expect(mapHookPayload(fx('Stop'), NOW)).toEqual([{ ...base(1791660005000), type: 'turn.finished', backgroundTasks: 0 }]);
+    expect(mapHookPayload(fx('SubagentStart'), NOW)).toEqual([{ ...base(1791660004000), type: 'agent.started', agentId: 'a58cb74ebedcc3070', agentType: 'Explore', description: 'Find every caller of useCart', runId: null, phase: null }]);
+    expect(mapHookPayload(fx('Stop'), NOW)).toEqual([
+      { ...base(1791660005000), type: 'answer', text: 'Ran ls: the folder holds src, test and package.json. ok' },
+      { ...base(1791660005000), type: 'turn.finished', backgroundTasks: 0 },
+    ]);
     expect(mapHookPayload(fx('SessionEnd'), NOW)).toEqual([{ ...base(1791660006000), type: 'session.ended', reason: 'other' }]);
+  });
+
+  it('an agent a workflow script started names its run', () => {
+    expect(mapHookPayload(fx('SubagentStart.workflow'), NOW)).toEqual([
+      { ...base(1791660004200), type: 'agent.started', agentId: 'a7c41e09b2d35f681', agentType: 'workflow-subagent', description: 'plan:orders-api', runId: 'wf_0000aaaa-001', phase: null },
+    ]);
   });
 
   it('the end of a subagent turn ends that subagent, not the session turn', () => {
@@ -50,7 +59,7 @@ describe('mapHookPayload with the mod fixtures', () => {
 
   it('maps a whole batch, item by item, in order', () => {
     const batch = fx('batch') as unknown[];
-    expect(batch.flatMap((p) => mapHookPayload(p, NOW)).map((e) => e.type)).toEqual(['prompt', 'tool.started', 'tool.finished', 'turn.finished']);
+    expect(batch.flatMap((p) => mapHookPayload(p, NOW)).map((e) => e.type)).toEqual(['prompt', 'tool.started', 'tool.finished', 'answer', 'turn.finished']);
   });
 });
 
@@ -82,6 +91,25 @@ describe('mapHookPayload edge cases', () => {
     expect(mapHookPayload({ ...p, hook_event_name: 'SessionEnd', agent_id: 'a1' }, NOW)).toEqual([]);
     expect(mapHookPayload({ ...p, hook_event_name: 'SubagentStart' }, NOW)).toEqual([]);
     expect(mapHookPayload({ ...p, hook_event_name: 'PreCompact' }, NOW)).toEqual([]);
+  });
+
+  it("reads the main loop's final reply, cleaned and cut, and no reply from a subagent's turn end", () => {
+    const stop = (extra: Record<string, unknown>) => mapHookPayload({ ...p, hook_event_name: 'Stop', ...extra }, NOW);
+    expect(stop({ last_assistant_message: 'Done\u0007.\n\nAll green \u202E' })).toEqual([
+      expect.objectContaining({ type: 'answer', text: 'Done. All green' }),
+      expect.objectContaining({ type: 'turn.finished' }),
+    ]);
+    expect((stop({ last_assistant_message: 'x'.repeat(2500) })[0] as { text: string }).text).toHaveLength(2000);
+    for (const empty of ['', ' \u0007 ', 42, null, ['ok']]) expect(stop({ last_assistant_message: empty }).map((e) => e.type)).toEqual(['turn.finished']);
+    expect(stop({ agent_id: 'a1', last_assistant_message: 'found 3 callers' })).toEqual([expect.objectContaining({ type: 'agent.finished', agentId: 'a1' })]);
+  });
+
+  it('takes a run id only when it is one, and a cleaned description of at most 200 characters', () => {
+    const start = (extra: Record<string, unknown>) => mapHookPayload({ ...p, hook_event_name: 'SubagentStart', agent_id: 'a1', ...extra }, NOW)[0];
+    for (const runId of ['wf_', 'wf_a/b', '../wf_1', 42, 'run-1']) expect(start({ workflow_run_id: runId })).toMatchObject({ runId: null });
+    expect(start({ workflow_run_id: 'wf_0000aaaa-001' })).toMatchObject({ runId: 'wf_0000aaaa-001', phase: null, agentType: 'agent', description: null });
+    expect(start({ description: 'd'.repeat(300) })).toMatchObject({ description: 'd'.repeat(199) + '\u2026' });
+    expect(start({ description: '\u0007\u202E' })).toMatchObject({ description: null });
   });
 
   it('a permission request inside a subagent still needs the user, and says whose it is', () => {

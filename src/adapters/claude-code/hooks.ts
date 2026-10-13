@@ -1,3 +1,4 @@
+import { ANSWER_MAX, RUN_ID } from '../../core/reducer.js';
 import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
 import { isSessionId } from '../../scene/text.js';
@@ -75,12 +76,27 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
       if (QUESTION_NOTIFICATIONS.has(type)) return [{ ...base, type: 'waiting', reason: { kind: 'question', text: message || 'Input needed' }, agentId }];
       return [];
     }
-    case 'Stop':
+    case 'Stop': {
       // A subagent's turn end is that subagent's: its loop has run its course. Only the main loop's ends the session's turn.
       if (agentId) return [{ ...base, type: 'agent.finished', agentId }];
-      return [{ ...base, type: 'turn.finished', backgroundTasks: countBackgroundTasks(p.background_tasks) }];
-    case 'SubagentStart':
-      return agentId ? [{ ...base, type: 'agent.started', agentId, agentType: str(p.agent_type) || 'agent', description: null }] : [];
+      const finished: RawEvent = { ...base, type: 'turn.finished', backgroundTasks: countBackgroundTasks(p.background_tasks) };
+      // The main loop's final reply comes first: by the turn's end the session holds it.
+      const answer = truncate(str(p.last_assistant_message), ANSWER_MAX);
+      return answer ? [{ ...base, type: 'answer', text: answer }, finished] : [finished];
+    }
+    case 'SubagentStart': {
+      if (!agentId) return [];
+      const runId = str(p.workflow_run_id);
+      return [{
+        ...base,
+        type: 'agent.started',
+        agentId,
+        agentType: str(p.agent_type) || 'agent',
+        description: truncate(str(p.description), 200) || null,
+        runId: RUN_ID.test(runId) ? runId : null,
+        phase: null,
+      }];
+    }
     case 'SubagentStop':
       return agentId ? [{ ...base, type: 'agent.finished', agentId }] : [];
     case 'SessionEnd':

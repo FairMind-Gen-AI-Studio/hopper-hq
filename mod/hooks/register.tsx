@@ -8,6 +8,8 @@ import type { Attention } from '../types'
 // Claude Code's settings hooks, so the daemon reads them with one mapper.
 
 const MAX_STRING = 400
+// The main loop's final reply goes up to this many UTF-16 code units, past MAX_STRING: the daemon's summary line reads it.
+const MAX_ANSWER = 2000
 const MAX_QUEUE = 500
 const FLUSH_MS = 500
 const POLL_MS = 3000
@@ -27,6 +29,8 @@ type Payload = Record<string, unknown>
 const queue: Payload[] = []
 let daemon: Daemon | null = null
 let sessionCwd = ''
+// Set in the environment of the summarizer's own `claude -p` runs: such a session forwards nothing and shows no band.
+let summarizer = false
 // One request of each kind at a time: a daemon that accepts and never answers holds one, not one per tick.
 let flushing = false
 let polling = false
@@ -42,8 +46,12 @@ function slim(value: unknown, depth = 0): unknown {
 }
 
 async function enqueue($: EngineInterface, fields: Payload) {
+  if (summarizer) return
   const body: Payload = { _scranton_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
-  for (const [k, v] of Object.entries(fields)) if (v !== undefined) body[k] = slim(v)
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined) continue
+    body[k] = k === 'last_assistant_message' && typeof v === 'string' ? v.slice(0, MAX_ANSWER) : slim(v)
+  }
   queue.push(body)
   if (queue.length > MAX_QUEUE) queue.splice(0, queue.length - MAX_QUEUE)
 }
@@ -155,8 +163,12 @@ async function openBuilding($: EngineInterface): Promise<string | null> {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     sessionCwd = e.cwd
-    $.clock.every(FLUSH_MS, () => void flush($))
-    $.clock.every(POLL_MS, () => void poll($))
+    // Read once, as the session starts: the summarizer's own runs never post, never poll and draw nothing.
+    summarizer = await $.env.get('SCRANTON_HQ_SUMMARIZER').then(v => v !== undefined, () => false)
+    if (!summarizer) {
+      $.clock.every(FLUSH_MS, () => void flush($))
+      $.clock.every(POLL_MS, () => void poll($))
+    }
     try {
       await $.command.register({
         name: 'scranton-hq',
@@ -200,12 +212,16 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     const spawned = await next(e)
-    if (spawned.agentId) await enqueue($, { hook_event_name: 'SubagentStart', agent_id: spawned.agentId, agent_type: e.subagentType })
+    // A workflow script's agent names its run: the daemon seats it in that run's room.
+    if (spawned.agentId) {
+      await enqueue($, { hook_event_name: 'SubagentStart', agent_id: spawned.agentId, agent_type: e.subagentType, description: e.description, workflow_run_id: e.workflow?.runId || undefined })
+    }
     return spawned
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
-    await enqueue($, { hook_event_name: 'Stop', background_tasks: 0, agent_id: e.agentId })
+    // A subagent's turn end names it; the main loop's carries its final reply.
+    await enqueue($, { hook_event_name: 'Stop', background_tasks: 0, agent_id: e.agentId, last_assistant_message: e.agentId ? undefined : e.answer })
     return next(e)
   })
 
@@ -218,7 +234,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const a = await read($, attention)
-    if (e.props.hasSurvey || !a) return next(e)
+    if (summarizer || e.props.hasSurvey || !a) return next(e)
     const own = await $.session.id()
     const waiting = a.items.filter(i => i.state === 'needs_you' && i.id !== own)
     const done = a.items.filter(i => i.state === 'done' && i.id !== own).length
