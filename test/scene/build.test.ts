@@ -417,6 +417,8 @@ describe('meeting rooms', () => {
       // The script's meta was out of reach: the current phase alone, or nothing.
       [{ phases: [], currentPhase: 'Build' }, [{ title: 'Build', state: 'current' }]],
       [{ phases: [], currentPhase: null }, []],
+      // A title the list repeats is current where it comes last.
+      [{ phases: ['Build', 'Test', 'Build'], currentPhase: 'Build' }, [{ title: 'Build', state: 'done' }, { title: 'Test', state: 'done' }, { title: 'Build', state: 'current' }]],
     ];
     for (const [extra, expected] of cases) expect([extra, room(extra).phases]).toEqual([extra, expected]);
     expect([room({}).name, room({}).summary]).toEqual([null, null]);
@@ -489,9 +491,32 @@ describe('meeting rooms', () => {
     }
     const floor = buildFloorDetail(views, 'feature:rooms')!;
     expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.host !== null]), floor.roomsMore]).toEqual([
-      [['wf_0000aaaa-003', 'm3', false], ['wf_0000aaaa-000', 'm3', false], ['wf_0000aaaa-001', 'm1', true], ['wf_0000aaaa-001', 'm2', true]],
+      [['wf_0000aaaa-003', 'm3', false], ['wf_0000aaaa-000', 'm3', false], ['wf_0000aaaa-001', 'm1', true], ['wf_0000aaaa-002', 'm1', false]],
       1,
     ]);
+  });
+
+  it('gives a run id that two sessions name one room on the floor: that of the host that started first', () => {
+    const views = [
+      view('m1', ws('/w/api', 'feat/rooms'), 'in_meeting', { startedAt: NOW - 2 * DAY, runs: [live('wf_0000aaaa-001', NOW - 5 * MIN)] }),
+      view('m0', ws('/w/web', 'feat/rooms'), 'in_meeting', { startedAt: NOW - DAY, runs: [live('wf_0000aaaa-001', NOW - 9 * MIN)] }),
+      view('m2', ws('/w/web', 'feat/rooms'), 'working', { startedAt: NOW - 2 * DAY, runs: [live('wf_0000aaaa-001', NOW - 9 * MIN)] }),
+    ];
+    const floor = buildFloorDetail(views, 'feature:rooms')!;
+    expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.host !== null]), floor.roomsMore]).toEqual([[['wf_0000aaaa-001', 'm1', true]], 2]);
+    expect(Object.fromEntries(floor.islands.flatMap((i) => i.desks).map((d) => [d.sessionId, d.away]))).toEqual({ m0: false, m1: true, m2: false });
+  });
+
+  it('keeps two long ids that start alike apart: run agents, interns and runs', () => {
+    const long = (n: number) => `${'x'.repeat(300)}${n}`;
+    const v = view('h', ws('/w/api', 'main'), 'in_meeting', {
+      children: [child(`c${long(1)}`, 'Explore'), child(`c${long(2)}`, 'Explore')],
+      runs: [run(`wf_${long(1)}`, { agents: [runAgent(`a${long(1)}`), runAgent(`a${long(2)}`)] }), run(`wf_${long(2)}`, { startedAt: NOW - 19 * MIN })],
+    });
+    const floor = buildFloorDetail([v], 'repo:/w/api')!;
+    const desk = floor.islands[0]!.desks[0]!;
+    const ids = [floor.rooms.map((r) => r.runId), floor.rooms[0]!.agents.map((a) => a.agentId), desk.interns.map((i) => i.agentId), desk.runs.map((r) => r.runId)];
+    for (const pair of ids) expect([pair.length, new Set(pair).size, pair.every((id) => Array.from(id).length === 256)]).toEqual([2, 2, true]);
   });
 });
 

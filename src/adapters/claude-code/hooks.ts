@@ -1,7 +1,7 @@
 import { ANSWER_MAX, RUN_ID } from '../../core/reducer.js';
 import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
-import { isSessionId } from '../../scene/text.js';
+import { isSessionId, KEY_MAX } from '../../scene/text.js';
 import { promptText } from './transcript.js';
 
 /** The payload names the mapper understands. The mod sends a subset (see test/mod-contract.test.ts). */
@@ -41,6 +41,8 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
   const ts = typeof p._scranton_ts === 'number' && Number.isFinite(p._scranton_ts) ? p._scranton_ts : receivedAt;
   const cwd = str(p.cwd);
   const agentId = str(p.agent_id) || null;
+  // An agent id longer than any key the building keeps names no agent: the payload is dropped, not taken as the session's.
+  if (agentId !== null && agentId.length > KEY_MAX) return [];
   const toolName = str(p.tool_name);
   const toolId = str(p.tool_use_id) || null;
   const base = { sessionId, ts, source: 'hook' as const, ...(cwd ? { cwd } : {}) };

@@ -7,7 +7,7 @@ import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { INTERNS_MAX, layoutFloor, MEETING_AGENTS_MAX, ROOMS_MAX, RUNS_SHOWN } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
-import { cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
+import { capKey, cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
 import {
   SCENE_VERSION,
   type AttentionEntry,
@@ -100,7 +100,7 @@ export function reasonOf(v: SessionView): SceneReason | null {
     kind: v.waitReason.kind,
     text: cleanText(v.waitReason.text) || 'Needs you',
     detail: cleanOrNull(v.waitReason.detail),
-    agent: agentId ? { id: cleanText(agentId, KEY_MAX), type: agent ? typeOf(agent.type) : null } : null,
+    agent: agentId ? { id: capKey(agentId), type: agent ? typeOf(agent.type) : null } : null,
   };
 }
 
@@ -123,7 +123,7 @@ function internsOf(v: SessionView): { interns: Intern[]; internsMore: number } {
     .map(({ c }) => c);
   const shown = [...v.children.filter((c) => c.running), ...finished].slice(0, INTERNS_MAX);
   return {
-    interns: shown.map((c) => ({ agentId: cleanText(c.id, KEY_MAX), type: typeOf(c.type), label: cleanOrNull(c.description), running: c.running })),
+    interns: shown.map((c) => ({ agentId: capKey(c.id), type: typeOf(c.type), label: cleanOrNull(c.description), running: c.running })),
     internsMore: v.children.length - shown.length,
   };
 }
@@ -141,7 +141,7 @@ function runsOf(v: SessionView): RunSummary[] {
   const live = v.runs.filter(liveRun).sort(byStart);
   const rest = v.runs.filter((r) => !liveRun(r)).sort((a, b) => ended(b) - ended(a) || b.startedAt - a.startedAt || byCodeUnit(a.id, b.id));
   return [...live, ...rest].slice(0, RUNS_SHOWN).map((r) => ({
-    runId: cleanText(r.id, KEY_MAX),
+    runId: capKey(r.id),
     name: cleanOrNull(r.name, RUN_NAME_MAX),
     status: r.status,
     startedAt: r.startedAt,
@@ -151,11 +151,12 @@ function runsOf(v: SessionView): RunSummary[] {
 }
 
 /**
- * The whiteboard: phases before the current one are done, and those after it upcoming. With no current phase, or one
- * that is not in the list, every phase is upcoming. A run whose phases are unknown shows its current phase alone.
+ * The whiteboard: phases before the current one are done, and those after it upcoming; a title the list repeats is
+ * current where it comes last. With no current phase, or one that is not in the list, every phase is upcoming. A run
+ * whose phases are unknown shows its current phase alone.
  */
 function phasesOf(r: WorkflowRun): MeetingRoom['phases'] {
-  const at = r.currentPhase === null ? -1 : r.phases.indexOf(r.currentPhase);
+  const at = r.currentPhase === null ? -1 : r.phases.lastIndexOf(r.currentPhase);
   const phases: { title: string; state: PhaseState }[] =
     r.phases.length === 0 && r.currentPhase !== null
       ? [{ title: r.currentPhase, state: 'current' }]
@@ -168,7 +169,7 @@ function meetingAgentsOf(r: WorkflowRun): MeetingAgent[] {
   const running = r.agents.filter((a) => a.running).sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   const finished = r.agents.filter((a) => !a.running).sort((a, b) => b.updatedAt - a.updatedAt || b.startedAt - a.startedAt || byCodeUnit(a.id, b.id));
   return [...running, ...finished].slice(0, MEETING_AGENTS_MAX).map((a) => ({
-    agentId: cleanText(a.id, KEY_MAX),
+    agentId: capKey(a.id),
     label: cleanOrNull(a.label),
     phase: cleanOrNull(a.phase, PHASE_MAX),
     type: typeOf(a.type),
@@ -273,7 +274,7 @@ function roomsOf(runs: RoomRun[], rects: { rect: GridRect }[]): MeetingRoom[] {
     const head = host.effectiveState === 'in_meeting' && !seated.has(host.id);
     if (head) seated.add(host.id);
     return {
-      runId: cleanText(run.id, KEY_MAX),
+      runId: capKey(run.id),
       hostSessionId: idOf(host),
       name: cleanOrNull(run.name, RUN_NAME_MAX),
       summary: cleanOrNull(run.summary),
@@ -288,15 +289,21 @@ function roomsOf(runs: RoomRun[], rects: { rect: GridRect }[]): MeetingRoom[] {
 }
 
 /**
- * One floor: its islands, and one room per live run of its sessions, by run start, then run id, then host id. The first
- * ROOMS_MAX runs get rooms, and the floor counts the rest. A host in_meeting with a room on the floor is away from its desk.
+ * One floor: its islands, and one room per live run of its sessions, by run start, then run id. A run id two sessions
+ * name gets one room, the one of the host that started first (then by id). The first ROOMS_MAX runs get rooms, and the
+ * floor counts the rest, the other hosts' runs too. A host in_meeting with a room on the floor is away from its desk.
  */
 function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDetail {
-  const live = groups
-    .flatMap((g) => g.views.flatMap((v) => v.runs.filter(liveRun).map((run): RoomRun => ({ run, host: v, root: g.root }))))
-    .sort((a, b) => byStart(a.run, b.run) || byCodeUnit(a.host.id, b.host.id));
+  const all = groups.flatMap((g) => g.views.flatMap((v) => v.runs.filter(liveRun).map((run): RoomRun => ({ run, host: v, root: g.root }))));
+  const first = new Map<string, RoomRun>();
+  for (const r of all) {
+    const key = capKey(r.run.id);
+    const held = first.get(key);
+    if (!held || (r.host.startedAt - held.host.startedAt || byCodeUnit(r.host.id, held.host.id)) < 0) first.set(key, r);
+  }
+  const live = [...first.values()].sort((a, b) => byStart(a.run, b.run) || byCodeUnit(a.host.id, b.host.id));
   const roomed = live.slice(0, ROOMS_MAX);
-  const layout = layoutFloor(groups.map((g) => ({ key: g.key, deskIds: g.views.map((v) => v.id) })), roomed.map((r) => cleanText(r.run.id, KEY_MAX)));
+  const layout = layoutFloor(groups.map((g) => ({ key: g.key, deskIds: g.views.map((v) => v.id) })), roomed.map((r) => capKey(r.run.id)));
   const rooms = roomsOf(roomed, layout.rooms);
   const away = new Set(roomed.filter((r) => r.host.effectiveState === 'in_meeting').map((r) => r.host.id));
   const { windows: _windows, ...summary } = summaryOf(floor, number, groups);
@@ -313,7 +320,7 @@ function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDet
       desks: g.views.map((v, k) => deskOf(v, placed.desks[k]!.rect, g.root, away.has(v.id))),
     };
   });
-  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands, rooms, roomsMore: live.length - roomed.length };
+  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands, rooms, roomsMore: all.length - roomed.length };
 }
 
 function entryOf(v: SessionView, state: AttentionEntry['state']): AttentionEntry {

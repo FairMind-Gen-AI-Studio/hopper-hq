@@ -135,6 +135,14 @@ describe('mapHookPayload edge cases', () => {
     expect(mapHookPayload({ session_id: '7ef904e4-9872-4cca-924f-e7ddde08fc55', cwd: '/w/shop', hook_event_name: 'Stop' }, NOW)).toHaveLength(1);
   });
 
+  it('drops a payload whose agent id is longer than any key the building keeps', () => {
+    const agent_id = 'a'.repeat(257);
+    for (const p of [{ hook_event_name: 'SubagentStart', agent_type: 'Explore' }, { hook_event_name: 'Stop' }, { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/w/shop/a.ts' } }]) {
+      expect([p.hook_event_name, mapHookPayload({ session_id: SID, cwd: CWD, agent_id, ...p }, NOW)]).toEqual([p.hook_event_name, []]);
+    }
+    expect(mapHookPayload({ session_id: SID, cwd: CWD, agent_id: 'a'.repeat(256), hook_event_name: 'Stop' }, NOW)).toEqual([{ ...base(NOW), type: 'agent.finished', agentId: 'a'.repeat(256) }]);
+  });
+
   it('rejects payloads without a session or event name', () => {
     expect(mapHookPayload(null, NOW)).toEqual([]);
     expect(mapHookPayload('x', NOW)).toEqual([]);
