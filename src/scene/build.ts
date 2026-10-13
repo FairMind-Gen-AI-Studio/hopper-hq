@@ -7,6 +7,7 @@ import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { INTERNS_MAX, layoutFloor, MEETING_AGENTS_MAX, ROOMS_MAX, RUNS_SHOWN } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
+import { roomRunsOf, type RoomRun } from './seating.js';
 import { capKey, cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
 import {
   SCENE_VERSION,
@@ -271,18 +272,14 @@ function deskOf(v: SessionView, rect: Desk['rect'], root: string, away: boolean)
   };
 }
 
-/** A live run of a session on the floor, ready to become a room. */
-interface RoomRun {
-  run: WorkflowRun;
-  host: SessionView;
-  /** The host's island's repository root: the colour key of its robots. */
-  root: string;
-}
-
-/** The rooms of the floor's first live runs. An in_meeting host sits at the head of its first room; its other rooms keep a placard. */
-function roomsOf(runs: RoomRun[], rects: { rect: GridRect }[]): MeetingRoom[] {
+/**
+ * The rooms of the floor's first live runs. An in_meeting host sits at the head of its first room; its other rooms keep a
+ * placard. `rootOf` gives each host's island's repository root: the colour key of its robots.
+ */
+function roomsOf(runs: RoomRun[], rects: { rect: GridRect }[], rootOf: ReadonlyMap<string, string>): MeetingRoom[] {
   const seated = new Set<string>();
-  return runs.map(({ run, host, root }, i): MeetingRoom => {
+  return runs.map(({ run, host }, i): MeetingRoom => {
+    const root = rootOf.get(host.id)!;
     const head = host.effectiveState === 'in_meeting' && !seated.has(host.id);
     if (head) seated.add(host.id);
     return {
@@ -306,17 +303,12 @@ function roomsOf(runs: RoomRun[], rects: { rect: GridRect }[]): MeetingRoom[] {
  * floor counts the rest, the other hosts' runs too. A host in_meeting with a room on the floor is away from its desk.
  */
 function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDetail {
-  const all = groups.flatMap((g) => g.views.flatMap((v) => v.runs.filter(liveRun).map((run): RoomRun => ({ run, host: v, root: g.root }))));
-  const first = new Map<string, RoomRun>();
-  for (const r of all) {
-    const key = capKey(r.run.id);
-    const held = first.get(key);
-    if (!held || (r.host.startedAt - held.host.startedAt || byCodeUnit(r.host.id, held.host.id)) < 0) first.set(key, r);
-  }
-  const live = [...first.values()].sort((a, b) => byStart(a.run, b.run) || byCodeUnit(a.host.id, b.host.id));
-  const roomed = live.slice(0, ROOMS_MAX);
-  const layout = layoutFloor(groups.map((g) => ({ key: g.key, deskIds: g.views.map((v) => v.id) })), roomed.map((r) => capKey(r.run.id)));
-  const rooms = roomsOf(roomed, layout.rooms);
+  // roomsMore counts every host's live runs: a run two hosts name counts twice.
+  const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length, 0);
+  const rootOf = new Map(groups.flatMap((g) => g.views.map((v): [string, string] => [v.id, g.root])));
+  const roomed = roomRunsOf(floor).slice(0, ROOMS_MAX);
+  const layout = layoutFloor(groups.map((g) => ({ key: g.key, deskIds: g.views.map((v) => v.id) })), roomed.map((r) => r.key));
+  const rooms = roomsOf(roomed, layout.rooms, rootOf);
   const away = new Set(roomed.filter((r) => r.host.effectiveState === 'in_meeting').map((r) => r.host.id));
   const { windows: _windows, ...summary } = summaryOf(floor, number, groups);
   const islands = groups.map((g, i): Island => {
@@ -332,7 +324,7 @@ function detailOf(floor: Floor, number: number, groups: IslandGroup[]): FloorDet
       desks: g.views.map((v, k) => deskOf(v, placed.desks[k]!.rect, g.root, away.has(v.id))),
     };
   });
-  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands, rooms, roomsMore: all.length - roomed.length };
+  return { version: SCENE_VERSION, ...summary, size: layout.size, core: layout.core, islands, rooms, roomsMore: liveRuns - roomed.length };
 }
 
 function entryOf(v: SessionView, state: AttentionEntry['state']): AttentionEntry {

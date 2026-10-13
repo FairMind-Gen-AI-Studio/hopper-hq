@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 
 const DIR = new URL('../../src/scene/', import.meta.url);
-/** The only server-side module in src/scene. Every other file there is bundled into the browser. */
-const SERVER_ONLY = new Set(['build.ts']);
+/** The server-side modules in src/scene. Every other file there is bundled into the browser. */
+const SERVER_ONLY = new Set(['build.ts', 'seating.ts']);
 
 /**
  * Import specifiers that break the browser boundary: a shared scene module may import its shared siblings,
