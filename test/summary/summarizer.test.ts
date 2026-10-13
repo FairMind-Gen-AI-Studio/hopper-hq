@@ -178,17 +178,36 @@ describe('Summarizer triggers', () => {
     expect(t.provider.calls).toHaveLength(2);
   });
 
-  it('does nothing while summaries are off, and reads the config again for each job', async () => {
+  it('does nothing while summaries are off, not even a timer, and summarizes the first turn end once they are on', async () => {
     const t = setup({ enabled: false });
     t.turn('S1', 'done');
     await t.clock.by(8000);
     expect(t.provider.calls).toEqual([]);
+    t.turn('S2', 'done');
+    await t.clock.by(0);
+    expect(t.clock.size).toBe(0);
     t.setConfig({ enabled: true, model: 'sonnet' });
     t.turn('S1', 'working');
     t.turn('S1', 'done');
+    // The turn end reads the config again; once it is on, the turn is due as usual.
+    await t.clock.by(0);
     await t.clock.by(8000);
-    expect(t.provider.calls).toHaveLength(1);
+    expect(t.provider.calls.map((c) => [c.input.split('\n')[0], c.at])).toEqual([['Title: Task of S1', T0 + 16_000]]);
     expect(t.configs.at(-1)).toEqual({ enabled: true, provider: 'claude-cli', model: 'sonnet' });
+  });
+
+  it('dates a line as of the notes it was written from: a prompt sent while the provider writes it makes it out of date', async () => {
+    const t = setup();
+    let answer!: (line: string) => void;
+    t.provider.answer = () => new Promise<string>((resolve) => (answer = resolve));
+    t.turn('S1', 'done');
+    await t.clock.by(8000);
+    await t.clock.by(5000);
+    t.source.put({ ...t.source.sessions.get('S1')!, lastPromptAt: t.clock.t });
+    answer('Done: the login form is fixed.');
+    await flush();
+    const s = t.source.sessions.get('S1')!;
+    expect([s.summary?.text, s.summary?.at, s.lastPromptAt]).toEqual(['Done: the login form is fixed.', T0 + 8000, T0 + 13_000]);
   });
 });
 
@@ -240,6 +259,43 @@ describe('Summarizer pacing', () => {
     expect((await t.summarizer.status()).queued).toBe(0);
   });
 
+  it('calls the provider for a session at most once per interval, also when it came due behind another job', async () => {
+    const t = setup();
+    const answers: ((line: string) => void)[] = [];
+    t.provider.answer = () => new Promise<string>((resolve) => answers.push(resolve));
+    t.turn('S2', 'done');
+    await t.clock.by(7000);
+    t.turn('S1', 'done');
+    // S1 comes due while S2 is being summarized, waits behind it, and meanwhile stops at a permission prompt.
+    await t.clock.by(8000);
+    t.turn('S1', 'needs_you', { waitReason: { kind: 'permission', text: 'Bash', detail: 'Bash: npm test' } });
+    await t.clock.by(1000);
+    answers[0]!('Two.');
+    await flush();
+    answers[1]!('One.');
+    await flush();
+    t.turn('S1', 'working');
+    t.turn('S1', 'needs_you', { waitReason: { kind: 'permission', text: 'Bash', detail: 'Bash: git push' } });
+    await t.clock.by(10 * MIN);
+    expect(t.provider.calls.map((c) => [c.input.split('\n')[0], c.at - T0])).toEqual([['Title: Task of S2', 8000], ['Title: Task of S1', 16_000], ['Title: Task of S1', 16_000 + 3 * MIN]]);
+  });
+
+  it("waits out a session's backoff, also when it came due behind another job", async () => {
+    const t = setup();
+    let release!: (line: string) => void;
+    t.provider.answer = (input) => (input.startsWith('Title: Task of S2') ? new Promise<string>((resolve) => (release = resolve)) : new Error('claude timed out'));
+    t.turn('S2', 'done');
+    await t.clock.by(7000);
+    t.turn('S1', 'done');
+    await t.clock.by(8000);
+    t.turn('S1', 'needs_you', { waitReason: { kind: 'permission', text: 'Bash', detail: 'Bash: npm test' } });
+    await t.clock.by(1000);
+    release('Two.');
+    await flush();
+    await t.clock.to(T0 + 16_000 + 3 * MIN);
+    expect(t.provider.calls.map((c) => c.at - T0)).toEqual([8000, 16_000, 16_000 + 3 * MIN]);
+  });
+
   it('keeps one line of the answer, cleaned and capped, and counts an empty one as a failure', async () => {
     const t = setup();
     t.provider.answer = () => '\n  "Tests   pass."  \nSecond line\n';
@@ -274,6 +330,62 @@ describe('Summarizer failures', () => {
     expect(at.slice(1).map((a, i) => (a - at[i]!) / MIN)).toEqual([1, 2, 15, 8, 16, 30]);
   });
 
+  it('tries a failed summary again once its wait is over, while the session still stands at that turn end with the same notes', async () => {
+    const t = setup();
+    t.provider.answer = () => new Error('claude timed out');
+    const ask = { waitReason: { kind: 'question' as const, text: 'Which database?' } };
+    for (const id of ['S1', 'S2', 'S3', 'S4']) t.turn(id, 'needs_you', ask);
+    await t.clock.by(8000);
+    expect(t.provider.calls).toHaveLength(3);
+    t.provider.answer = () => 'Waits for an answer: which database.';
+    // S2 goes back to work, S3's notes change where it stands, and S4 ends: none of them is tried again.
+    t.turn('S2', 'working');
+    t.source.put({ ...t.source.sessions.get('S3')!, lastAnswer: 'Postgres or SQLite?' });
+    t.turn('S4', 'ended');
+    // The pause after three failures, then S1 is tried again; S4's first job never ran, and goes with it.
+    await t.clock.to(T0 + 8000 + 15 * MIN);
+    expect(t.provider.calls.map((c) => [c.input.split('\n')[0], c.at - T0])).toEqual([
+      ['Title: Task of S1', 8000], ['Title: Task of S2', 8000], ['Title: Task of S3', 8000], ['Title: Task of S1', 8000 + 15 * MIN],
+    ]);
+    expect(t.source.sessions.get('S1')!.summary?.text).toBe('Waits for an answer: which database.');
+    // A turn end while a retry waits is summarized as a turn end, from what the session says then.
+    t.provider.answer = () => new Error('claude timed out');
+    t.turn('S5', 'done');
+    await t.clock.by(8000);
+    t.provider.answer = () => 'Now done.';
+    t.turn('S5', 'working');
+    t.turn('S5', 'done', { lastAnswer: 'Finished after all.' });
+    await t.clock.by(10 * MIN);
+    expect(t.provider.calls.slice(4).map((c) => [c.input.endsWith('Finished after all.'), c.at - T0])).toEqual([[false, 16_000 + 15 * MIN], [true, 16_000 + 18 * MIN]]);
+    expect(t.clock.size).toBe(0);
+  });
+
+  it('lifts the pause and the backoffs once the config names another provider or model', async () => {
+    const used: string[] = [];
+    const t = setup({
+      provider: (c) => ({
+        name: c.provider,
+        model: c.model,
+        summarize: async () => {
+          used.push(`${c.provider} ${t.clock.t - T0}`);
+          if (c.provider === 'claude-cli') throw new Error('claude was not found on PATH');
+          return 'Done.';
+        },
+      }),
+    });
+    for (const id of ['S1', 'S2', 'S3']) t.turn(id, 'done');
+    await t.clock.by(8000);
+    expect((await t.summarizer.status()).pausedUntil).toBe(T0 + 8000 + 15 * MIN);
+    t.setConfig({ provider: 'anthropic-api' });
+    await t.clock.by(MIN);
+    t.turn('S4', 'done');
+    await t.clock.by(0);
+    await t.clock.by(8000);
+    expect(used).toEqual(['claude-cli 8000', 'claude-cli 8000', 'claude-cli 8000', `anthropic-api ${MIN + 16_000}`]);
+    expect(t.source.sessions.get('S4')!.summary?.text).toBe('Done.');
+    expect((await t.summarizer.status()).pausedUntil).toBeNull();
+  });
+
   it('pauses every summary for 15 minutes after three failures in a row, then starts counting again', async () => {
     const t = setup();
     t.provider.answer = () => new Error('Anthropic API answered 529: Overloaded');
@@ -288,13 +400,14 @@ describe('Summarizer failures', () => {
       lastOkAt: null,
       lastError: { at: failedAt, message: 'Anthropic API answered 529: Overloaded' },
       pausedUntil: failedAt + 15 * MIN,
-      queued: 0,
+      // Each waits to be tried again.
+      queued: 3,
     });
     t.provider.answer = () => 'Back.';
     t.turn('S4', 'done');
     await t.clock.to(failedAt + 15 * MIN - 1);
     expect(t.provider.calls).toHaveLength(3);
-    expect((await t.summarizer.status()).queued).toBe(1);
+    expect((await t.summarizer.status()).queued).toBe(4);
     await t.clock.by(1);
     expect(t.provider.calls.map((c) => c.at).at(-1)).toBe(failedAt + 15 * MIN);
     expect(await t.summarizer.status()).toMatchObject({ lastOkAt: failedAt + 15 * MIN, pausedUntil: null, queued: 0 });
@@ -327,9 +440,30 @@ describe('Summarizer status and stop', () => {
   it('reports the config with the provider it resolves to, and the sessions waiting', async () => {
     const t = setup({ enabled: false });
     expect(await t.summarizer.status()).toEqual({ enabled: false, provider: 'claude-cli', model: 'haiku', lastOkAt: null, lastError: null, pausedUntil: null, queued: 0 });
+    const on = setup();
+    on.turn('S1', 'done');
+    on.turn('S2', 'done');
+    expect((await on.summarizer.status()).queued).toBe(2);
+  });
+
+  it('forgets a session that ended, but keeps pacing it while a recent call or a failure counts', async () => {
+    const t = setup();
+    const paces = (t.summarizer as unknown as { paces: Map<string, unknown> }).paces;
     t.turn('S1', 'done');
+    await t.clock.by(8000);
     t.turn('S2', 'done');
-    expect((await t.summarizer.status()).queued).toBe(2);
+    t.turn('S2', 'ended');
+    t.turn('S1', 'ended');
+    expect([t.clock.size, [...paces.keys()]]).toEqual([0, ['S1']]);
+    // Back within its interval, it waits for the rest of it.
+    t.turn('S1', 'done', { lastAnswer: 'Again.' });
+    await t.clock.to(T0 + 8000 + 3 * MIN - 1);
+    expect(t.provider.calls).toHaveLength(1);
+    await t.clock.by(1);
+    expect(t.provider.calls).toHaveLength(2);
+    await t.clock.by(3 * MIN);
+    t.turn('S1', 'ended');
+    expect(paces.size).toBe(0);
   });
 
   it('stops for good: no timer, no job, the running call aborted and its answer dropped', async () => {
