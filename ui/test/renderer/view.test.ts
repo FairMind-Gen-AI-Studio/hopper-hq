@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor } from '../../renderer/world';
+import { FloorScene } from '../../renderer/floor-scene';
 import { checkoutFloor, checkoutIslands, desksOf, makeFloor } from './fixtures';
 
 const W = 800;
@@ -706,24 +708,61 @@ describe('the floor view', () => {
   });
 
   it('lets go of everything on dispose, once', () => {
-    const { canvas, labels, renderer, env, view, events } = setup();
-    view.setFloor(checkoutFloor());
-    env.flush();
-    view.on('select', (picked) => view.select(picked, { pan: true }));
-    click(canvas, deskPoint(renderer, 'oa-c3'));
-    events.length = 0;
-    view.dispose();
-    view.dispose();
-    expect(renderer.disposed).toBe(1);
-    expect(renderer.contextLost).toBe(1);
-    expect(env.queue.size).toBe(0);
-    expect(env.timers.size).toBe(0);
-    expect(env.watching).toBe(false);
-    expect(env.ratioChanged).toBeNull();
-    expect(labels.children).toHaveLength(0);
-    click(canvas, { x: 400, y: 250 });
-    view.select('oa-c3');
-    expect(env.queue.size).toBe(0);
-    expect(events).toEqual([]);
+    // Every listener added on the page, the canvas or the labels host, by the view or by what it uses, with the
+    // listener function and the capture flag it was added with.
+    type Added = { target: EventTarget; type: string; listener: unknown; capture: boolean };
+    const added: Added[] = [];
+    const capture = (options: unknown) => (typeof options === 'boolean' ? options : Boolean((options as AddEventListenerOptions | undefined)?.capture));
+    // The prototype that owns addEventListener for the page's nodes (the DOM's own EventTarget).
+    const ownerOf = (node: object): EventTarget => {
+      let p: object | null = node;
+      while (p && !Object.prototype.hasOwnProperty.call(p, 'addEventListener')) p = Object.getPrototypeOf(p);
+      return p as EventTarget;
+    };
+    const dom = ownerOf(document.createElement('canvas'));
+    const add = dom.addEventListener;
+    const remove = dom.removeEventListener;
+    const addSpy = vi.spyOn(dom, 'addEventListener').mockImplementation(function (this: EventTarget, type, listener, options) {
+      if (listener) added.push({ target: this, type, listener, capture: capture(options) });
+      return add.call(this, type, listener, options);
+    });
+    const removeSpy = vi.spyOn(dom, 'removeEventListener').mockImplementation(function (this: EventTarget, type, listener, options) {
+      const at = added.findIndex((a) => a.target === this && a.type === type && a.listener === listener && a.capture === capture(options));
+      if (at >= 0) added.splice(at, 1);
+      return remove.call(this, type, listener, options);
+    });
+    const controlsDispose = vi.spyOn(OrbitControls.prototype, 'dispose');
+    const worldDispose = vi.spyOn(FloorScene.prototype, 'dispose');
+    try {
+      const { canvas, labels, renderer, env, view, events } = setup();
+      const mine = (a: Added) => a.target === document || a.target === canvas || a.target === labels;
+      view.setFloor(checkoutFloor());
+      env.flush();
+      view.on('select', (picked) => view.select(picked, { pan: true }));
+      click(canvas, deskPoint(renderer, 'oa-c3'));
+      events.length = 0;
+      expect(added.filter(mine).length).toBeGreaterThan(0);
+      view.dispose();
+      view.dispose();
+      expect(added.filter(mine).map((a) => `${a.target === document ? 'document' : a.target === canvas ? 'canvas' : 'labels'} ${a.type}`)).toEqual([]);
+      expect(controlsDispose).toHaveBeenCalledTimes(1);
+      expect(worldDispose).toHaveBeenCalledTimes(1);
+      expect(renderer.disposed).toBe(1);
+      expect(renderer.contextLost).toBe(1);
+      expect(env.queue.size).toBe(0);
+      expect(env.timers.size).toBe(0);
+      expect(env.watching).toBe(false);
+      expect(env.ratioChanged).toBeNull();
+      expect(labels.children).toHaveLength(0);
+      click(canvas, { x: 400, y: 250 });
+      view.select('oa-c3');
+      expect(env.queue.size).toBe(0);
+      expect(events).toEqual([]);
+    } finally {
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+      controlsDispose.mockRestore();
+      worldDispose.mockRestore();
+    }
   });
 });
