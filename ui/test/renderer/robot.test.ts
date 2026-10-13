@@ -5,23 +5,24 @@ import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import { BOT, HEAD_DOWN, HOVER_Y, KIND_SCALE, POSES, buildRobot, poseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { SEAT_Y, labelAnchor, robotSpot } from '../../renderer/world';
-import { checkoutFloor, desksOf } from './fixtures';
+import { SEAT_Y, labelAnchor, placeSpot } from '../../renderer/world';
+import { checkoutFloor, seatsOf } from './fixtures';
 
 function kit() {
   return { geo: new Geometries(), mats: new Materials(dayTheme()) };
 }
 
-/** Every desk of the fixture that has a robot, built and posed at its spot. */
+/** Every session of the fixture that has a robot, built and posed at its desk. */
 function posed() {
   const { geo, mats } = kit();
-  return desksOf(checkoutFloor())
-    .filter((d) => d.robot)
-    .map((desk) => {
-      const obj = buildRobot(desk.sessionId, desk.robot!, geo, mats);
-      poseRobot(obj, desk.robot!, robotSpot(desk)!);
+  const floor = checkoutFloor();
+  return seatsOf(floor)
+    .filter(({ occupant }) => occupant.robot)
+    .map(({ desk, occupant }) => {
+      const obj = buildRobot(occupant.sessionId, occupant.robot!, geo, mats);
+      poseRobot(obj, occupant.robot!, placeSpot(floor, desk, occupant)!);
       obj.group.updateMatrixWorld(true);
-      return { desk, obj, mats };
+      return { floor, desk, occupant, obj, mats };
     });
 }
 
@@ -89,30 +90,36 @@ describe('robots', () => {
     expect(poseOf({ pose: 'typing', badge: 'clock' })).toBe(POSES.typing);
   });
 
-  it('sits on the chair facing the monitor, or stands beside it facing the room', () => {
-    for (const { desk, obj } of posed()) {
-      const spot = robotSpot(desk)!;
+  it('sits on the chair facing the monitor, or stands beside it facing away from the desk', () => {
+    for (const { floor, desk, occupant, obj } of posed()) {
+      const spot = placeSpot(floor, desk, occupant)!;
       expect(obj.group.position.x).toBe(spot.x);
       expect(obj.group.position.z).toBe(spot.z);
       expect(obj.group.rotation.y).toBe(spot.facing);
-      const standing = desk.robot!.pose === 'waving' || desk.robot!.pose === 'holding';
-      expect(obj.group.position.y, desk.state).toBeCloseTo(standing ? 0 : SEAT_Y - BOT.hip, 10);
-      expect(obj.group.rotation.y, desk.state).toBe(standing ? 0 : Math.PI);
+      const standing = occupant.robot!.pose === 'waving' || occupant.robot!.pose === 'holding';
+      // Facing south (0): standing at a desk of a pod's south row, or seated at one of its north row.
+      const south = standing === (desk.chair === 'south');
+      expect(obj.group.position.y, occupant.state).toBeCloseTo(standing ? 0 : SEAT_Y - BOT.hip, 10);
+      expect(obj.group.rotation.y, `${occupant.state} at ${desk.id}`).toBe(south ? 0 : Math.PI);
     }
     expect(rootHeight('typing')).toBeCloseTo(0.14, 10);
     expect(rootHeight('holding')).toBe(0);
   });
 
-  it('stays inside its desk cells, under its label', () => {
-    for (const { desk, obj } of posed()) {
+  it('stays inside its desk cells, under its label, on either side of a pod', () => {
+    const sides = new Set<string>();
+    for (const { floor, desk, occupant, obj } of posed()) {
       const box = new Box3().setFromObject(obj.group);
-      expect(box.min.x, desk.state).toBeGreaterThan(desk.rect.x);
-      expect(box.max.x, desk.state).toBeLessThan(desk.rect.x + desk.rect.w);
-      expect(box.min.z, desk.state).toBeGreaterThan(desk.rect.y);
-      expect(box.max.z, desk.state).toBeLessThan(desk.rect.y + desk.rect.h);
-      expect(box.min.y, desk.state).toBeGreaterThanOrEqual(-0.001);
-      expect(labelAnchor(desk).y - box.max.y, desk.state).toBeGreaterThan(0.2);
+      const name = `${occupant.state} at ${desk.id}`;
+      sides.add(desk.chair);
+      expect(box.min.x, name).toBeGreaterThan(desk.rect.x);
+      expect(box.max.x, name).toBeLessThan(desk.rect.x + desk.rect.w);
+      expect(box.min.z, name).toBeGreaterThan(desk.rect.y);
+      expect(box.max.z, name).toBeLessThan(desk.rect.y + desk.rect.h);
+      expect(box.min.y, name).toBeGreaterThanOrEqual(-0.001);
+      expect(labelAnchor(floor, desk, occupant).y - box.max.y, name).toBeGreaterThan(0.2);
     }
+    expect([...sides].sort()).toEqual(['north', 'south']);
   });
 
   it('builds a workflow agent at 0.8, in a hard hat of the hard-hat colour, with its legs and its tie', () => {

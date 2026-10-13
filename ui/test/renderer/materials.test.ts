@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Color, type MeshStandardMaterial } from 'three';
-import { GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_MIX, RUG_MIX } from '../../renderer/materials';
+import { GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_DIM, ROOM_MIX, RUG_MIX } from '../../renderer/materials';
 import { dayTheme, type ThemeTokens } from '../../renderer/theme';
 
 const hex = (c: Color) => '#' + c.getHexString();
@@ -67,6 +67,16 @@ describe('materials', () => {
       const tint = new Color(theme.colors['scene-floor']).lerp(new Color(theme.colors['scene-couch']), 0.25);
       expect(hex(m.surface.loungeRug.color)).toBe(hex(tint));
     }
+  });
+
+  it('lays a neutral rug under a pod whose occupants share no repository, and dims the floor of a room no run holds', () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    const neutral = new Color(theme.colors['scene-floor']).lerp(new Color(theme.colors['scene-base']), RUG_MIX);
+    expect(hex(m.surface.rug.color)).toBe(hex(neutral));
+    const dim = new Color(theme.colors['scene-floor']).lerp(new Color(theme.colors['s-meeting']), ROOM_MIX).multiplyScalar(ROOM_DIM);
+    expect(hex(m.surface.roomDim.color)).toBe(hex(dim));
+    expect(ROOM_DIM).toBeLessThan(1);
   });
 
   it('makes the partitions see-through glass in the glass colour, which writes no depth', () => {
@@ -140,6 +150,6 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    expect(m.all().length).toBe(29 + 3 * 8 + 8 + 1 + 6 + 1);
+    expect(m.all().length).toBe(31 + 3 * 8 + 8 + 1 + 6 + 1);
   });
 });

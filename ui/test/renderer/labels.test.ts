@@ -3,8 +3,8 @@ import { OrthographicCamera } from 'three';
 import type { Target } from '../../renderer/index';
 import { COMPACT_PX, LabelLayer, projectToScreen, roomTitle, tagTitle, type LabelEvents } from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
-import { boardAnchor, labelAnchor, roomTagAnchor } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, checkoutRooms, desksOf, isoCamera, makeFloor, roomFloor } from './fixtures';
+import { LABEL_Y, boardAnchor, headSpot, labelAnchor, loungeSpots, roomTagAnchor } from '../../renderer/world';
+import { checkoutFloor, checkoutIslands, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
 
 /** A camera looking straight down at a 10 m square around the origin. */
 function topDown(): OrthographicCamera {
@@ -62,7 +62,7 @@ describe('projection', () => {
 });
 
 describe('the label layer', () => {
-  it('shows a tag per desk with its state, name, note, agents and remote mark, and a placard per island', () => {
+  it('shows a tag per session at a desk with its state, name, note, agents and remote mark, and a placard per pod that has one', () => {
     const { root, labels } = layer();
     const islands = checkoutIslands();
     islands[2]!.desks[0]!.cloud = true;
@@ -83,10 +83,16 @@ describe('the label layer', () => {
     expect([...meeting.children].map((c) => c.textContent)).toEqual(['', 'ps-d4', '+2', 'remote']);
     expect(meeting.title).toBe('ps-d4 · in meeting · 2 agents running · remote');
     expect([...labels.tag('ps-f7')!.classList]).toEqual(['fv-tag', 'fv-st-dormant']);
-    const sign = labels.sign('/demo/orders-api/.worktrees/checkout-v2')!;
+    const sign = labels.sign('p1')!;
     expect(sign.firstChild!.textContent).toBe('orders-api');
     expect(sign.querySelector('small')!.textContent).toBe('feat/checkout-v2 · worktree');
-    expect(labels.sign('/demo/payments-svc')!.textContent).toBe('payments-svcfeat/checkout-v2');
+    expect(labels.sign('p2')!.textContent).toBe('payments-svcfeat/checkout-v2');
+    expect(labels.sign('p3')).toBeUndefined();
+    // Occupants that share only their repository: the placard names it alone.
+    const shared = makeFloor(islands);
+    shared.pods[1]!.placard = { repo: 'orders-api', branch: null, worktree: false, path: null };
+    labels.sync(shared);
+    expect([labels.sign('p1')!.textContent, labels.sign('p1')!.querySelector('small')]).toEqual(['orders-api', null]);
   });
 
   it('writes names, repos and branches as text, never as markup', () => {
@@ -98,7 +104,7 @@ describe('the label layer', () => {
     labels.sync(makeFloor(islands));
     expect(root.querySelector('img')).toBeNull();
     expect(labels.tag('sw-a1')!.querySelector('.fv-name')!.textContent).toBe(HOSTILE);
-    expect(labels.sign('/demo/storefront-web')!.firstChild!.textContent).toBe(HOSTILE);
+    expect(labels.sign('p0')!.firstChild!.textContent).toBe(HOSTILE);
     expect(labels.tag('sw-a1')!.title.startsWith(HOSTILE)).toBe(true);
   });
 
@@ -117,7 +123,7 @@ describe('the label layer', () => {
     expect(tag.classList.contains('fv-st-needs_you')).toBe(true);
     expect(labels.tag('sw-c3')).toBeUndefined();
     expect(labels.tag('sw-x9')).toBeDefined();
-    expect(labels.sign('/demo/payments-svc')).toBeUndefined();
+    expect(labels.sign('p2')).toBeUndefined();
     expect(root.querySelectorAll('.fv-tag')).toHaveLength(5);
     expect(root.querySelectorAll('.fv-sign')).toHaveLength(2);
   });
@@ -176,7 +182,7 @@ describe('the label layer', () => {
 
   it('puts one tag in the tab order: the one selected or focused last, else the first', () => {
     const { labels } = layer();
-    const ids = desksOf(checkoutFloor()).map((d) => d.sessionId);
+    const ids = seatsOf(checkoutFloor()).map((s) => s.occupant.sessionId);
     const stops = () => ids.filter((id) => labels.tag(id)?.tabIndex === 0);
     labels.sync(checkoutFloor());
     expect(stops()).toEqual(['sw-a1']);
@@ -226,19 +232,19 @@ describe('the label layer', () => {
     press('Home');
     expect(focused()).toBe('sw-a1');
     expect(press('x')).toBe(false);
-    // Closer in, the first two tags are off the view: the keys pass them by.
+    // Closer in, the first pod's three tags are off the view: the keys pass them by.
     camera.zoom = 3;
     camera.updateProjectionMatrix();
     labels.position(camera, 800, 500);
-    labels.tag('oa-c3')!.focus();
+    labels.tag('oa-d5')!.focus();
     press('Home');
-    expect(focused()).toBe('sw-c3');
+    expect(focused()).toBe('oa-c3');
     press('ArrowLeft');
-    expect(focused()).toBe('sw-c3');
+    expect(focused()).toBe('oa-c3');
   });
 
   describe('the tab stop', () => {
-    const stops = (labels: LabelLayer) => desksOf(checkoutFloor()).map((d) => d.sessionId).filter((id) => labels.tag(id)?.tabIndex === 0);
+    const stops = (labels: LabelLayer) => seatsOf(checkoutFloor()).map((s) => s.occupant.sessionId).filter((id) => labels.tag(id)?.tabIndex === 0);
     const zoomed = (labels: LabelLayer, zoom: number) => {
       const floor = checkoutFloor();
       const camera = isoCamera(floor.size);
@@ -261,25 +267,26 @@ describe('the label layer', () => {
       labels.sync(checkoutFloor());
       zoomed(labels, 1);
       expect(stops(labels)).toEqual(['sw-a1']);
-      // Closer in, the first two tags are off the view: the stop passes on to the next one in floor order.
+      // Closer in, the first pod's three tags are off the view: the stop passes on to the next one in floor order.
       zoomed(labels, 3);
-      expect(stops(labels)).toEqual(['sw-c3']);
-      zoomed(labels, 6);
       expect(stops(labels)).toEqual(['oa-c3']);
+      zoomed(labels, 4);
+      expect(stops(labels)).toEqual(['oa-d5']);
       expect(calls).toEqual([]);
     });
 
     it('gives the stop to the earlier of two tags on the view that are equally near it in floor order', () => {
       const { labels } = layer();
       const floor = checkoutFloor();
-      const desks = desksOf(floor);
+      const seats = seatsOf(floor);
+      const desks = seats.map((s) => s.occupant);
       // The third desk stands at the far end of the floor, away from its neighbours in floor order.
-      desks[2]!.rect = desks[desks.length - 1]!.rect;
+      seats[2]!.desk.rect = seats[seats.length - 1]!.desk.rect;
       labels.sync(floor);
       labels.setSelected(deskTarget(desks[2]!.sessionId));
       // A top-down camera over the second and the fourth desk, which are one step either side of it in floor order.
-      const a = labelAnchor(desks[1]!);
-      const b = labelAnchor(desks[3]!);
+      const a = labelAnchor(floor, seats[1]!.desk, seats[1]!.occupant);
+      const b = labelAnchor(floor, seats[3]!.desk, seats[3]!.occupant);
       const camera = new OrthographicCamera(-4.6, 4.6, 4.6, -4.6, 0.1, 100);
       camera.position.set((a.x + b.x) / 2, 10, a.z);
       camera.up.set(0, 0, -1);
@@ -309,8 +316,8 @@ describe('the label layer', () => {
       labels.tag('sw-b2')!.focus();
       expect(stops(labels)).toEqual(['sw-b2']);
       zoomed(labels, 3);
-      expect(stops(labels)).toEqual(['sw-c3']);
-      expect(document.activeElement).toBe(labels.tag('sw-c3'));
+      expect(stops(labels)).toEqual(['oa-c3']);
+      expect(document.activeElement).toBe(labels.tag('oa-c3'));
       expect(calls).toEqual([]);
     });
 
@@ -343,14 +350,28 @@ describe('the label layer', () => {
     expect(tag.style.visibility).toBe('hidden');
     const camera = isoCamera(floor.size);
     labels.position(camera, 800, 500);
-    const desk = desksOf(floor).find((d) => d.sessionId === 'oa-c3')!;
-    const p = projectToScreen(labelAnchor(desk), camera, 800, 500);
+    const { desk, occupant } = seatOf(floor, 'oa-c3');
+    const p = projectToScreen(labelAnchor(floor, desk, occupant), camera, 800, 500);
     expect(tag.style.visibility).toBe('');
     expect(tag.style.transform).toBe(`translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`);
     camera.position.x += 1000;
     camera.updateMatrixWorld();
     labels.position(camera, 800, 500);
     expect(tag.style.visibility).toBe('hidden');
+  });
+
+  it('hangs a session\'s tag over its robot wherever it is: on its lounge seat, at the head of its room', () => {
+    const { labels } = layer();
+    const islands = checkoutIslands();
+    islands[0]!.desks[2] = { ...islands[0]!.desks[2]!, lounge: 2 };
+    const floor = makeFloor(islands, undefined, checkoutRooms());
+    labels.sync(floor);
+    const camera = isoCamera(floor.size);
+    labels.position(camera, 800, 500);
+    for (const [id, spot] of [['sw-c3', loungeSpots(floor.lounge.rect)[2]!], ['ps-d4', headSpot(floor.roomSlots[0]!)]] as const) {
+      const p = projectToScreen({ x: spot.x, y: LABEL_Y.seated, z: spot.z }, camera, 800, 500);
+      expect(labels.tag(id)!.style.transform, id).toBe(`translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`);
+    }
   });
 
   it('shows only the dots while a metre takes few pixels on screen, and keeps the names as text', () => {
@@ -384,7 +405,7 @@ describe('the label layer', () => {
     expect(rule('.fv-name')).toContain('overflow: hidden;');
     expect(rule('.fv-name')).toContain('text-overflow: ellipsis;');
     const long = 'n'.repeat(200);
-    expect(tagTitle({ ...desksOf(checkoutFloor())[0]!, name: long }).startsWith(long + ' · ')).toBe(true);
+    expect(tagTitle({ ...seatsOf(checkoutFloor())[0]!.occupant, name: long }).startsWith(long + ' · ')).toBe(true);
   });
 
   it('removes its labels on dispose', () => {
@@ -395,9 +416,8 @@ describe('the label layer', () => {
     expect(root.classList.contains('fv-labels')).toBe(false);
   });
 
-  it('describes a desk for its tooltip', () => {
-    const desk = desksOf(checkoutFloor())[0]!;
-    expect(tagTitle(desk)).toBe('sw-a1 · working · 1 agent running');
+  it('describes a session for its tooltip', () => {
+    expect(tagTitle(seatsOf(checkoutFloor())[0]!.occupant)).toBe('sw-a1 · working · 1 agent running');
   });
 });
 

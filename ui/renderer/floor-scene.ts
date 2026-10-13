@@ -1,33 +1,23 @@
 /**
- * The open floor as a three.js scene, kept in step with each FloorDetail the server sends. Desks and robots are
- * matched by sessionId and updated in place, and meeting rooms by host and run; the shell is rebuilt only when the
- * layout changes. The scene owns its geometries and materials and frees them all in dispose().
+ * The open floor as a three.js scene, kept in step with each FloorDetail the server sends. The shell holds the plan's
+ * furniture (every desk, the lounge, every room) and is rebuilt only when the plan grows; who sits where, rug colours
+ * and which rooms are open are updated in place. Each session on the floor has one robot, matched by sessionId, that
+ * stands in floor coordinates wherever its occupant is: at its desk, in the lounge or at the head of a room. Room agents
+ * are matched by run and agent id. The scene owns its geometries and materials and frees them all in dispose().
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { SEATS_MAX } from '../../src/scene/layout';
-import type { Desk, FloorDetail, GridRect, MeetingRoom, Robot } from '../../src/scene/types';
+import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot } from '../../src/scene/types';
 import type { Target } from './index';
 import { Materials } from './materials';
-import {
-  Geometries,
-  buildDesk,
-  buildRoom,
-  buildShell,
-  updateDesk,
-  updateRoom,
-  type DeskObject,
-  type PickData,
-  type RoomObject,
-  type Shell,
-} from './props';
+import { Geometries, buildShell, updateDesk, updatePod, updateRoom, type PickData, type Shell } from './props';
 import { buildRobot, poseRobot, type RobotObject } from './robot';
 import type { ThemeTokens } from './theme';
 import {
   HOME_AZIMUTH,
   floorCenter,
-  headSpot,
   internSpots,
-  robotSpot,
+  placeSpot,
   roomKey,
   seatSpot,
   seatSpots,
@@ -38,26 +28,25 @@ import {
   type Spot,
 } from './world';
 
-/** What the shell depends on: the footprint, the core, each island's key, colour and rectangle, and each room's rectangle. */
-export function layoutSignature(floor: Pick<FloorDetail, 'size' | 'core' | 'islands' | 'rooms'>): string {
-  return JSON.stringify([floor.size, floor.core, floor.islands.map((i) => [i.key, i.color, i.rect]), floor.rooms.map((r) => r.rect)]);
+/** What the shell depends on: the footprint, the core, each pod's id and rug, the lounge and every room slot. */
+export function layoutSignature(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>): string {
+  return JSON.stringify([floor.size, floor.core, floor.pods.map((p) => [p.id, p.rect]), floor.lounge.rect, floor.roomSlots]);
 }
 
-export interface DeskEntry {
-  desk: Desk;
-  readonly obj: DeskObject;
+export interface SessionEntry {
+  occupant: Occupant;
+  /** Its desk; null while it waits for one. */
+  desk: PodDesk | null;
+  /** Its robot while it is on the floor: none when its occupant is gone. */
   robot: RobotObject | null;
-  /** The robots of its running interns, by agent id, in the order of their places. */
+  /** The robots of its running interns, by agent id, in the order of their places over its desk. */
   readonly interns: Map<string, RobotObject>;
 }
 
 export interface RoomEntry {
   room: MeetingRoom;
-  obj: RoomObject;
   /** The robots of the agents at the table, by agent id, in seat order. */
   readonly agents: Map<string, RobotObject>;
-  /** The host's robot at the head of the table. */
-  host: RobotObject | null;
 }
 
 export class FloorScene {
@@ -66,14 +55,16 @@ export class FloorScene {
   readonly mats: Materials;
   readonly hemi = new HemisphereLight();
   readonly sun = new DirectionalLight();
-  /** The selection ring on the floor under the selected desk's robot. */
+  /** The selection ring on the floor under the selected session's robot. */
   readonly ring: Mesh;
   /** The outline on the floor of the selected room, just inside its edges. */
   readonly roomRing = new Group();
   private shellPart: Shell | null = null;
   private signature = '';
-  private readonly entries = new Map<string, DeskEntry>();
-  /** By roomKey: two hosts may name the same run. */
+  private floor: FloorDetail | null = null;
+  /** The floor's sessions by id: those at a desk and those waiting for one. */
+  private readonly entries = new Map<string, SessionEntry>();
+  /** By roomKey. */
   private readonly roomEntries = new Map<string, RoomEntry>();
   /** The rooms' keys in the floor's order: a run's first room is the first of these that is its. */
   private roomOrder: string[] = [];
@@ -107,7 +98,7 @@ export class FloorScene {
     return this.shellPart;
   }
 
-  get desks(): ReadonlyMap<string, DeskEntry> {
+  get sessions(): ReadonlyMap<string, SessionEntry> {
     return this.entries;
   }
 
@@ -117,6 +108,7 @@ export class FloorScene {
 
   /** Brings the scene in step with the floor. Returns true when the shell was rebuilt. */
   apply(floor: FloorDetail): boolean {
+    this.floor = floor;
     const signature = layoutSignature(floor);
     const rebuild = signature !== this.signature;
     if (rebuild) {
@@ -127,26 +119,45 @@ export class FloorScene {
       this.fitSun(floor.size);
       this.setAzimuth(this.azimuth);
     }
+    const shell = this.shellPart!;
     const seen = new Set<string>();
-    for (const island of floor.islands) {
-      for (const desk of island.desks) {
-        seen.add(desk.sessionId);
-        const entry = this.entries.get(desk.sessionId);
-        if (entry) this.update(entry, desk);
-        else this.add(desk);
+    for (const pod of floor.pods) {
+      const look = shell.pods.get(pod.id);
+      if (look) updatePod(look, pod.color, this.mats);
+      for (const desk of pod.desks) {
+        const obj = shell.desks.get(desk.id);
+        if (obj) updateDesk(obj, desk.occupant, this.mats);
+        if (desk.occupant && !seen.has(desk.occupant.sessionId)) {
+          seen.add(desk.occupant.sessionId);
+          this.sync(desk.occupant, desk);
+        }
       }
     }
+    for (const occupant of floor.unseated) {
+      if (seen.has(occupant.sessionId)) continue;
+      seen.add(occupant.sessionId);
+      this.sync(occupant, null);
+    }
     for (const [id, entry] of this.entries) if (!seen.has(id)) this.remove(id, entry);
+
     const rooms = new Set<string>();
     this.roomOrder = floor.rooms.map(roomKey);
+    const open = new Map<number, MeetingRoom>();
     for (const room of floor.rooms) {
       const key = roomKey(room);
       rooms.add(key);
-      const entry = this.roomEntries.get(key);
-      if (entry) this.syncRoom(entry, room);
-      else this.addRoom(key, room);
+      if (!open.has(room.slot)) open.set(room.slot, room);
+      let entry = this.roomEntries.get(key);
+      if (!entry) {
+        entry = { room, agents: new Map() };
+        this.roomEntries.set(key, entry);
+      }
+      entry.room = room;
+      this.syncAgents(entry);
     }
     for (const [key, entry] of this.roomEntries) if (!rooms.has(key)) this.removeRoom(key, entry);
+    const heads = new Set([...this.entries.values()].flatMap((e) => (e.robot && e.occupant.at.kind === 'room' ? [e.occupant.at.slot] : [])));
+    for (const obj of shell.rooms) updateRoom(obj, open.get(obj.slot) ?? null, heads.has(obj.slot), this.mats);
     this.placeRing();
     return rebuild;
   }
@@ -160,7 +171,7 @@ export class FloorScene {
     this.sun.intensity = theme.numbers['sun-int'];
   }
 
-  /** Shows the ring under a desk, or the outline of a room; null, or what is not on this floor, hides them. */
+  /** Shows the ring under a session's robot, or the outline of a room; null, or what is not on this floor, hides them. */
   setSelected(target: Target | null): void {
     this.selected = target;
     this.placeRing();
@@ -180,8 +191,8 @@ export class FloorScene {
   }
 
   /**
-   * Where the camera looks when it pans to a desk or a room: the desk's robot, or the chair of an empty desk; the
-   * table of the run's first room. Null when it is not on this floor.
+   * Where the camera looks when it pans to a session or a room: the session's robot where it is, or the chair of its desk
+   * when its robot has gone; the table of the run's first room. Null when it is not on this floor, or waits for a desk.
    */
   focusPoint(target: Target): Point | null {
     if (target.kind === 'room') {
@@ -190,21 +201,21 @@ export class FloorScene {
     }
     const entry = this.entries.get(target.id);
     if (!entry) return null;
-    const spot = robotSpot(entry.desk) ?? seatSpot({ rect: entry.desk.rect, chair: 'south' });
-    return { x: spot.x, z: spot.z };
+    const spot = this.spotOf(entry) ?? (entry.desk ? seatSpot(entry.desk) : null);
+    return spot ? { x: spot.x, z: spot.z } : null;
   }
 
-  /** Everything a click can pick: desks, their robots and their interns, and rooms with everyone in them. */
+  /** Everything a click can pick: the desks somebody sits at, the robots and interns, and the open rooms with their agents. */
   pickables(): Object3D[] {
     const out: Object3D[] = [];
     for (const e of this.entries.values()) {
-      out.push(...e.obj.pickables, ...(e.robot?.pickables ?? []));
+      if (e.desk) out.push(...(this.shellPart?.desks.get(e.desk.id)?.pickables ?? []));
+      out.push(...(e.robot?.pickables ?? []));
       for (const intern of e.interns.values()) out.push(...intern.pickables);
     }
-    for (const r of this.roomEntries.values()) {
-      out.push(...r.obj.pickables, ...(r.host?.pickables ?? []));
-      for (const agent of r.agents.values()) out.push(...agent.pickables);
-    }
+    const open = new Set(this.floor?.rooms.map((r) => r.slot) ?? []);
+    for (const obj of this.shellPart?.rooms ?? []) if (open.has(obj.slot)) out.push(...obj.pickables);
+    for (const r of this.roomEntries.values()) for (const agent of r.agents.values()) out.push(...agent.pickables);
     return out;
   }
 
@@ -220,123 +231,83 @@ export class FloorScene {
     this.mats.dispose();
   }
 
-  private add(desk: Desk): void {
-    const obj = buildDesk(desk, this.geo, this.mats);
-    this.scene.add(obj.group);
-    const entry: DeskEntry = { desk, obj, robot: null, interns: new Map() };
-    this.entries.set(desk.sessionId, entry);
-    this.syncRobot(entry);
-  }
-
-  private update(entry: DeskEntry, desk: Desk): void {
-    entry.desk = desk;
-    updateDesk(entry.obj, desk, this.mats);
-    this.syncRobot(entry);
-  }
-
-  private remove(id: string, entry: DeskEntry): void {
-    entry.obj.group.removeFromParent();
-    entry.robot?.group.removeFromParent();
-    for (const intern of entry.interns.values()) intern.group.removeFromParent();
-    this.entries.delete(id);
+  /** Where the session's robot stands: its place on the floor, or none when it is gone. */
+  private spotOf(entry: SessionEntry): Spot | null {
+    return this.floor ? placeSpot(this.floor, entry.desk, entry.occupant) : null;
   }
 
   /**
-   * Builds, rebuilds (new colours), poses or removes the desk's robot, and its interns. A robot whose session sits at
-   * the head of a meeting room stays, hidden: its chair is empty. Geometries and materials are shared.
+   * Builds, rebuilds (new colours), places or removes the session's robot, and its interns. The robot stands at its
+   * occupant's place, and rests in the lounge. A session that is gone, or waits for a desk, has none. Geometries and
+   * materials are shared.
    */
-  private syncRobot(entry: DeskEntry): void {
-    const want = entry.desk.robot;
+  private sync(occupant: Occupant, desk: PodDesk | null): void {
+    let entry = this.entries.get(occupant.sessionId);
+    if (!entry) {
+      entry = { occupant, desk, robot: null, interns: new Map() };
+      this.entries.set(occupant.sessionId, entry);
+    }
+    entry.occupant = occupant;
+    entry.desk = desk;
+    const spot = this.spotOf(entry);
+    const want = spot ? occupant.robot : null;
     let robot = entry.robot;
     if (robot && (!want || want.body !== robot.body || want.tie !== robot.tie)) {
       robot.group.removeFromParent();
       robot = null;
     }
     if (want && !robot) {
-      robot = buildRobot(entry.desk.sessionId, want, this.geo, this.mats);
+      robot = buildRobot(occupant.sessionId, want, this.geo, this.mats);
       this.scene.add(robot.group);
     }
-    if (want && robot) {
-      poseRobot(robot, want, robotSpot(entry.desk)!);
-      robot.group.visible = !entry.desk.away;
-    }
+    if (want && robot && spot) poseRobot(robot, occupant.at.kind === 'lounge' ? { pose: 'resting', badge: want.badge } : want, spot);
     entry.robot = robot;
     this.syncInterns(entry);
   }
 
+  private remove(id: string, entry: SessionEntry): void {
+    entry.robot?.group.removeFromParent();
+    for (const intern of entry.interns.values()) intern.group.removeFromParent();
+    this.entries.delete(id);
+  }
+
   /**
-   * Flies the desk's running interns in its arc, in the colours of its robot. A click on one picks the desk. A dormant
-   * desk has no robot, and its session, gone, runs no interns.
+   * Flies the session's running interns over its desk, in the colours of its robot. A click on one picks the session. A
+   * session with no robot (dormant), or no desk, flies none.
    */
-  private syncInterns(entry: DeskEntry): void {
-    const { desk } = entry;
-    const spots = internSpots({ rect: desk.rect, chair: 'south' });
-    const flying = desk.robot ? desk.interns.filter((i) => i.running).slice(0, spots.length) : [];
-    const look: Robot = { pose: 'still', badge: null, body: desk.robot?.body ?? 0, tie: desk.robot?.tie ?? null };
+  private syncInterns(entry: SessionEntry): void {
+    const { occupant, desk } = entry;
+    const spots = desk ? internSpots(desk) : [];
+    const flying = occupant.robot ? occupant.interns.filter((i) => i.running).slice(0, spots.length) : [];
+    const look: Robot = { pose: 'still', badge: null, body: occupant.robot?.body ?? 0, tie: occupant.robot?.tie ?? null };
     this.syncCrew(entry.interns, flying.map((i, k) => [i.agentId, spots[k]!]), look, (id) => {
-      const robot = buildRobot(desk.sessionId, look, this.geo, this.mats, 'intern');
+      const robot = buildRobot(occupant.sessionId, look, this.geo, this.mats, 'intern');
       robot.group.name = `intern ${id}`;
       this.scene.add(robot.group);
       return robot;
     });
   }
 
-  private addRoom(key: string, room: MeetingRoom): void {
-    const obj = buildRoom(room, this.geo, this.mats);
-    this.scene.add(obj.group);
-    const entry: RoomEntry = { room, obj, agents: new Map(), host: null };
-    this.roomEntries.set(key, entry);
-    this.syncRoomRobots(entry);
-  }
-
-  /** Moves the room to its cells; a room of another size is built again, with its robots. */
-  private syncRoom(entry: RoomEntry, room: MeetingRoom): void {
-    entry.room = room;
-    if (entry.obj.w !== room.rect.w || entry.obj.h !== room.rect.h) {
-      entry.obj.group.removeFromParent();
-      entry.obj = buildRoom(room, this.geo, this.mats);
-      this.scene.add(entry.obj.group);
-      entry.agents.clear();
-      entry.host = null;
-    } else updateRoom(entry.obj, room);
-    this.syncRoomRobots(entry);
-  }
-
   private removeRoom(key: string, entry: RoomEntry): void {
-    entry.obj.group.removeFromParent();
+    for (const agent of entry.agents.values()) agent.group.removeFromParent();
     this.roomEntries.delete(key);
   }
 
   /**
-   * Seats the first min(SEATS_MAX, running) agents in seat order, as workflow robots in the room's colours, and the
-   * host at the head while it is in the meeting. Robots stand in the room's group, so they move with it; one that
-   * keeps its seat or moves to another is the same robot, and new colours build them again.
+   * Seats the first min(SEATS_MAX, running) agents of the room in seat order, as workflow robots in the room's colours,
+   * in floor coordinates. One that keeps its seat or moves to another is the same robot; new colours build it again.
    */
-  private syncRoomRobots(entry: RoomEntry): void {
-    const { room, obj } = entry;
-    const local = { x: 0, y: 0, w: room.rect.w, h: room.rect.h };
-    const seats = seatSpots(local);
+  private syncAgents(entry: RoomEntry): void {
+    const { room } = entry;
+    const seats = seatSpots(room.rect);
     const seated = room.agents.slice(0, Math.min(SEATS_MAX, room.counts.running));
     const look: Robot = { pose: 'typing', badge: null, body: room.look.body, tie: room.look.tie };
     this.syncCrew(entry.agents, seated.map((a, i) => [a.agentId, seats[i]!]), look, (id) => {
       const robot = pickRoom(buildRobot(id, look, this.geo, this.mats, 'workflow'), room.runId);
       robot.group.name = `agent ${id}`;
-      obj.group.add(robot.group);
+      this.scene.add(robot.group);
       return robot;
     });
-    const want = room.host;
-    let host = entry.host;
-    if (host && (!want || want.body !== host.body || want.tie !== host.tie)) {
-      host.group.removeFromParent();
-      host = null;
-    }
-    if (want && !host) {
-      host = pickRoom(buildRobot(room.hostSessionId, want, this.geo, this.mats), room.runId);
-      host.group.name = `host ${room.runId}`;
-      obj.group.add(host.group);
-    }
-    if (want && host) poseRobot(host, want, headSpot(local));
-    entry.host = host;
   }
 
   /**
@@ -362,7 +333,7 @@ export class FloorScene {
     for (const robot of before.values()) robot.group.removeFromParent();
   }
 
-  /** The first room of a run, in the floor's order, as the labels mark it: two hosts may name the same run. */
+  /** The first room of a run, in the floor's order, as the labels mark it. */
   private roomOf(runId: string): RoomEntry | undefined {
     for (const key of this.roomOrder) {
       const entry = this.roomEntries.get(key);
@@ -409,7 +380,7 @@ export class FloorScene {
   }
 }
 
-/** Everything in a room picks the room: its agents and its host too. */
+/** A room's agents pick the room. */
 function pickRoom(robot: RobotObject, runId: string): RobotObject {
   const pick: PickData = { kind: 'room', id: runId };
   for (const m of robot.pickables) m.userData.pick = pick;

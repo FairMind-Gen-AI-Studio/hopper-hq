@@ -12,6 +12,7 @@ import {
   type MeetingRoom,
   type Occupant,
   type Place,
+  type PodDesk,
   type Robot,
   type ShownState,
 } from '../../../src/scene/types';
@@ -116,6 +117,8 @@ export interface RoomSpec {
   finished?: number;
   /** The host sits at the head of the table, and its desk is away. */
   seated?: boolean;
+  /** Its room slot; its place in the list of room specs by default. */
+  slot?: number;
 }
 
 /** The phases of the demo's run, in its Build phase. */
@@ -153,16 +156,13 @@ export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: numb
 }
 
 /**
- * A floor laid out by the real layout algorithms, as the server would send it, with a meeting room per room spec, in
- * slot order. On the plan, each island takes pods of its own (helpers/plan.ts); a seated host sits at the head of its
- * room, a desk with a lounge seat rests there, and a dormant one is gone. The `unseated` wait without a desk, in the
- * first island's colours.
+ * A floor laid out by the real layout algorithms, as the server would send it, with a meeting room per room spec in its
+ * slot. On the plan, each island takes pods of its own (helpers/plan.ts); a seated host sits at the head of its room, a
+ * desk with a lounge seat rests there, and a dormant one is gone. The `unseated` wait without a desk, in the first
+ * island's colours.
  */
 export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', rooms: RoomSpec[] = [], unseated: DeskSpec[] = []): FloorDetail {
-  const layout = layoutFloor(
-    islands.map((i) => ({ key: i.key, deskIds: i.desks.map((d) => d.id) })),
-    rooms.map((r) => r.runId),
-  );
+  const layout = layoutFloor(islands.map((i) => ({ key: i.key, deskIds: i.desks.map((d) => d.id) })));
   const away = new Set(rooms.filter((r) => r.seated).map((r) => r.host));
   const placed: Island[] = islands.map((spec, n) => {
     const slot = layout.islands[n]!;
@@ -178,7 +178,8 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', ro
     };
   });
   const hostIsland = (id: string) => islands.find((i) => i.desks.some((d) => d.id === id)) ?? islands[0]!;
-  const heads = new Map(rooms.flatMap((r, slot): Array<[string, number]> => (r.seated ? [[r.host, slot]] : [])));
+  const slotOf = (r: RoomSpec, n: number) => r.slot ?? n;
+  const heads = new Map(rooms.flatMap((r, n): Array<[string, number]> => (r.seated ? [[r.host, slotOf(r, n)]] : [])));
   const atOf = (d: DeskSpec): Place => {
     if (d.state === 'dormant') return { kind: 'gone' };
     const slot = heads.get(d.id);
@@ -187,7 +188,7 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', ro
   };
   const { plan, pods } = podsFor(
     islands.map((i) => ({ color: i.color, placard: checkoutOf(i), occupants: i.desks.map((d) => makeOccupant(d, i.color, i.tie, checkoutOf(i), atOf(d))) })),
-    rooms.length > ROOMS_PER_COL ? 2 : 1,
+    rooms.some((r, n) => slotOf(r, n) >= ROOMS_PER_COL) ? 2 : 1,
   );
   const first = islands[0]!;
   const counts: FloorDetail['counts'] = {};
@@ -202,10 +203,10 @@ export function makeFloor(islands: IslandSpec[], key = 'feature:checkout-v2', ro
     counts,
     shutters: false,
     openedAt: 1000,
-    size: layout.size,
-    core: layout.core,
+    size: plan.size,
+    core: plan.core,
     islands: placed,
-    rooms: rooms.map((r, n) => makeRoom(r, layout.rooms[n]!.rect, hostIsland(r.host).color, hostIsland(r.host).tie, n)),
+    rooms: rooms.map((r, n) => makeRoom(r, plan.rooms[slotOf(r, n)]!, hostIsland(r.host).color, hostIsland(r.host).tie, slotOf(r, n))),
     roomsMore: 0,
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
@@ -271,9 +272,16 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
   return makeFloor(checkoutIslands(), undefined, rooms);
 }
 
-/** Every desk of a floor, islands in order. */
-export function desksOf(floor: FloorDetail): Desk[] {
-  return floor.islands.flatMap((i) => i.desks);
+/** Every session at a desk, with its desk, in desk order. */
+export function seatsOf(floor: FloorDetail): Array<{ desk: PodDesk; occupant: Occupant }> {
+  return floor.pods.flatMap((p) => p.desks.flatMap((desk) => (desk.occupant ? [{ desk, occupant: desk.occupant }] : [])));
+}
+
+/** The desk and the occupant of a session at a desk. */
+export function seatOf(floor: FloorDetail, sessionId: string): { desk: PodDesk; occupant: Occupant } {
+  const seat = seatsOf(floor).find((s) => s.occupant.sessionId === sessionId);
+  if (!seat) throw new Error(`no desk for ${sessionId}`);
+  return seat;
 }
 
 /** The floor view's camera at home: orthographic, looking at the floor's centre from the south-east, fitted to it. */

@@ -513,8 +513,8 @@ export function createFloorView(
     setFloor(floor: FloorDetail) {
       if (disposed) return;
       if (world.apply(floor)) {
-        // A camera at home frames the floor again as it grows or shrinks, a room opening or closing. One the user moved
-        // stays where it looks, showing as much of the floor as it did, within the zoom limits.
+        // A camera at home frames the floor again as it grows. One the user moved stays where it looks, showing as much
+        // of the floor as it did, within the zoom limits.
         const home = atHome();
         const shown = (camera.top - camera.bottom) / camera.zoom;
         size = { ...floor.size };

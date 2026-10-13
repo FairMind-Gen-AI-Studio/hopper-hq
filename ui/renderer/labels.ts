@@ -1,14 +1,14 @@
 /**
- * The floor's HTML labels, laid over the canvas: one tag per desk (state dot, name, "needs you", running agents,
- * remote), one placard per island (repo, branch), and per meeting room a tag (name, current phase, counts) over its
- * door and a board (phases, counts) over its whiteboard. Built with createElement and textContent only: names, repos,
- * branches, run names and phases come from transcripts and stay text. A label hangs from a point of the scene,
- * projected each frame. One tag at a time is in the tab order, the desks' first and the rooms' after them; the arrow
- * keys, Home and End move between the tags on the view.
+ * The floor's HTML labels, laid over the canvas: one tag per session at a desk (state dot, name, "needs you", running
+ * agents, remote), hanging over its robot wherever it is; one placard per pod that has one (repo, branch); and per
+ * meeting room a tag (name, current phase, counts) over its door and a board (phases, counts) over its whiteboard. Built
+ * with createElement and textContent only: names, repos, branches, run names and phases come from transcripts and stay
+ * text. A label hangs from a point of the scene, projected each frame. One tag at a time is in the tab order, the desks'
+ * first and the rooms' after them; the arrow keys, Home and End move between the tags on the view.
  */
 import { Vector3, type Camera } from 'three';
 import { STATE_LABEL } from '../../src/scene/text';
-import type { Desk, FloorDetail, Island, MeetingRoom, PhaseState } from '../../src/scene/types';
+import type { FloorDetail, MeetingRoom, Occupant, PhaseState, Pod, PodDesk } from '../../src/scene/types';
 import type { Target } from './index';
 import { boardAnchor, labelAnchor, placardAnchor, roomKey, roomTagAnchor, sameTarget, type Point3 } from './world';
 import './labels.css';
@@ -69,6 +69,7 @@ const PHASE: Record<PhaseState, { mark: string; word: string }> = {
 export class LabelLayer {
   /** Desk tags by 'desk <session id>', and room tags by 'room <room key>'. */
   private readonly tags = new Map<string, Tag>();
+  /** Pod placards by pod id. */
   private readonly signs = new Map<string, Label>();
   /** Room boards by room key. */
   private readonly boards = new Map<string, Tag>();
@@ -91,10 +92,12 @@ export class LabelLayer {
     const tags = new Set<string>();
     const signs = new Set<string>();
     const boards = new Set<string>();
-    for (const island of floor.islands) {
-      signs.add(island.key);
-      this.syncSign(island);
-      for (const desk of island.desks) tags.add(this.syncTag(desk));
+    for (const pod of floor.pods) {
+      if (pod.placard) {
+        signs.add(pod.id);
+        this.syncSign(pod, pod.placard);
+      }
+      for (const desk of pod.desks) if (desk.occupant) tags.add(this.syncTag(floor, desk, desk.occupant));
     }
     for (const room of floor.rooms) {
       boards.add(this.syncBoard(room));
@@ -156,8 +159,9 @@ export class LabelLayer {
     return [...this.boards.values()].find((b) => b.target.id === runId)?.el;
   }
 
-  sign(islandKey: string): HTMLElement | undefined {
-    return this.signs.get(islandKey)?.el;
+  /** The placard of a pod, by its id. */
+  sign(podId: string): HTMLElement | undefined {
+    return this.signs.get(podId)?.el;
   }
 
   dispose(): void {
@@ -193,23 +197,23 @@ export class LabelLayer {
     return tag;
   }
 
-  /** Returns the tag's key. */
-  private syncTag(desk: Desk): string {
-    const key = deskKey(desk.sessionId);
-    const tag = this.button(key, { kind: 'desk', id: desk.sessionId });
-    tag.anchor = labelAnchor(desk);
-    const shows = JSON.stringify([desk.name, desk.state, desk.robot?.badge ?? null, desk.agentsRunning, desk.location]);
+  /** The tag of the session at a desk, over its robot. Returns the tag's key. */
+  private syncTag(floor: FloorDetail, desk: PodDesk, occupant: Occupant): string {
+    const key = deskKey(occupant.sessionId);
+    const tag = this.button(key, { kind: 'desk', id: occupant.sessionId });
+    tag.anchor = labelAnchor(floor, desk, occupant);
+    const shows = JSON.stringify([occupant.name, occupant.state, occupant.robot?.badge ?? null, occupant.agentsRunning, occupant.location]);
     if (shows === tag.shows) return key;
     tag.shows = shows;
     const el = tag.el;
-    el.className = ['fv-tag', `fv-st-${desk.state}`, desk.robot?.badge ? `fv-badge-${desk.robot.badge}` : ''].filter(Boolean).join(' ');
+    el.className = ['fv-tag', `fv-st-${occupant.state}`, occupant.robot?.badge ? `fv-badge-${occupant.robot.badge}` : ''].filter(Boolean).join(' ');
     mark(el, sameTarget(this.selected, tag.target));
-    const parts = [span('fv-dot', ''), span('fv-name', desk.name)];
-    if (desk.state === 'needs_you') parts.push(span('fv-note', 'needs you'));
-    if (desk.agentsRunning > 0) parts.push(span('fv-agents', `+${desk.agentsRunning}`));
-    if (desk.location === 'cloud') parts.push(span('fv-remote', 'remote'));
+    const parts = [span('fv-dot', ''), span('fv-name', occupant.name)];
+    if (occupant.state === 'needs_you') parts.push(span('fv-note', 'needs you'));
+    if (occupant.agentsRunning > 0) parts.push(span('fv-agents', `+${occupant.agentsRunning}`));
+    if (occupant.location === 'cloud') parts.push(span('fv-remote', 'remote'));
     el.replaceChildren(...parts);
-    el.title = tagTitle(desk);
+    el.title = tagTitle(occupant);
     return key;
   }
 
@@ -271,21 +275,26 @@ export class LabelLayer {
     return key;
   }
 
-  private syncSign(island: Island): void {
-    let label = this.signs.get(island.key);
+  /** A pod's placard: its repository, and its branch while its occupants share a checkout. */
+  private syncSign(pod: Pod, placard: NonNullable<Pod['placard']>): void {
+    let label = this.signs.get(pod.id);
     if (!label) {
       label = this.add(document.createElement('div'));
-      this.signs.set(island.key, label);
+      this.signs.set(pod.id, label);
     }
-    label.anchor = placardAnchor(island.rect);
-    const where = (island.branch ?? 'no branch') + (island.worktree ? ' · worktree' : '');
-    const shows = JSON.stringify([island.repo, where]);
+    label.anchor = placardAnchor(pod.rect);
+    const where = placard.path === null ? null : (placard.branch ?? 'no branch') + (placard.worktree ? ' · worktree' : '');
+    const shows = JSON.stringify([placard.repo, where]);
     if (shows === label.shows) return;
     label.shows = shows;
     label.el.className = 'fv-sign';
-    const small = document.createElement('small');
-    small.textContent = where;
-    label.el.replaceChildren(document.createTextNode(island.repo), small);
+    const parts: Node[] = [document.createTextNode(placard.repo)];
+    if (where !== null) {
+      const small = document.createElement('small');
+      small.textContent = where;
+      parts.push(small);
+    }
+    label.el.replaceChildren(...parts);
   }
 
   /** Marks the tag of the selected key only: one room of a run is outlined, and one tag says so. */
@@ -376,10 +385,10 @@ function mark(el: HTMLElement, selected: boolean): void {
 }
 
 /** The tag's tooltip: name, state, running agents, remote. */
-export function tagTitle(desk: Desk): string {
-  const bits = [desk.name, STATE_LABEL[desk.state]];
-  if (desk.agentsRunning > 0) bits.push(`${desk.agentsRunning} ${desk.agentsRunning === 1 ? 'agent' : 'agents'} running`);
-  if (desk.location === 'cloud') bits.push('remote');
+export function tagTitle(o: Pick<Occupant, 'name' | 'state' | 'agentsRunning' | 'location'>): string {
+  const bits = [o.name, STATE_LABEL[o.state]];
+  if (o.agentsRunning > 0) bits.push(`${o.agentsRunning} ${o.agentsRunning === 1 ? 'agent' : 'agents'} running`);
+  if (o.location === 'cloud') bits.push('remote');
   return bits.join(' · ');
 }
 

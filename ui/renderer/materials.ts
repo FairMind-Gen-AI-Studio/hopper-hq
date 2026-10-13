@@ -21,11 +21,16 @@ interface Recipe {
   opacity?: number;
 }
 
+/** How much of the repo colour a rug takes over the floor colour. */
+export const RUG_MIX = 0.3;
+
 const SURFACES = {
   floor: { color: 'scene-floor' },
   wall: { color: 'scene-wall' },
   base: { color: 'scene-base' },
   lobby: { color: 'scene-floor', mix: ['scene-base', 0.55] },
+  /** The rug of a pod whose occupants share no repository, or of an empty pod. */
+  rug: { color: 'scene-floor', mix: ['scene-base', RUG_MIX] },
   desk: { color: 'scene-desk', roughness: 0.7 },
   deskOff: { color: 'scene-desk', roughness: 0.7, shade: 0.55 },
   leg: { color: 'scene-leg' },
@@ -39,6 +44,8 @@ const SURFACES = {
   paper: { color: 'scene-paper' },
   board: { color: 'scene-board', roughness: 0.4 },
   roomFloor: { color: 'scene-floor', mix: ['s-meeting', 0.12] },
+  /** The floor of a room no run holds: its light dimmed. */
+  roomDim: { color: 'scene-floor', mix: ['s-meeting', 0.12], shade: 0.85 },
   glass: { color: 'scene-glass', roughness: 0.2, opacity: 0.28 },
   couch: { color: 'scene-couch', roughness: 0.9 },
   beanA: { color: 'scene-bean-a', roughness: 0.9 },
@@ -55,10 +62,10 @@ const SURFACES = {
 
 export type Surface = keyof typeof SURFACES;
 
-/** How much of the repo colour a rug takes over the floor colour. */
-export const RUG_MIX = 0.3;
 /** How much of the meeting colour a meeting room's floor takes over the floor colour. */
 export const ROOM_MIX = SURFACES.roomFloor.mix[1];
+/** How much an empty room's floor keeps of a meeting room's. */
+export const ROOM_DIM = SURFACES.roomDim.shade;
 /** How much a meeting room's glass partitions hide of what stands behind them. */
 export const GLASS_OPACITY = SURFACES.glass.opacity;
 /** Joints and feet: the body colour, darker. */
@@ -114,7 +121,7 @@ export class Materials {
     this.applyTheme(theme);
   }
 
-  /** A robot's body, and the rug and lamp shade of its island, by repo slot. */
+  /** A robot's body, and the lamp shade of its pod, by repo slot. */
   body(slot: number): MeshStandardMaterial {
     return this.bodies[wrap(slot, REPO_SLOTS)]!;
   }

@@ -20,7 +20,7 @@ export class WebGLUnavailableError extends Error {
 export type Target = { kind: 'desk'; id: string } | { kind: 'room'; id: string };
 
 export interface FloorView {
-  /** Replaces the floor. Desks are diffed by sessionId; the shell rebuilds only when size/core/island rects change. */
+  /** Replaces the floor. Robots are diffed by sessionId; the shell rebuilds only when the plan grows (size, core, pods, lounge, room slots). */
   setFloor(floor: FloorDetail): void;
   setTheme(theme: ThemeTokens): void;
   /** Highlights a desk or a room (ring + label); pan: true eases the camera to it. Null clears. */

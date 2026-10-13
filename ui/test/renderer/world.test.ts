@@ -32,7 +32,6 @@ import {
   placardAnchor,
   placeSpot,
   polarOf,
-  robotSpot,
   roomKey,
   roomTagAnchor,
   seatSpot,
@@ -43,7 +42,7 @@ import {
   visibleWalls,
   type Point,
 } from '../../renderer/world';
-import { checkoutOf, checkoutIslands, makeDesk, makeOccupant } from './fixtures';
+import { checkoutOf, checkoutIslands, makeOccupant } from './fixtures';
 
 const RECT = { x: 3, y: 7, w: 2, h: 2 };
 /** A desk of a pod's south row, chair on its south edge (as every version 2 desk), and one of its north row. */
@@ -53,6 +52,8 @@ const QUARTER = Math.PI / 2;
 /** How far the monitor stands from the desk top's centre, away from the chair (props.ts). */
 const MONITOR_Z = 0.24;
 const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
+/** A session in this state, at this place. */
+const who = (state: Occupant['state'], at: Place) => makeOccupant({ id: 'x', state }, 0, null, checkoutOf(checkoutIslands()[0]!), at);
 
 describe('world maths', () => {
   it('maps a grid cell to the ground plane, one cell per metre', () => {
@@ -86,13 +87,6 @@ describe('world maths', () => {
       expect(s.z).toBeGreaterThan(RECT.y);
       expect(s.z).toBeLessThan(RECT.y + RECT.h);
     }
-  });
-
-  it('seats a robot by pose, stands it when it waves or holds a result, and has none for a dormant desk', () => {
-    const at = (state: Parameters<typeof makeDesk>[0]['state']) => robotSpot(makeDesk({ id: 'x', state }, RECT, 0, null));
-    for (const state of ['working', 'in_meeting', 'no_signal', 'idle'] as const) expect(at(state)).toEqual(seatSpot(SOUTH));
-    for (const state of ['needs_you', 'done'] as const) expect(at(state)).toEqual(standSpot(SOUTH));
-    expect(at('dormant')).toBeNull();
   });
 
   it('floats the interns over the desk\'s own half, between its monitor and its chair, turned toward the middle', () => {
@@ -163,11 +157,9 @@ describe('world maths', () => {
   it('places a robot where its occupant is: at its desk by pose, on its lounge seat, at the head of its room, nowhere when gone', () => {
     const plan = layoutPlan({ blocks: 1, roomCols: 2 });
     const floor = { lounge: { rect: plan.lounge, seats: LOUNGE_SEATS }, roomSlots: plan.rooms };
-    const island = checkoutIslands()[0]!;
-    const who = (state: Occupant['state'], at: Place) => makeOccupant({ id: 'x', state }, 0, null, checkoutOf(island), at);
     const desk = plan.pods[0]!.desks[1]!;
-    expect(placeSpot(floor, desk, who('working', { kind: 'desk' }))).toEqual(seatSpot(desk));
-    expect(placeSpot(floor, desk, who('needs_you', { kind: 'desk' }))).toEqual(standSpot(desk));
+    for (const state of ['working', 'in_meeting', 'no_signal', 'idle'] as const) expect(placeSpot(floor, desk, who(state, { kind: 'desk' })), state).toEqual(seatSpot(desk));
+    for (const state of ['needs_you', 'done'] as const) expect(placeSpot(floor, desk, who(state, { kind: 'desk' })), state).toEqual(standSpot(desk));
     expect(placeSpot(floor, desk, who('idle', { kind: 'lounge', seat: 6 }))).toEqual(loungeSpots(plan.lounge)[6]);
     expect(placeSpot(floor, desk, who('in_meeting', { kind: 'room', slot: 3 }))).toEqual(headSpot(plan.rooms[3]!));
     expect(placeSpot(floor, desk, who('dormant', { kind: 'gone' }))).toBeNull();
@@ -177,11 +169,16 @@ describe('world maths', () => {
     expect(placeSpot({ ...floor, roomSlots: plan.rooms.slice(0, 2) }, desk, who('in_meeting', { kind: 'room', slot: 3 }))).toBeNull();
   });
 
-  it('hangs a desk label above the robot, or above the monitor of an empty desk', () => {
-    const label = (state: Parameters<typeof makeDesk>[0]['state']) => labelAnchor(makeDesk({ id: 'x', state }, RECT, 0, null));
+  it('hangs a desk label above its robot wherever it is, or above the monitor when its robot has gone', () => {
+    const plan = layoutPlan({ blocks: 1, roomCols: 1 });
+    const floor = { lounge: { rect: plan.lounge, seats: LOUNGE_SEATS }, roomSlots: plan.rooms };
+    const label = (state: Occupant['state'], at: Place = { kind: 'desk' }) => labelAnchor(floor, SOUTH, who(state, at));
     expect(label('working')).toEqual({ ...pick(seatSpot(SOUTH)), y: LABEL_Y.seated });
     expect(label('needs_you')).toEqual({ ...pick(standSpot(SOUTH)), y: LABEL_Y.standing });
-    expect(label('dormant')).toEqual({ x: 4, y: LABEL_Y.empty, z: 7.6 });
+    expect(label('idle', { kind: 'lounge', seat: 7 })).toEqual({ ...pick(loungeSpots(plan.lounge)[7]!), y: LABEL_Y.seated });
+    expect(label('in_meeting', { kind: 'room', slot: 1 })).toEqual({ ...pick(headSpot(plan.rooms[1]!)), y: LABEL_Y.seated });
+    expect(label('dormant', { kind: 'gone' })).toEqual({ x: 4, y: LABEL_Y.empty, z: 7.6 });
+    expect(labelAnchor(floor, NORTH, who('dormant', { kind: 'gone' }))).toEqual({ x: 4, y: LABEL_Y.empty, z: 8.4 });
     expect(placardAnchor({ x: 2, y: 6, w: 4, h: 4 })).toEqual({ x: 2.2, y: 0.02, z: 9.85 });
   });
 

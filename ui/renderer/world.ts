@@ -3,7 +3,7 @@
  * One grid cell is one metre. Grid x is world x (east), grid y is world z (south), and world y points up.
  */
 import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX } from '../../src/scene/layout';
-import type { Desk, FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Pose } from '../../src/scene/types';
+import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Pose } from '../../src/scene/types';
 import type { Target } from './index';
 
 /** Wall height and thickness. */
@@ -81,17 +81,6 @@ export function isStanding(pose: Pose): boolean {
   return pose === 'waving' || pose === 'holding';
 }
 
-/** A version 2 desk: its monitor on its north edge, its chair on its south edge. */
-function chairSouth(desk: Desk): Pick<PodDesk, 'rect' | 'chair'> {
-  return { rect: desk.rect, chair: 'south' };
-}
-
-/** Where the desk's robot is: on the chair, or beside it; null when the desk is empty (dormant). */
-export function robotSpot(desk: Desk): Spot | null {
-  if (!desk.robot) return null;
-  return isStanding(desk.robot.pose) ? standSpot(chairSouth(desk)) : seatSpot(chairSouth(desk));
-}
-
 /**
  * Where a desk's interns hover: over the desk's own half, between its monitor and its chair, the first in the middle and
  * the others either side, a little nearer the monitor and turned toward the middle. They face the chair. Back to back,
@@ -142,20 +131,21 @@ export function elevatorSpot(core: GridRect): Spot {
   return { x: core.x + core.w / 2, z: ELEVATOR_STEP, facing: 0 };
 }
 
-/** Height of a desk label's anchor: above a standing or a seated robot's head, or above the monitor of an empty desk. */
+/** Height of a desk label's anchor: above a standing or a seated robot's head, or above the monitor of a desk whose robot has gone. */
 export const LABEL_Y = { standing: 1.45, seated: 1.6, empty: 1.6 } as const;
 
-/** The point a desk's label hangs from. */
-export function labelAnchor(desk: Desk): Point3 {
-  const spot = robotSpot(desk);
+/** The point a desk's label hangs from: above its robot, wherever it is, or above the monitor when it has gone. */
+export function labelAnchor(floor: Pick<FloorDetail, 'lounge' | 'roomSlots'>, desk: Pick<PodDesk, 'rect' | 'chair'>, occupant: Occupant): Point3 {
+  const spot = placeSpot(floor, desk, occupant);
   if (!spot) {
-    const a = deskAnchor(chairSouth(desk));
+    const a = deskAnchor(desk);
     return { x: a.x, y: LABEL_Y.empty, z: a.z };
   }
-  return { x: spot.x, y: desk.robot && isStanding(desk.robot.pose) ? LABEL_Y.standing : LABEL_Y.seated, z: spot.z };
+  const standing = occupant.at.kind === 'desk' && occupant.robot !== null && isStanding(occupant.robot.pose);
+  return { x: spot.x, y: standing ? LABEL_Y.standing : LABEL_Y.seated, z: spot.z };
 }
 
-/** The point an island's placard stands on: the rug's south-west corner. */
+/** The point a pod's placard stands on: the rug's south-west corner. */
 export function placardAnchor(rect: GridRect): Point3 {
   return { x: rect.x + 0.2, y: 0.02, z: rect.y + rect.h - 0.15 };
 }

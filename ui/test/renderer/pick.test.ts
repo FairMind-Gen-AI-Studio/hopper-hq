@@ -4,7 +4,7 @@ import { FloorScene } from '../../renderer/floor-scene';
 import { pickTarget, toNdc } from '../../renderer/pick';
 import { dayTheme } from '../../renderer/theme';
 import { deskAnchor, doorGap, tableCenter } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, desksOf, isoCamera, makeFloor, roomFloor } from './fixtures';
+import { checkoutFloor, checkoutIslands, isoCamera, makeFloor, roomFloor, seatsOf } from './fixtures';
 
 /** A camera 10 m above the origin looking straight down, 10 m wide and tall: world x is screen x, world z is screen down. */
 function topDown(): OrthographicCamera {
@@ -70,20 +70,23 @@ describe('picking', () => {
     expect(pickTarget(camera, at, [odd, low])).toEqual(desk('low'));
   });
 
-  it('picks each desk of a floor through the home camera', () => {
+  it('picks the session at each desk of a floor through the home camera, and nothing at a free desk', () => {
     const fs = new FloorScene(dayTheme());
     const floor = checkoutFloor();
     fs.apply(floor);
     fs.scene.updateMatrixWorld(true);
     const camera = isoCamera(floor.size);
-    for (const d of desksOf(floor)) {
-      const a = deskAnchor({ rect: d.rect, chair: 'south' });
-      expect(pickTarget(camera, ndcOf(camera, a.x, 0.74, a.z), fs.pickables()), d.sessionId).toEqual(desk(d.sessionId));
+    for (const { desk: d, occupant } of seatsOf(floor)) {
+      const a = deskAnchor(d);
+      expect(pickTarget(camera, ndcOf(camera, a.x, 0.74, a.z), fs.pickables()), d.id).toEqual(desk(occupant.sessionId));
     }
+    const free = floor.pods[3]!.desks[0]!;
+    expect(free.occupant).toBeNull();
+    expect(pickTarget(camera, ndcOf(camera, deskAnchor(free).x, 0.74, deskAnchor(free).z), fs.pickables())).toBeNull();
     expect(pickTarget(camera, new Vector2(0.98, 0.98), fs.pickables())).toBeNull();
   });
 
-  it('picks a room by its table, its floor, its posts or anyone sitting in it, the host included', () => {
+  it('picks a room by its table, its floor, its posts or its agents, and its host as the host\'s desk', () => {
     const fs = new FloorScene(dayTheme());
     const floor = roomFloor();
     fs.apply(floor);
@@ -97,10 +100,12 @@ describe('picking', () => {
     expect(pick(room.rect.x + room.rect.w - 0.5, 0.01, room.rect.y + 0.8)).toEqual(target);
     expect(pick(room.rect.x + 0.06, 1, doorGap(room.rect).from)).toEqual(target);
     const entry = [...fs.rooms.values()][0]!;
-    for (const robot of [...entry.agents.values(), entry.host!]) {
+    for (const robot of entry.agents.values()) {
       const head = robot.group.localToWorld(new Vector3(0, 0.8, 0));
       expect(pick(head.x, head.y, head.z), robot.group.name).toEqual(target);
     }
+    const host = fs.sessions.get(room.hostSessionId)!.robot!.group.localToWorld(new Vector3(0, 0.8, 0));
+    expect(pick(host.x, host.y, host.z)).toEqual(desk(room.hostSessionId));
     expect(pick(floor.rooms[1]!.rect.x + 4, 0.78, floor.rooms[1]!.rect.y + 3.3)).toEqual({ kind: 'room', id: floor.rooms[1]!.runId });
   });
 
@@ -118,7 +123,7 @@ describe('picking', () => {
     expect(front!.rect.y).toBeGreaterThan(back!.rect.y);
   });
 
-  it('picks the desk of an intern hovering behind it', () => {
+  it('picks the session of an intern hovering over its desk', () => {
     const fs = new FloorScene(dayTheme());
     const islands = checkoutIslands();
     islands[0]!.desks[0]!.interns = [{ agentId: 'i1', type: 'Explore', label: null, running: true }];
@@ -126,7 +131,7 @@ describe('picking', () => {
     fs.apply(floor);
     fs.scene.updateMatrixWorld(true);
     const camera = isoCamera(floor.size);
-    const intern = fs.desks.get('sw-a1')!.interns.get('i1')!;
+    const intern = fs.sessions.get('sw-a1')!.interns.get('i1')!;
     const head = intern.group.localToWorld(new Vector3(0, 0.85, 0));
     expect(pickTarget(camera, ndcOf(camera, head.x, head.y, head.z), fs.pickables())).toEqual(desk('sw-a1'));
   });
