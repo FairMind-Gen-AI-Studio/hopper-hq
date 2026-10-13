@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readDaemonFile, removeDaemonFile } from '../src/daemon-file.js';
+import { daemonFilePath, readDaemonFile, removeDaemonFile } from '../src/daemon-file.js';
 import { dataDirInUse, DataDirInUseError, lockDataDir } from '../src/daemon-lock.js';
 import { startDaemon } from '../src/daemon.js';
 import { close, listen } from './helpers/http.js';
@@ -141,5 +141,50 @@ describe('startDaemon and its data directory', () => {
     await d.stop();
     expect(heldAtRemoval).toBe(false);
     expect(await readDaemonFile(dataDir)).toBeNull();
+  });
+
+  describe('beside a daemon that never takes the lock', () => {
+    const TOKEN = 'ab'.repeat(24);
+    const answering = (status: number) =>
+      createServer((req, res) => {
+        res.statusCode = req.headers.authorization === `Bearer ${TOKEN}` ? status : 401;
+        res.end('{}');
+      });
+    const claim = (dataDir: string, port: number) => writeFile(daemonFilePath(dataDir), JSON.stringify({ port, token: TOKEN, pid: 4242, startedAt: 1 }));
+
+    it('refuses to start when the daemon file names one that answers for this directory, without touching the store', async () => {
+      const dataDir = await tmp();
+      const other = answering(200);
+      const port = await listen(other);
+      try {
+        await claim(dataDir, port);
+        await expect(startDaemon({ port: 0, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet })).rejects.toThrow(DataDirInUseError);
+        expect(await readdir(dataDir)).not.toContain('scranton.db');
+        expect(await dataDirInUse(dataDir)).toBe(false);
+        expect((await readDaemonFile(dataDir))?.pid).toBe(4242);
+      } finally {
+        await close(other);
+      }
+    });
+
+    it('starts when the daemon file names one that does not answer, or does not accept its token', async () => {
+      const dataDir = await tmp();
+      const dead = createServer();
+      const deadPort = await listen(dead);
+      await close(dead);
+      await claim(dataDir, deadPort);
+      const first = await startDaemon({ port: 0, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet });
+      await first.stop();
+
+      const strict = answering(401);
+      const port = await listen(strict);
+      try {
+        await claim(dataDir, port);
+        const second = await startDaemon({ port: 0, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet });
+        await second.stop();
+      } finally {
+        await close(strict);
+      }
+    });
   });
 });
