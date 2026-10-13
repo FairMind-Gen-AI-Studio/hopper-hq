@@ -71,7 +71,7 @@ export interface Label {
   metaAt: Point;
 }
 
-export interface FacadeWindow {
+export interface WindowShape {
   sessionId: string;
   state: ShownState;
   points: string;
@@ -85,7 +85,7 @@ export interface FacadeFloor {
   plate: Box;
   wall: Box;
   /** One per desk, in the floor's desk order, left to right. */
-  windows: FacadeWindow[];
+  windows: WindowShape[];
   /** The rest of the row, without a desk. */
   blanks: string[];
   side: string;
@@ -172,7 +172,7 @@ export function facadeOf(floors: readonly FloorSummary[]): FacadeModel {
   for (let j = 0; j < floors.length; j++) {
     const f = floors[floors.length - 1 - j]!;
     const z0 = LOBBY_H + j * FLOOR_H;
-    const windows: FacadeWindow[] = [];
+    const windows: WindowShape[] = [];
     const blanks: string[] = [];
     const slats: Line[] = [];
     for (let i = 0; i < W; i++) {
