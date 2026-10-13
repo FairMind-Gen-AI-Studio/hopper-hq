@@ -142,7 +142,7 @@ The interface is `summarize(input, signal) → Promise<string>`. Two implementat
   - Command: `claude -p --safe-mode --model <model> --no-session-persistence --tools "" --strict-mcp-config`.
   - `--safe-mode` (documented in 2.1.296's `--help`) starts with installed plugins, hooks, CLAUDE.md, skills and MCP servers disabled, while OAuth auth works normally. Without it, every summary call would run all of the user's plugin hooks: other plugins' Stop and SessionStart hooks, such as judges and capture tools. They would cost time against the timeout and leave side effects.
   - Default model: alias `haiku`. Input goes on stdin, timeout 60 s, output capped at 16 KiB.
-  - It runs with cwd `<dataDir>/summarizer`, created on first use and kept `0700`, and with `SCRANTON_HQ_SUMMARIZER=1` in its environment.
+  - It runs with cwd `<dataDir>/summarizer`, which the daemon creates when it starts and keeps `0700`, and with `SCRANTON_HQ_SUMMARIZER=1` in its environment.
   - Its environment is the daemon's without what ties it to a Claude Code session, since the daemon is often started from one: `CLAUDECODE`, `AI_AGENT`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLUGIN_ROOT`, and the `CLAUDE_CODE_*` names matching `^CLAUDE_CODE_(ENTRYPOINT|EXECPATH|CHILD_SESSION|BRIDGE_SESSION_ID|SESSION_[A-Z_]+|SESSION_ID|MESSAGING_[A-Z_]+|SSE_PORT)$`. It also goes without `ANTHROPIC_API_KEY`, which `-p` would bill: the summary runs on the user's account. Those who want the key use `anthropic-api`. Every other variable stays: `CLAUDE_CONFIG_DIR`, `HOME`, `PATH`, and the `CLAUDE_CODE_*` variables that say how `claude` signs in, connects and picks its provider (`CLAUDE_CODE_OAUTH_*`, `CLAUDE_CODE_CLIENT_*`, `CLAUDE_CODE_CERT_STORE`, `CLAUDE_CODE_USE_*` and the like).
   - A model name starts with a letter or a digit, so that it can never be read as an option.
   - A child still running 5 s after it was told to stop is killed.
@@ -174,7 +174,7 @@ The interface is `summarize(input, signal) → Promise<string>`. Two implementat
 - **Display.**
   - Places: the desk panel, the floor panel's rows, and the attention bar entries (as a subtitle).
   - Each shows its age ("12 min ago").
-  - The summary is dimmed when a prompt arrived after it.
+  - When a prompt arrived after it, its age says "(older than the last prompt)", and the summary is dimmed in the panels and set in italics in the attention bar.
 
 ## 4. Scene (SCENE_VERSION 2)
 

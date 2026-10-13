@@ -150,7 +150,7 @@ The full form is `scranton-hq summaries on|off|status [--provider claude-cli|ant
 
 The setting lives in `~/.scranton-hq/config.json`, readable by you only. The daemon reads it again before each summary, so it needs no restart.
 
-The line shows in the desk's panel with its age, under the desk's row in the floor's side panel, and under its entry in the bar at the top. It is dimmed once you have sent the session a prompt since.
+The line shows in the desk's panel with its age, under the desk's row in the floor's side panel, and under its entry in the bar at the top. Once you have sent the session a prompt since, its age says "(older than the last prompt)". The line is then dimmed in the panels, and set in italics in the bar.
 
 ### When a summary is written
 
