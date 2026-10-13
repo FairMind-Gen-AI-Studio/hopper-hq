@@ -63,6 +63,11 @@ function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { update
   return { ...s, children };
 }
 
+/** Work that holds a finished turn in a meeting: a running subagent. */
+function liveWork(s: Session): boolean {
+  return s.children.some((c) => c.running);
+}
+
 /**
  * A subagent's step or end after the wait it raised ends that wait, as an ordered event: back to the session's open tool
  * (the Agent call it runs in), else to the meeting. Another subagent's event, or an older one, leaves the wait.
@@ -191,6 +196,16 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
       return { ...setState(s, 'ended', e.ts), waitReason: null, waitAgentId: null, openTool: null };
   }
   return s;
+}
+
+/**
+ * A session as the store kept it, ready for this version. Nothing says its subagents still run: they start as not
+ * running, and the filesystem scan and the next hook event mark the live ones again. A meeting that nothing holds any
+ * more ended while the daemon was away: the session is done, as of when its meeting began, so it is no news.
+ */
+export function normalizeSession(raw: Session): Session {
+  const s = { ...raw, children: (raw.children ?? []).map((c) => (c.running ? { ...c, running: false } : c)) };
+  return s.state === 'in_meeting' && !liveWork(s) ? { ...s, state: 'done' } : s;
 }
 
 /** The user has looked at a finished session. Only 'done' sessions change; a 'done' stamped ahead of this clock counts as seen from its own time. */

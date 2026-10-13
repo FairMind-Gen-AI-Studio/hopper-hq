@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { countBackgroundTasks, HOOK_EVENTS, mapHookPayload } from '../../src/adapters/claude-code/hooks.js';
+import { Collector } from '../../src/collector.js';
 
 const fx = (name: string): unknown => JSON.parse(readFileSync(new URL(`../fixtures/hooks/${name}.json`, import.meta.url), 'utf8'));
 const NOW = 1_800_000_000_000;
@@ -43,13 +44,21 @@ describe('mapHookPayload with the mod fixtures', () => {
     expect(mapHookPayload(fx('SessionEnd'), NOW)).toEqual([{ ...base(1791660006000), type: 'session.ended', reason: 'other' }]);
   });
 
-  it('the end of a subagent turn does not end the session turn', () => {
-    expect(mapHookPayload(fx('Stop.subagent'), NOW)).toEqual([]);
+  it('the end of a subagent turn ends that subagent, not the session turn', () => {
+    expect(mapHookPayload(fx('Stop.subagent'), NOW)).toEqual([{ ...base(1791660004500), type: 'agent.finished', agentId: 'a58cb74ebedcc3070' }]);
   });
 
   it('maps a whole batch, item by item, in order', () => {
     const batch = fx('batch') as unknown[];
     expect(batch.flatMap((p) => mapHookPayload(p, NOW)).map((e) => e.type)).toEqual(['prompt', 'tool.started', 'tool.finished', 'turn.finished']);
+  });
+});
+
+describe('the mod fixtures through the collector', () => {
+  it('a subagent whose turn ended holds no meeting: the session turn that follows ends done', async () => {
+    const c = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: 'orders-api', worktree: false, branch: 'main' }), now: () => NOW, saveDelayMs: 0 });
+    for (const name of ['SubagentStart', 'Stop.subagent', 'Stop']) for (const e of mapHookPayload(fx(name), NOW)) await c.ingest(e);
+    expect(c.view(SID)).toMatchObject({ state: 'done', stateSince: 1791660005000, children: [{ id: 'a58cb74ebedcc3070', type: 'Explore', running: false }] });
   });
 });
 
@@ -70,7 +79,6 @@ describe('mapHookPayload edge cases', () => {
   });
 
   it('ignores subagent-only lifecycle events and unknown events', () => {
-    expect(mapHookPayload({ ...p, hook_event_name: 'Stop', agent_id: 'a1' }, NOW)).toEqual([]);
     expect(mapHookPayload({ ...p, hook_event_name: 'SessionEnd', agent_id: 'a1' }, NOW)).toEqual([]);
     expect(mapHookPayload({ ...p, hook_event_name: 'SubagentStart' }, NOW)).toEqual([]);
     expect(mapHookPayload({ ...p, hook_event_name: 'PreCompact' }, NOW)).toEqual([]);

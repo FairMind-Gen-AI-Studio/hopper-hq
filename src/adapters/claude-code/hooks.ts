@@ -76,7 +76,9 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
       return [];
     }
     case 'Stop':
-      return agentId ? [] : [{ ...base, type: 'turn.finished', backgroundTasks: countBackgroundTasks(p.background_tasks) }];
+      // A subagent's turn end is that subagent's: its loop has run its course. Only the main loop's ends the session's turn.
+      if (agentId) return [{ ...base, type: 'agent.finished', agentId }];
+      return [{ ...base, type: 'turn.finished', backgroundTasks: countBackgroundTasks(p.background_tasks) }];
     case 'SubagentStart':
       return agentId ? [{ ...base, type: 'agent.started', agentId, agentType: str(p.agent_type) || 'agent', description: null }] : [];
     case 'SubagentStop':

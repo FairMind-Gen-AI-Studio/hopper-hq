@@ -1,7 +1,7 @@
 import type { WorkspaceResolver } from './adapters/git.js';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './core/feature.js';
-import { applyEvent, markSeen } from './core/reducer.js';
+import { applyEvent, markSeen, normalizeSession } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
 import { buildFloorDetail, buildScene } from './scene/build.js';
@@ -86,7 +86,7 @@ export class Collector {
         skipped++;
         continue;
       }
-      this.sessions.set(s.id, s);
+      this.sessions.set(s.id, normalizeSession(s));
       this.seq = Math.max(this.seq, s.lastSeq + 1);
       if (s.location === 'local' && s.state !== 'ended' && s.pid !== null) this.unconfirmed.add(s.id);
     }

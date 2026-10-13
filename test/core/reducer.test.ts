@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyEvent, markSeen } from '../../src/core/reducer.js';
+import { applyEvent, markSeen, normalizeSession } from '../../src/core/reducer.js';
 import type { Session } from '../../src/core/types.js';
 import { ev, seen, WS } from '../helpers/events.js';
 
@@ -224,6 +224,24 @@ describe('applyEvent', () => {
   it('records branch changes', () => {
     expect(run(seen(), ev('branch', 1100, { branch: 'feat/other' })).workspace.branch).toBe('feat/other');
     expect(run(seen(), ev('branch', 1100, { branch: null })).workspace.branch).toBe('feat/checkout-v2');
+  });
+});
+
+describe('normalizeSession', () => {
+  it('stops every restored subagent, and ends the meeting they held as of when it began', () => {
+    const s = run(seen(), ev('prompt', 1040, { text: 'x' }), ev('agent.started', 1050, { agentId: 'a1', agentType: 'Explore', description: null }),
+      ev('agent.started', 1060, { agentId: 'a2', agentType: 'Plan', description: null }), ev('agent.finished', 1070, { agentId: 'a2' }),
+      ev('turn.finished', 1100, { backgroundTasks: 0 }));
+    expect(s).toMatchObject({ state: 'in_meeting', stateSince: 1100, seenAt: null });
+    expect(s.children.map((c) => c.running)).toEqual([true, false]);
+    const n = normalizeSession(s);
+    expect(n.children).toEqual(s.children.map((c) => ({ ...c, running: false })));
+    expect({ ...n, children: s.children }).toEqual({ ...s, state: 'done' });
+  });
+
+  it('keeps the state of a session that holds no meeting', () => {
+    const working = run(seen(), ev('prompt', 1040, { text: 'x' }), ev('agent.started', 1050, { agentId: 'a1', agentType: 'Explore', description: null }));
+    expect(normalizeSession(working)).toMatchObject({ state: 'working', stateSince: 1040, children: [{ id: 'a1', running: false }] });
   });
 });
 

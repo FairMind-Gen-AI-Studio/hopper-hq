@@ -182,6 +182,14 @@ describe('Collector', () => {
     store.close();
   });
 
+  it('restores subagents as not running, and a meeting only they held as done since it began', async () => {
+    const store = await Store.open(':memory:');
+    const child = { id: 'a1', type: 'Explore', description: 'Find callers', running: true, lastAction: 'Grep useCart', updatedAt: NOW - 5000 };
+    store.saveSessions([{ ...newSession('S1', NOW - 9000, { cwd: '/w/x', repoRoot: '/w/x', repoName: 'x', worktree: false, branch: 'main' }), state: 'in_meeting', children: [child] }], NOW);
+    expect(collector({ store }).view('S1')).toMatchObject({ state: 'done', stateSince: NOW - 9000, seenAt: null, children: [{ ...child, running: false }] });
+    store.close();
+  });
+
   it('ends the sessions it restored from a session file that nothing has reported since and whose process is gone, as of their last event', async () => {
     const store = await Store.open(':memory:');
     const a = collector({ store });
