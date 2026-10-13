@@ -136,6 +136,19 @@
   }
 
   /**
+   * The user left an element for the page (a click on empty space): it is no longer the one to recover. Focus that
+   * moved on to another element, or an element that was removed, is not that. A window or tab switch blurs the element
+   * but leaves it the document's active element, so it stays remembered.
+   */
+  function onFocusOut(e: FocusEvent): void {
+    const target = e.target;
+    queueMicrotask(() => {
+      if (lastFocus?.el !== target || !lastFocus.el.isConnected) return;
+      if (document.activeElement === null || document.activeElement === document.body) lastFocus = null;
+    });
+  }
+
+  /**
    * An update took the focused element away, and focus fell to the page: it goes to the attention chip now in its
    * place, else to the panel's heading. Focus anywhere else, or on the page because someone put it there, stays.
    */
@@ -203,7 +216,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} onfocusin={onFocusIn} />
+<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} onfocusin={onFocusIn} onfocusout={onFocusOut} />
 
 <div class="app">
   <!-- What the page cannot draw (two entries for one session, say) stops the drawing, not the page: it offers a reload. -->

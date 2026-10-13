@@ -473,7 +473,7 @@ describe('App focus', () => {
     expect(text(active())).toBe('The building');
   });
 
-  it('never takes focus from an element still in the page, nor from the page itself', () => {
+  it('never takes focus from an element still in the page, nor from the page itself', async () => {
     const { target, store } = app();
     const floor = target.querySelector<SVGGElement>('.stage g.floor')!;
     floor.focus();
@@ -483,6 +483,32 @@ describe('App focus', () => {
     floor.blur();
     store.set({ scene: makeScene() });
     flushSync();
+    expect(active()).toBe(document.body);
+    // An element the user left for the page stays left when a later update takes it away.
+    const open = target.querySelector<HTMLElement>('.attention .needs button.open')!;
+    open.focus();
+    open.blur();
+    await Promise.resolve();
+    const scene = makeScene();
+    scene.attention.needsYou = scene.attention.needsYou.slice(1);
+    store.set({ scene });
+    flushSync();
+    expect(open.isConnected).toBe(false);
+    expect(active()).toBe(document.body);
+  });
+
+  it('does not pull focus back to a chip the user left for the page', async () => {
+    const { target, store } = app();
+    const chip = target.querySelector<HTMLElement>('.attention .needs button.open')!;
+    chip.focus();
+    chip.blur();
+    await Promise.resolve();
+    expect(active()).toBe(document.body);
+    const scene = makeScene();
+    scene.attention.needsYou = scene.attention.needsYou.slice(1);
+    store.set({ scene });
+    flushSync();
+    expect(chip.isConnected).toBe(false);
     expect(active()).toBe(document.body);
   });
 });
