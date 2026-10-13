@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +22,7 @@ process.stdin.on('data', (c) => (input += c));
 process.stdin.on('end', () => {
   const env = { SCRANTON_HQ_SUMMARIZER: process.env.SCRANTON_HQ_SUMMARIZER, STANDIN_MARKER: process.env.STANDIN_MARKER };
   writeFileSync(join(__dirname, 'call.json'), JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env, input }));
+  writeFileSync(join(__dirname, 'names.json'), JSON.stringify(Object.keys(process.env).sort()));
   if (mode === 'ok') process.stdout.write('\\n   \\nTests pass;   the PR is open.\\nA second line\\n');
   if (mode === 'fail') {
     process.stderr.write('\\n  Error:   rate   limited\\nmore\\n');
@@ -83,6 +85,58 @@ describe('claudeCliProvider', () => {
       input: 'Title: Fix the login form\nState: done',
     });
     expect((await s.call()).argv[6]).toBe('');
+  });
+
+  it('runs claude apart from the session that started the daemon, and off the API key, keeping the rest of the environment', async () => {
+    const s = await standIn();
+    // A made-up environment, like that of a daemon started from inside a Claude Code session; never this process's.
+    const env = {
+      HOME: '/home/dev', PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: '/home/dev/.claude-work', STANDIN_MARKER: 'm2',
+      CLAUDECODE: '1', AI_AGENT: 'claude-code', CLAUDE_PID: '4242', CLAUDE_EFFORT: 'high',
+      CLAUDE_PLUGIN_DATA: '/home/dev/.claude/plugins/data/x', CLAUDE_PLUGIN_ROOT: '/home/dev/.claude/plugins/x',
+      ANTHROPIC_API_KEY: 'sk-ant-made-up-0000',
+      CLAUDE_CODE_SESSION_ID: '11111111-1111-4111-8111-111111111111', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_MESSAGING_SOCKET: '/home/dev/cc.sock',
+      CLAUDE_CODE_USE_BEDROCK: '1', CLAUDE_CODE_USE_VERTEX: '0', CLAUDE_CODE_USE_FOUNDRY: '1',
+    };
+    await claudeCliProvider({ command: s.command, model: null, cwd: s.dir, env }).summarize('notes', live());
+    const names: string[] = JSON.parse(await readFile(join(s.dir, 'names.json'), 'utf8'));
+    expect(names.filter((n) => n in env || n === 'SCRANTON_HQ_SUMMARIZER')).toEqual([
+      'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CONFIG_DIR', 'HOME', 'PATH', 'SCRANTON_HQ_SUMMARIZER', 'STANDIN_MARKER',
+    ]);
+    expect((await s.call()).env).toEqual({ SCRANTON_HQ_SUMMARIZER: '1', STANDIN_MARKER: 'm2' });
+  });
+
+  it('kills a claude that does not stop when told to, five seconds after', async () => {
+    vi.useFakeTimers();
+    try {
+      const run = (stops: boolean) => {
+        const signals: string[] = [];
+        const child = Object.assign(new EventEmitter(), {
+          stdout: new EventEmitter(),
+          stderr: new EventEmitter(),
+          stdin: Object.assign(new EventEmitter(), { end: () => {} }),
+          kill: (signal: string) => {
+            signals.push(signal);
+            // A real child closes later, never within kill().
+            if (stops) void Promise.resolve().then(() => child.emit('close', null, signal));
+            return true;
+          },
+        });
+        const fake = (() => child) as unknown as typeof spawn;
+        const done = claudeCliProvider({ command: 'claude', model: null, cwd: '/home/dev', env: {}, timeoutMs: 100, spawn: fake }).summarize('notes', live());
+        return { signals, done: done.catch((err: Error) => err.message) };
+      };
+      const stuck = run(false);
+      const polite = run(true);
+      await vi.advanceTimersByTimeAsync(100);
+      expect([await stuck.done, await polite.done]).toEqual(['claude timed out', 'claude timed out']);
+      await vi.advanceTimersByTimeAsync(4999);
+      expect([stuck.signals, polite.signals]).toEqual([['SIGTERM'], ['SIGTERM']]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect([stuck.signals, polite.signals]).toEqual([['SIGTERM', 'SIGKILL'], ['SIGTERM']]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('passes the model it was given', async () => {

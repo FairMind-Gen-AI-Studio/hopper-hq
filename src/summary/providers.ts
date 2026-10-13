@@ -20,6 +20,22 @@ function firstLine(text: string): string {
   return '';
 }
 
+/** A child told to stop that has not stopped this long after is killed. */
+const KILL_AFTER_MS = 5000;
+/** What ties a child to the Claude Code session that started the daemon, and the API key, which `-p` would bill. */
+const SESSION_ENV = new Set(['CLAUDECODE', 'AI_AGENT', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_PLUGIN_DATA', 'CLAUDE_PLUGIN_ROOT', 'ANTHROPIC_API_KEY']);
+/** The CLAUDE_CODE_* variables that choose where claude sends its requests: the others belong to a session. */
+const PROVIDER_ENV = new Set(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']);
+
+/**
+ * The environment of a summary's claude: the daemon's, without what ties it to the session that started the daemon or
+ * bills the API key, and marked as the summarizer's.
+ */
+function summarizerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const kept = Object.entries(env).filter(([name]) => !SESSION_ENV.has(name) && (!name.startsWith('CLAUDE_CODE_') || PROVIDER_ENV.has(name)));
+  return { ...Object.fromEntries(kept), SCRANTON_HQ_SUMMARIZER: '1' };
+}
+
 /**
  * `claude -p` for one summary. --safe-mode leaves out the user's plugins, hooks, CLAUDE.md, skills and MCP servers;
  * --no-session-persistence keeps no session; no tools.
@@ -30,8 +46,9 @@ export function claudeCliArgs(model: string | null): string[] {
 
 /**
  * Summarizes through the claude CLI on the user's account: the notes go on stdin, the first non-blank line of stdout is
- * the answer. The child runs in `cwd` with SCRANTON_HQ_SUMMARIZER set, so that the building leaves its session out.
- * Its output, stdout and stderr together, is capped.
+ * the answer. The child runs in `cwd` with SCRANTON_HQ_SUMMARIZER set, so that the building leaves its session out, and
+ * without the variables of the session that started the daemon or the API key. Its output, stdout and stderr together,
+ * is capped. A child told to stop that does not is killed.
  */
 export function claudeCliProvider(o: {
   command?: string;
@@ -52,7 +69,7 @@ export function claudeCliProvider(o: {
         if (signal.aborted) return reject(new Error('claude timed out'));
         const child = (o.spawn ?? nodeSpawn)(o.command ?? 'claude', claudeCliArgs(o.model), {
           cwd: o.cwd,
-          env: { ...(o.env ?? process.env), SCRANTON_HQ_SUMMARIZER: '1' },
+          env: summarizerEnv(o.env ?? process.env),
           stdio: ['pipe', 'pipe', 'pipe'],
         });
         const stdout: Buffer[] = [];
@@ -68,6 +85,9 @@ export function claudeCliProvider(o: {
         };
         const stop = (message: string) => {
           child.kill('SIGTERM');
+          const kill = setTimeout(() => child.kill('SIGKILL'), KILL_AFTER_MS);
+          kill.unref();
+          child.once('close', () => clearTimeout(kill));
           settle(() => reject(new Error(message)));
         };
         const timer = setTimeout(() => stop('claude timed out'), timeoutMs);
