@@ -37,6 +37,8 @@ export interface LabelEvents {
   /** `clicks` is the click's place in a series: 2 for the second click of a double-click, 0 from the keyboard. */
   select(sessionId: string, clicks: number): void;
   activate(sessionId: string): void;
+  /** The focused tag left the view and no other tag is on it: the focus goes back to the canvas. */
+  lostFocus(): void;
 }
 
 interface Label {
@@ -118,6 +120,7 @@ export class LabelLayer {
         label.y = p.y;
       }
     }
+    this.keepStopOnView();
   }
 
   tag(sessionId: string): HTMLElement | undefined {
@@ -196,6 +199,27 @@ export class LabelLayer {
     this.stop = next;
     const now = next === null ? undefined : this.tags.get(next);
     if (now) now.el.tabIndex = 0;
+  }
+
+  /**
+   * Moves the tab stop off a tag that left the view, to the tag on the view nearest to it in floor order (the earlier
+   * on a tie). A focused tag that leaves hands its focus over before the browser drops it to the page.
+   */
+  private keepStopOnView(): void {
+    const stop = this.stop === null ? undefined : this.tags.get(this.stop);
+    if (!stop || stop.visible) return;
+    const had = document.activeElement === stop.el;
+    const at = this.order.indexOf(this.stop!);
+    let next: string | undefined;
+    for (let d = 1; d < this.order.length && next === undefined; d++) {
+      next = [this.order[at - d], this.order[at + d]].find((id) => id !== undefined && this.tags.get(id)?.visible);
+    }
+    if (next === undefined) {
+      if (had) this.events.lostFocus();
+      return;
+    }
+    this.rove(next);
+    if (had) this.tags.get(next)!.el.focus();
   }
 
   /** Focuses the tag a key leads to from this one, among the tags on the view, in floor order. */

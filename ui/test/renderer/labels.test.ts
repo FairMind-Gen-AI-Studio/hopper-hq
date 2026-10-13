@@ -18,7 +18,11 @@ function topDown(): OrthographicCamera {
 function layer() {
   const root = document.body.appendChild(document.createElement('div'));
   const calls: string[] = [];
-  const events: LabelEvents = { select: (id) => calls.push('select ' + id), activate: (id) => calls.push('activate ' + id) };
+  const events: LabelEvents = {
+    select: (id) => calls.push('select ' + id),
+    activate: (id) => calls.push('activate ' + id),
+    lostFocus: () => calls.push('lostFocus'),
+  };
   return { root, calls, labels: new LabelLayer(root, events) };
 }
 
@@ -123,7 +127,7 @@ describe('the label layer', () => {
   it('tells which click of a series selected', () => {
     const root = document.body.appendChild(document.createElement('div'));
     const counts: number[] = [];
-    const labels = new LabelLayer(root, { select: (_id, clicks) => counts.push(clicks), activate: () => {} });
+    const labels = new LabelLayer(root, { select: (_id, clicks) => counts.push(clicks), activate: () => {}, lostFocus: () => {} });
     labels.sync(checkoutFloor());
     const tag = labels.tag('oa-c3')!;
     tag.dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true }));
@@ -225,6 +229,80 @@ describe('the label layer', () => {
     expect(focused()).toBe('sw-c3');
     press('ArrowLeft');
     expect(focused()).toBe('sw-c3');
+  });
+
+  describe('the tab stop', () => {
+    const stops = (labels: LabelLayer) => desksOf(checkoutFloor()).map((d) => d.sessionId).filter((id) => labels.tag(id)?.tabIndex === 0);
+    const zoomed = (labels: LabelLayer, zoom: number) => {
+      const floor = checkoutFloor();
+      const camera = isoCamera(floor.size);
+      camera.zoom = zoom;
+      camera.updateProjectionMatrix();
+      labels.position(camera, 800, 500);
+      return camera;
+    };
+    /** Turns the camera away so that no tag is on the view. */
+    const away = (labels: LabelLayer) => {
+      const camera = zoomed(labels, 1);
+      camera.position.x += 1000;
+      camera.updateMatrixWorld();
+      labels.position(camera, 800, 500);
+      return camera;
+    };
+
+    it('moves to the nearest tag on the view when its tag leaves the view', () => {
+      const { labels, calls } = layer();
+      labels.sync(checkoutFloor());
+      zoomed(labels, 1);
+      expect(stops(labels)).toEqual(['sw-a1']);
+      // Closer in, the first two tags are off the view: the stop passes on to the next one in floor order.
+      zoomed(labels, 3);
+      expect(stops(labels)).toEqual(['sw-c3']);
+      zoomed(labels, 6);
+      expect(stops(labels)).toEqual(['oa-c3']);
+      expect(calls).toEqual([]);
+    });
+
+    it('leaves the stop alone while its tag stays on the view', () => {
+      const { labels } = layer();
+      labels.sync(checkoutFloor());
+      labels.tag('ps-d4')!.focus();
+      zoomed(labels, 3);
+      expect(stops(labels)).toEqual(['ps-d4']);
+      expect(document.activeElement).toBe(labels.tag('ps-d4'));
+    });
+
+    it('takes the focus along when the focused tag leaves the view', () => {
+      const { labels, calls } = layer();
+      labels.sync(checkoutFloor());
+      zoomed(labels, 1);
+      labels.tag('sw-b2')!.focus();
+      expect(stops(labels)).toEqual(['sw-b2']);
+      zoomed(labels, 3);
+      expect(stops(labels)).toEqual(['sw-c3']);
+      expect(document.activeElement).toBe(labels.tag('sw-c3'));
+      expect(calls).toEqual([]);
+    });
+
+    it('hands the focus back when the focused tag leaves and no tag is left on the view', () => {
+      const { labels, calls } = layer();
+      labels.sync(checkoutFloor());
+      zoomed(labels, 1);
+      labels.tag('sw-b2')!.focus();
+      away(labels);
+      expect(calls).toEqual(['lostFocus']);
+      expect(stops(labels)).toEqual(['sw-b2']);
+    });
+
+    it('stays put when no tag is left on the view and none had the focus', () => {
+      const { labels, calls } = layer();
+      labels.sync(checkoutFloor());
+      zoomed(labels, 1);
+      labels.setSelected('ps-d4');
+      away(labels);
+      expect(calls).toEqual([]);
+      expect(stops(labels)).toEqual(['ps-d4']);
+    });
   });
 
   it('keeps labels hidden until placed, then hangs each from its anchor', () => {

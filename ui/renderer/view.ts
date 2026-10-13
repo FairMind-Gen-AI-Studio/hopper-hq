@@ -128,6 +128,7 @@ export function createFloorView(
       if (!(relayed && clicks > 0)) clickSelect(() => id, clicks);
     },
     activate: (id) => doubleClick(() => id),
+    lostFocus: () => canvas.focus(),
   });
 
   let size = { ...MIN_SIZE };
