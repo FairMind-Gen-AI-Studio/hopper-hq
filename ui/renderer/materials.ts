@@ -17,6 +17,8 @@ interface Recipe {
   shade?: number;
   emissive?: ColorToken;
   intensity?: NumberToken;
+  /** See-through at this opacity, writing no depth: glass. */
+  opacity?: number;
 }
 
 const SURFACES = {
@@ -35,8 +37,13 @@ const SURFACES = {
   elevator: { color: 'scene-elevator', roughness: 0.4 },
   frame: { color: 'scene-frame' },
   paper: { color: 'scene-paper' },
+  board: { color: 'scene-board', roughness: 0.4 },
+  roomFloor: { color: 'scene-floor', mix: ['s-meeting', 0.12] },
+  glass: { color: 'window-glow', roughness: 0.2, opacity: 0.28 },
   shell: { color: 'bot-shell', roughness: 0.45 },
   visor: { color: 'bot-visor', emissive: 'bot-visor', intensity: 'visor-int' },
+  hardhat: { color: 'bot-hardhat', roughness: 0.5 },
+  jet: { color: 'bot-jet', roughness: 0.5 },
   window: { color: 'window-glow', emissive: 'window-glow', intensity: 'window-int' },
   lamp: { color: 'lamp-glow', emissive: 'lamp-glow', intensity: 'lamp-int' },
 } as const satisfies Record<string, Recipe>;
@@ -45,6 +52,10 @@ export type Surface = keyof typeof SURFACES;
 
 /** How much of the repo colour a rug takes over the floor colour. */
 export const RUG_MIX = 0.3;
+/** How much of the meeting colour a meeting room's floor takes over the floor colour. */
+export const ROOM_MIX = SURFACES.roomFloor.mix[1];
+/** How much a meeting room's glass partitions hide of what stands behind them. */
+export const GLASS_OPACITY = SURFACES.glass.opacity;
 /** Joints and feet: the body colour, darker. */
 export const JOINT_SHADE = 0.62;
 /** A screen's glass; the state colour glows over it. */
@@ -149,6 +160,11 @@ export class Materials {
 
   private make(recipe: Recipe): MeshStandardMaterial {
     const m = new MeshStandardMaterial({ roughness: recipe.roughness ?? 0.85, metalness: 0 });
+    if (recipe.opacity !== undefined) {
+      m.transparent = true;
+      m.opacity = recipe.opacity;
+      m.depthWrite = false;
+    }
     this.recipes.push([m, recipe]);
     return m;
   }

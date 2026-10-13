@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Color, type MeshStandardMaterial } from 'three';
-import { JOINT_SHADE, Materials, RUG_MIX } from '../../renderer/materials';
+import { GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_MIX, RUG_MIX } from '../../renderer/materials';
 import { dayTheme, type ThemeTokens } from '../../renderer/theme';
 
 const hex = (c: Color) => '#' + c.getHexString();
@@ -14,6 +14,10 @@ function nightTheme(): ThemeTokens {
   t.colors['repo-2'] = '#123456';
   t.colors['feature-4'] = '#654321';
   t.colors.accent = '#7ea4ff';
+  t.colors['scene-board'] = '#c9ced8';
+  t.colors['bot-hardhat'] = '#d3d8e0';
+  t.colors['bot-jet'] = '#9aa3b2';
+  t.colors['s-meeting'] = '#9b8cff';
   t.numbers['visor-int'] = 1.8;
   t.numbers['screen-int'] = 2;
   return t;
@@ -40,6 +44,26 @@ describe('materials', () => {
     expect(glow(m.surface.window)).toEqual([theme.colors['window-glow'], theme.numbers['window-int']]);
     expect(glow(m.surface.lamp)).toEqual([theme.colors['lamp-glow'], theme.numbers['lamp-int']]);
     expect(glow(m.surface.wall)).toEqual(['#000000', 1]);
+  });
+
+  it('colours the whiteboard, the hard hats and the jetpacks from their tokens, and tints a room floor toward the meeting colour', () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    expect(hex(m.surface.board.color)).toBe(theme.colors['scene-board']);
+    expect(hex(m.surface.hardhat.color)).toBe(theme.colors['bot-hardhat']);
+    expect(hex(m.surface.jet.color)).toBe(theme.colors['bot-jet']);
+    const tint = new Color(theme.colors['scene-floor']).lerp(new Color(theme.colors['s-meeting']), ROOM_MIX);
+    expect(hex(m.surface.roomFloor.color)).toBe(hex(tint));
+    expect([m.surface.board.transparent, m.surface.hardhat.transparent, m.surface.roomFloor.transparent]).toEqual([false, false, false]);
+  });
+
+  it('makes the partitions see-through glass in the window colour, which writes no depth', () => {
+    const theme = dayTheme();
+    const glass = new Materials(theme).surface.glass;
+    expect(hex(glass.color)).toBe(theme.colors['window-glow']);
+    expect([glass.transparent, glass.opacity, glass.depthWrite]).toEqual([true, GLASS_OPACITY, false]);
+    expect(GLASS_OPACITY).toBeLessThan(0.5);
+    expect(hex(glass.emissive)).toBe('#000000');
   });
 
   it('gives each repo slot a body, darker joints and a rug, and each feature slot a tie', () => {
@@ -91,6 +115,10 @@ describe('materials', () => {
     expect(hex(m.body(2).color)).toBe('#123456');
     expect(hex(m.tie(4).color)).toBe('#654321');
     expect(hex(m.ring.color)).toBe('#7ea4ff');
+    expect(hex(m.surface.board.color)).toBe('#c9ced8');
+    expect(hex(m.surface.hardhat.color)).toBe('#d3d8e0');
+    expect(hex(m.surface.jet.color)).toBe('#9aa3b2');
+    expect(hex(m.surface.roomFloor.color)).toBe(hex(new Color('#3a3f55').lerp(new Color('#9b8cff'), ROOM_MIX)));
   });
 
   it('frees every material once', () => {
@@ -99,6 +127,6 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    expect(m.all().length).toBe(19 + 3 * 8 + 8 + 1 + 6 + 1);
+    expect(m.all().length).toBe(24 + 3 * 8 + 8 + 1 + 6 + 1);
   });
 });
