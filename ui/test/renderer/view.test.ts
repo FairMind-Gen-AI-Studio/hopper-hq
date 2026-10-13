@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
+import { DESK_PULL, DESK_ZOOM, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
-import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor } from '../../renderer/world';
+import { HOME_AZIMUTH, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
-import { checkoutFloor, checkoutIslands, desksOf, makeFloor } from './fixtures';
+import { checkoutFloor, checkoutIslands, desksOf, makeFloor, roomFloor } from './fixtures';
 
 const W = 800;
 const H = 500;
@@ -128,6 +128,10 @@ class FakeEnv implements ViewEnv {
 }
 
 const desk = (id: string): Target => ({ kind: 'desk', id });
+const room = (id: string): Target => ({ kind: 'room', id });
+/** The runs of the two rooms of roomFloor(). */
+const FIRST = 'wf_0000aaaa-001';
+const SECOND = 'wf_0000aaaa-002';
 /** A target as the events list writes it: 'desk oa-c3', or 'null'. */
 const said = (target: Target | null): string => (target ? `${target.kind} ${target.id}` : 'null');
 
@@ -197,6 +201,12 @@ function deskPoint(renderer: FakeRenderer, id: string): { x: number; y: number }
   const desk = desksOf(checkoutFloor()).find((d) => d.sessionId === id)!;
   const a = deskAnchor(desk.rect);
   return screenOf(renderer, a.x, 0.74, a.z);
+}
+
+/** Where the table of the n-th room of roomFloor() shows on the canvas. */
+function tablePoint(renderer: FakeRenderer, n: number): { x: number; y: number } {
+  const t = tableCenter(roomFloor().rooms[n]!.rect);
+  return screenOf(renderer, t.x, 0.78, t.z);
 }
 
 function cameraPose(renderer: FakeRenderer) {
@@ -478,7 +488,7 @@ describe('the floor view', () => {
     expect(ring.visible).toBe(false);
   });
 
-  it('marks no desk and pans nowhere for a room target', () => {
+  it('marks no desk for a room target, and pans nowhere while the room is not on the floor', () => {
     const { renderer, env, view, canvas, events } = setup();
     view.setFloor(checkoutFloor());
     env.flush();
@@ -491,6 +501,66 @@ describe('the floor view', () => {
     expect([ring.visible, cameraPose(renderer).zoom]).toEqual([false, 1]);
     canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     expect(events).toEqual([]);
+  });
+
+  it('selects the room under a click, activates it on a double-click, and with Enter once it is selected', () => {
+    const { renderer, env, view, canvas, events } = setup();
+    view.setFloor(roomFloor());
+    env.flush();
+    const at = tablePoint(renderer, 0);
+    click(canvas, at);
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: at.x, clientY: at.y, detail: 2, bubbles: true }));
+    click(canvas, tablePoint(renderer, 1));
+    view.select(room(FIRST));
+    const e = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    canvas.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(events).toEqual([`select room ${FIRST}`, `activate room ${FIRST}`, `select room ${SECOND}`, `activate room ${FIRST}`]);
+  });
+
+  it('selects a room from its tag, and shows a tag and a board for each room', () => {
+    const { env, view, labels, events } = setup();
+    view.setFloor(roomFloor());
+    env.flush();
+    expect([labels.querySelectorAll('.fv-room').length, labels.querySelectorAll('.fv-board').length]).toEqual([2, 2]);
+    (labels.querySelector(`.fv-room[data-run="${SECOND}"]`) as HTMLElement).click();
+    expect(events).toEqual([`select room ${SECOND}`]);
+  });
+
+  it('outlines and marks the room it selects, and pans to it as to a desk', () => {
+    const { renderer, env, view, labels } = setup();
+    const floor = roomFloor();
+    view.setFloor(floor);
+    env.flush();
+    view.select(room(SECOND), { pan: true });
+    env.flush();
+    const outline = renderer.scene!.getObjectByName('room-selection')!;
+    expect([outline.visible, renderer.scene!.getObjectByName('selection')!.visible]).toEqual([true, false]);
+    expect(labels.querySelector(`.fv-room[data-run="${SECOND}"]`)!.classList.contains('fv-sel')).toBe(true);
+    const t = tableCenter(floor.rooms[1]!.rect);
+    const c = floorCenter(floor.size);
+    const pose = cameraPose(renderer);
+    expect(pose.zoom).toBe(DESK_ZOOM);
+    expect(pose.target.x).toBeCloseTo(t.x + (c.x - t.x) * DESK_PULL, 6);
+    expect(pose.target.z).toBeCloseTo(t.z + (c.z - t.z) * DESK_PULL, 6);
+    view.select(null);
+    expect(outline.visible).toBe(false);
+  });
+
+  it('pans to a room asked for before it opened, once it opens', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.select(room(FIRST), { pan: true });
+    env.flush();
+    expect(cameraPose(renderer).zoom).toBe(1);
+    const floor = roomFloor();
+    view.setFloor(floor);
+    env.flush();
+    const t = tableCenter(floor.rooms[0]!.rect);
+    const c = floorCenter(floor.size);
+    expect(cameraPose(renderer).target.x).toBeCloseTo(t.x + (c.x - t.x) * DESK_PULL, 6);
+    expect(renderer.scene!.getObjectByName('room-selection')!.visible).toBe(true);
   });
 
   it('follows the centre of a floor that grows while the camera is on it, and stays on a desk it panned to', () => {

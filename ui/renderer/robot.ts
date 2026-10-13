@@ -139,7 +139,7 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
 
   const pickables: Mesh[] = [];
-  const pick: PickData = { sessionId };
+  const pick: PickData = { kind: 'desk', id: sessionId };
   group.traverse((o) => {
     if ((o as Mesh).isMesh) {
       o.userData.pick = pick;

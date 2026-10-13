@@ -58,7 +58,7 @@ describe('robots', () => {
       if (o instanceof Mesh) count++;
     });
     expect(obj.pickables).toHaveLength(count);
-    for (const m of obj.pickables) expect(m.userData.pick as PickData).toEqual({ sessionId: 's1' });
+    for (const m of obj.pickables) expect(m.userData.pick as PickData).toEqual({ kind: 'desk', id: 's1' });
   });
 
   it('turns the limb pivots for each pose', () => {

@@ -18,6 +18,7 @@ import {
 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { Desk, FloorDetail, GridRect, MeetingRoom } from '../../src/scene/types';
+import type { Target } from './index';
 import type { Materials } from './materials';
 import {
   BOARD,
@@ -36,10 +37,8 @@ import {
   type WallSide,
 } from './world';
 
-/** What a click on a mesh selects; set as `mesh.userData.pick`. */
-export interface PickData {
-  sessionId: string;
-}
+/** What a click on a mesh selects, a desk or a room; set as `mesh.userData.pick`. */
+export type PickData = Target;
 
 /** Fixed-size geometries, made once and shared by every desk, robot and fitting; freed together by dispose(). */
 export class Geometries {
@@ -263,7 +262,7 @@ export function buildDesk(desk: Desk, geo: Geometries, mats: Materials): DeskObj
   part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, 0.78, thin);
   part(group, geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, 0.78, thin);
   const pickables = [top, monitor, screen, seat, back];
-  const pick: PickData = { sessionId: desk.sessionId };
+  const pick: PickData = { kind: 'desk', id: desk.sessionId };
   for (const m of pickables) m.userData.pick = pick;
   const obj: DeskObject = { sessionId: desk.sessionId, group, top, screen, pickables };
   updateDesk(obj, desk, mats);
@@ -291,6 +290,8 @@ export interface RoomObject {
   readonly h: number;
   /** A card on the head seat, shown while the host is not at the meeting. */
   readonly placard: Mesh;
+  /** Every part of the room: a click on any of them selects the room. */
+  readonly pickables: readonly Mesh[];
 }
 
 /**
@@ -344,7 +345,15 @@ export function buildRoom(room: MeetingRoom, geo: Geometries, mats: Materials): 
   part(group, geo.box(BOARD.w + 0.08, BOARD.h + 0.08, 0.02), s.frame, w / 2, BOARD.y, t + 0.01, thin);
   part(group, geo.rbox(BOARD.w, BOARD.h, 0.05, 0.02), s.board, w / 2, BOARD.y, t + 0.025, thin);
 
-  const obj: RoomObject = { runId: room.runId, group, w, h, placard };
+  const pickables: Mesh[] = [];
+  const pick: PickData = { kind: 'room', id: room.runId };
+  group.traverse((o) => {
+    if ((o as Mesh).isMesh) {
+      o.userData.pick = pick;
+      pickables.push(o as Mesh);
+    }
+  });
+  const obj: RoomObject = { runId: room.runId, group, w, h, placard, pickables };
   updateRoom(obj, room);
   return obj;
 }

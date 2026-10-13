@@ -4,6 +4,7 @@
  */
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
 import type { Desk, GridRect, MeetingRoom, Pose } from '../../src/scene/types';
+import type { Target } from './index';
 
 /** Wall height and thickness. */
 export const WALL_H = 2.6;
@@ -170,6 +171,11 @@ export function roomTagAnchor(rect: GridRect): Point3 {
 /** What tells rooms apart: two sessions may name the same run, and each gets a room. */
 export function roomKey(room: Pick<MeetingRoom, 'hostSessionId' | 'runId'>): string {
   return JSON.stringify([room.hostSessionId, room.runId]);
+}
+
+/** Whether two targets name the same desk, or the same run's rooms. */
+export function sameTarget(a: Target | null, b: Target | null): boolean {
+  return a === b || (a !== null && b !== null && a.kind === b.kind && a.id === b.id);
 }
 
 export function floorCenter(size: { w: number; h: number }): Point {

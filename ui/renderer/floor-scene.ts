@@ -3,11 +3,23 @@
  * matched by sessionId and updated in place, and meeting rooms by host and run; the shell is rebuilt only when the
  * layout changes. The scene owns its geometries and materials and frees them all in dispose().
  */
-import { DirectionalLight, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
+import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { SEATS_MAX } from '../../src/scene/layout';
-import type { Desk, FloorDetail, MeetingRoom, Robot } from '../../src/scene/types';
+import type { Desk, FloorDetail, GridRect, MeetingRoom, Robot } from '../../src/scene/types';
+import type { Target } from './index';
 import { Materials } from './materials';
-import { Geometries, buildDesk, buildRoom, buildShell, updateDesk, updateRoom, type DeskObject, type RoomObject, type Shell } from './props';
+import {
+  Geometries,
+  buildDesk,
+  buildRoom,
+  buildShell,
+  updateDesk,
+  updateRoom,
+  type DeskObject,
+  type PickData,
+  type RoomObject,
+  type Shell,
+} from './props';
 import { buildRobot, poseRobot, type RobotObject } from './robot';
 import type { ThemeTokens } from './theme';
 import {
@@ -20,6 +32,7 @@ import {
   seatSpot,
   seatSpots,
   shadowExtent,
+  tableCenter,
   visibleWalls,
   type Point,
   type Spot,
@@ -55,12 +68,14 @@ export class FloorScene {
   readonly sun = new DirectionalLight();
   /** The selection ring on the floor under the selected desk's robot. */
   readonly ring: Mesh;
+  /** The outline on the floor of the selected room, just inside its edges. */
+  readonly roomRing = new Group();
   private shellPart: Shell | null = null;
   private signature = '';
   private readonly entries = new Map<string, DeskEntry>();
   /** By roomKey: two hosts may name the same run. */
   private readonly roomEntries = new Map<string, RoomEntry>();
-  private selected: string | null = null;
+  private selected: Target | null = null;
   private azimuth = HOME_AZIMUTH;
 
   constructor(theme: ThemeTokens) {
@@ -75,6 +90,14 @@ export class FloorScene {
     this.ring.visible = false;
     this.ring.name = 'selection';
     this.scene.add(this.ring);
+    for (let i = 0; i < 4; i++) {
+      const strip = new Mesh(this.geo.plane(1, 1), this.mats.ring);
+      strip.rotation.x = -Math.PI / 2;
+      this.roomRing.add(strip);
+    }
+    this.roomRing.visible = false;
+    this.roomRing.name = 'room-selection';
+    this.scene.add(this.roomRing);
     this.setTheme(theme);
   }
 
@@ -134,9 +157,9 @@ export class FloorScene {
     this.sun.intensity = theme.numbers['sun-int'];
   }
 
-  /** Shows the ring under a desk; null, or a desk not on this floor, hides it. */
-  setSelected(sessionId: string | null): void {
-    this.selected = sessionId;
+  /** Shows the ring under a desk, or the outline of a room; null, or what is not on this floor, hides them. */
+  setSelected(target: Target | null): void {
+    this.selected = target;
     this.placeRing();
   }
 
@@ -153,20 +176,31 @@ export class FloorScene {
     return changed;
   }
 
-  /** Where the camera looks when it pans to a desk: its robot, or the chair of an empty desk. */
-  focusPoint(sessionId: string): Point | null {
-    const entry = this.entries.get(sessionId);
+  /**
+   * Where the camera looks when it pans to a desk or a room: the desk's robot, or the chair of an empty desk; the
+   * table of the run's first room. Null when it is not on this floor.
+   */
+  focusPoint(target: Target): Point | null {
+    if (target.kind === 'room') {
+      const room = this.roomOf(target.id);
+      return room ? tableCenter(room.room.rect) : null;
+    }
+    const entry = this.entries.get(target.id);
     if (!entry) return null;
     const spot = robotSpot(entry.desk) ?? seatSpot(entry.desk.rect);
     return { x: spot.x, z: spot.z };
   }
 
-  /** Everything a click can pick: desks, their robots and their interns. */
+  /** Everything a click can pick: desks, their robots and their interns, and rooms with everyone in them. */
   pickables(): Object3D[] {
     const out: Object3D[] = [];
     for (const e of this.entries.values()) {
       out.push(...e.obj.pickables, ...(e.robot?.pickables ?? []));
       for (const intern of e.interns.values()) out.push(...intern.pickables);
+    }
+    for (const r of this.roomEntries.values()) {
+      out.push(...r.obj.pickables, ...(r.host?.pickables ?? []));
+      for (const agent of r.agents.values()) out.push(...agent.pickables);
     }
     return out;
   }
@@ -282,7 +316,7 @@ export class FloorScene {
     const seated = room.agents.slice(0, Math.min(SEATS_MAX, room.counts.running));
     const look: Robot = { pose: 'typing', badge: null, body: room.look.body, tie: room.look.tie };
     this.syncCrew(entry.agents, seated.map((a, i) => [a.agentId, seats[i]!]), look, (id) => {
-      const robot = buildRobot(id, look, this.geo, this.mats, 'workflow');
+      const robot = pickRoom(buildRobot(id, look, this.geo, this.mats, 'workflow'), room.runId);
       robot.group.name = `agent ${id}`;
       obj.group.add(robot.group);
       return robot;
@@ -294,7 +328,7 @@ export class FloorScene {
       host = null;
     }
     if (want && !host) {
-      host = buildRobot(room.hostSessionId, want, this.geo, this.mats);
+      host = pickRoom(buildRobot(room.hostSessionId, want, this.geo, this.mats), room.runId);
       host.group.name = `host ${room.runId}`;
       obj.group.add(host.group);
     }
@@ -323,10 +357,38 @@ export class FloorScene {
     for (const robot of before.values()) robot.group.removeFromParent();
   }
 
+  /** The first room of a run: two hosts may name the same run. */
+  private roomOf(runId: string): RoomEntry | undefined {
+    for (const entry of this.roomEntries.values()) if (entry.room.runId === runId) return entry;
+    return undefined;
+  }
+
   private placeRing(): void {
-    const at = this.selected === null ? null : this.focusPoint(this.selected);
+    const selected = this.selected;
+    const at = selected?.kind === 'desk' ? this.focusPoint(selected) : null;
     this.ring.visible = at !== null;
     if (at) this.ring.position.set(at.x, 0.02, at.z);
+    const room = selected?.kind === 'room' ? this.roomOf(selected.id) : undefined;
+    this.roomRing.visible = room !== undefined;
+    if (room) this.outline(room.room.rect);
+  }
+
+  /** Lays the room outline's four strips just inside the room's edges. */
+  private outline(rect: GridRect): void {
+    const inset = 0.15;
+    const width = 0.1;
+    const strips: Array<[x: number, z: number, sx: number, sz: number]> = [
+      [rect.w / 2, inset, rect.w - 2 * inset, width],
+      [rect.w / 2, rect.h - inset, rect.w - 2 * inset, width],
+      [inset, rect.h / 2, width, rect.h - 2 * inset],
+      [rect.w - inset, rect.h / 2, width, rect.h - 2 * inset],
+    ];
+    strips.forEach(([x, z, sx, sz], i) => {
+      const strip = this.roomRing.children[i]!;
+      strip.position.set(x, 0, z);
+      strip.scale.set(sx, sz, 1);
+    });
+    this.roomRing.position.set(rect.x, 0.012, rect.y);
   }
 
   private fitSun(size: { w: number; h: number }): void {
@@ -337,4 +399,11 @@ export class FloorScene {
     Object.assign(this.sun.shadow.camera, { left: -e, right: e, top: e, bottom: -e, near: 1, far: 24 + 3 * e });
     this.sun.shadow.camera.updateProjectionMatrix();
   }
+}
+
+/** Everything in a room picks the room: its agents and its host too. */
+function pickRoom(robot: RobotObject, runId: string): RobotObject {
+  const pick: PickData = { kind: 'room', id: runId };
+  for (const m of robot.pickables) m.userData.pick = pick;
+  return robot;
 }

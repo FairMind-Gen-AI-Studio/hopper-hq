@@ -83,22 +83,27 @@
 }
 
 .fv-agents,
-.fv-remote {
+.fv-remote,
+.fv-phase,
+.fv-counts {
   color: var(--muted, #566173);
 }
 
+/* A meeting room's tag, over its door: the meeting colour on its dot. */
+.fv-room { --fv-state: var(--s-meeting, #6857db); }
+
 /*
  * Many desks, or a camera far out (.fv-compact): a tag shows only its dot, and its name as well when its desk needs
- * you. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it still names the
- * button.
+ * you or it names a room. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it
+ * still names the button. The rooms' boards go: only the run names stay.
  */
-.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you) {
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) {
   gap: 0;
   padding: 3px;
 }
 
 .fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),
-.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you) > .fv-name {
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) > .fv-name {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -135,6 +140,69 @@
   letter-spacing: 0;
   text-transform: none;
   opacity: 0.8;
+}
+
+/*
+ * A meeting room's board, over its whiteboard: the phases, each with its mark, and the counts, in ink on the board's
+ * colour by day and by night. Clicks go through it to the room.
+ */
+.fv-board {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  will-change: transform;
+  max-width: 36ch;
+  padding: 3px 7px;
+  font: 500 10px/1.35 var(--font-mono, ui-monospace, monospace);
+  color: var(--sign-bg, #20263a);
+  background: var(--scene-board, #fafafa);
+  border: 1px solid var(--scene-frame, #5c6170);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.fv-board ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A long phase title ends in an ellipsis. */
+.fv-board li {
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fv-board .fv-mark {
+  margin-right: 3px;
+}
+
+.fv-board .fv-ph-current {
+  font-weight: 700;
+}
+
+.fv-board p {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.fv-compact .fv-board {
+  display: none;
+}
+
+/* Read, not shown: the words for the marks on a board. */
+.fv-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -133,7 +133,7 @@ describe('desks', () => {
     const a = deskAnchor(desk.rect);
     expect(obj.group.position.toArray()).toEqual([a.x, 0, a.z]);
     expect(obj.pickables).toHaveLength(5);
-    for (const m of obj.pickables) expect(m.userData.pick as PickData).toEqual({ sessionId: 'oa-c3' });
+    for (const m of obj.pickables) expect(m.userData.pick as PickData).toEqual({ kind: 'desk', id: 'oa-c3' });
     // The desk stays inside its 2x2 cells.
     const box = new Box3().setFromObject(obj.group);
     expect(box.min.x).toBeGreaterThanOrEqual(desk.rect.x);

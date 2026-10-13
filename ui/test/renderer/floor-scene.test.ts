@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { Mesh, type BufferGeometry, type Material } from 'three';
+import { Box3, Mesh, type BufferGeometry, type Material } from 'three';
 import { FloorScene, layoutSignature } from '../../renderer/floor-scene';
 import { KIND_SCALE } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
 import type { Intern } from '../../../src/scene/types';
-import { HOME_AZIMUTH, deskAnchor, headSpot, internSpots, robotSpot, roomKey, seatSpot, seatSpots, shadowExtent } from '../../renderer/world';
+import type { Target } from '../../renderer/index';
+import { HOME_AZIMUTH, deskAnchor, headSpot, internSpots, robotSpot, roomKey, seatSpot, seatSpots, shadowExtent, tableCenter } from '../../renderer/world';
 import { checkoutFloor, checkoutIslands, checkoutRooms, desksOf, makeFloor, roomFloor, type IslandSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at the same island. */
@@ -17,6 +18,9 @@ function changedIslands(): IslandSpec[] {
   ];
   return islands;
 }
+
+const deskTarget = (id: string): Target => ({ kind: 'desk', id });
+const roomTarget = (id: string): Target => ({ kind: 'room', id });
 
 function sceneOf(floor = checkoutFloor()) {
   const fs = new FloorScene(dayTheme());
@@ -131,24 +135,53 @@ describe('the floor scene', () => {
   it('rings the selected desk under its robot, or its chair when empty, and hides the ring otherwise', () => {
     const fs = sceneOf();
     expect(fs.ring.visible).toBe(false);
-    fs.setSelected('oa-c3');
+    fs.setSelected(deskTarget('oa-c3'));
     const desk = fs.desks.get('oa-c3')!.desk;
     expect(fs.ring.visible).toBe(true);
     expect([fs.ring.position.x, fs.ring.position.z]).toEqual([robotSpot(desk)!.x, robotSpot(desk)!.z]);
-    fs.setSelected('ps-f7');
+    fs.setSelected(deskTarget('ps-f7'));
     const empty = fs.desks.get('ps-f7')!.desk;
     expect([fs.ring.position.x, fs.ring.position.z]).toEqual([seatSpot(empty.rect).x, seatSpot(empty.rect).z]);
-    expect(fs.focusPoint('ps-f7')).toEqual({ x: seatSpot(empty.rect).x, z: seatSpot(empty.rect).z });
-    fs.setSelected('nobody');
+    expect(fs.focusPoint(deskTarget('ps-f7'))).toEqual({ x: seatSpot(empty.rect).x, z: seatSpot(empty.rect).z });
+    fs.setSelected(deskTarget('nobody'));
     expect(fs.ring.visible).toBe(false);
-    expect(fs.focusPoint('nobody')).toBeNull();
+    expect(fs.focusPoint(deskTarget('nobody'))).toBeNull();
     fs.setSelected(null);
     expect(fs.ring.visible).toBe(false);
   });
 
+  it('outlines the selected room on its floor, and points the camera at its table', () => {
+    const fs = sceneOf(roomFloor());
+    const outline = fs.scene.getObjectByName('room-selection')!;
+    expect(outline.visible).toBe(false);
+    fs.setSelected(deskTarget('oa-c3'));
+    fs.setSelected(roomTarget('wf_0000aaaa-002'));
+    const second = fs.rooms.get(roomKey({ hostSessionId: 'sw-a1', runId: 'wf_0000aaaa-002' }))!.room;
+    expect([outline.visible, fs.ring.visible]).toEqual([true, false]);
+    expect(outline.position.x).toBe(second.rect.x);
+    expect(outline.position.z).toBe(second.rect.y);
+    expect(fs.focusPoint(roomTarget('wf_0000aaaa-002'))).toEqual(tableCenter(second.rect));
+    // The outline runs inside the room's edges.
+    outline.updateMatrixWorld(true);
+    const box = new Box3().setFromObject(outline);
+    expect(box.min.x).toBeGreaterThan(second.rect.x);
+    expect(box.max.x).toBeLessThan(second.rect.x + second.rect.w);
+    expect(box.min.z).toBeGreaterThan(second.rect.y);
+    expect(box.max.z).toBeLessThan(second.rect.y + second.rect.h);
+    expect(box.max.x - box.min.x).toBeGreaterThan(second.rect.w - 1);
+    // It follows the room when the room moves, and goes when the room closes.
+    fs.apply(roomFloor(checkoutRooms().slice(1)));
+    expect(outline.position.z).toBe(fs.rooms.get(roomKey({ hostSessionId: 'sw-a1', runId: 'wf_0000aaaa-002' }))!.room.rect.y);
+    fs.apply(checkoutFloor());
+    expect(outline.visible).toBe(false);
+    expect(fs.focusPoint(roomTarget('wf_0000aaaa-002'))).toBeNull();
+    fs.setSelected(null);
+    expect([outline.visible, fs.ring.visible]).toEqual([false, false]);
+  });
+
   it('keeps the selection across updates and drops the ring when the desk leaves', () => {
     const fs = sceneOf();
-    fs.setSelected('sw-c3');
+    fs.setSelected(deskTarget('sw-c3'));
     fs.apply(checkoutFloor());
     expect(fs.ring.visible).toBe(true);
     fs.apply(makeFloor(changedIslands()));
@@ -313,6 +346,22 @@ describe('meeting rooms in the floor scene', () => {
     expect(group.parent).toBeNull();
   });
 
+  it('lets a click on a room, its table, its seats, its glass, its agents or its host pick the room', () => {
+    const fs = sceneOf(roomFloor());
+    const picks = new Set(fs.pickables());
+    const entry = [...fs.rooms.values()][0]!;
+    const meshes: Mesh[] = [];
+    entry.obj.group.traverse((o) => {
+      if (o instanceof Mesh) meshes.push(o);
+    });
+    expect(meshes.length).toBeGreaterThan(30);
+    for (const m of meshes) {
+      expect(picks.has(m), m.name).toBe(true);
+      expect(m.userData.pick).toEqual(roomTarget('wf_0000aaaa-001'));
+    }
+    expect(entry.host!.pickables.every((m) => picks.has(m))).toBe(true);
+  });
+
   it('gives each of two hosts naming the same run a room of its own', () => {
     const rooms = checkoutRooms();
     rooms[1] = { ...rooms[1]!, runId: rooms[0]!.runId };
@@ -363,7 +412,7 @@ describe('interns and away desks', () => {
     const robot = fs.desks.get('sw-a1')!.interns.get('i1')!;
     const picks = new Set(fs.pickables());
     expect(robot.pickables.every((m) => picks.has(m))).toBe(true);
-    expect(robot.pickables[0]!.userData.pick).toEqual({ sessionId: 'sw-a1' });
+    expect(robot.pickables[0]!.userData.pick).toEqual(deskTarget('sw-a1'));
   });
 
   it('keeps an intern that flies on, moves it up the arc, and lands the ones that finish or leave with their desk', () => {
@@ -394,7 +443,7 @@ describe('interns and away desks', () => {
     expect(robot.group.visible).toBe(false);
     expect(fs.desks.get('sw-a1')!.robot!.group.visible).toBe(true);
     // The ring still marks the empty chair.
-    fs.setSelected('ps-d4');
+    fs.setSelected(deskTarget('ps-d4'));
     expect([fs.ring.position.x, fs.ring.position.z]).toEqual([seatSpot(entry.desk.rect).x, seatSpot(entry.desk.rect).z]);
     fs.apply(checkoutFloor());
     expect(entry.robot).toBe(robot);

@@ -16,9 +16,9 @@ import { MAX_ZOOM, MIN_ZOOM, PAN_MS, RESET_MS, ROTATE_MS, Tween, clampZoom, desk
 import { FloorScene } from './floor-scene';
 import type { FloorView, Target } from './index';
 import { LabelLayer } from './labels';
-import { pickSession, toNdc } from './pick';
+import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
-import { POLAR, azimuthOf, cameraOffset, floorCenter, frustumFor, type Point } from './world';
+import { POLAR, azimuthOf, cameraOffset, floorCenter, frustumFor, sameTarget, type Point } from './world';
 
 /** What the view needs of a three.js WebGLRenderer. */
 export interface RendererLike {
@@ -88,15 +88,12 @@ export function browserEnv(): ViewEnv {
 /** A press and release closer than this many pixels is a click; farther is a drag of the camera. */
 export const DRAG_PX = 6;
 /**
- * How long after a click a second one may still come. A pan to the desk the click selected waits this long, so the
- * desk is still under the pointer for the second click of a double-click.
+ * How long after a click a second one may still come. A pan to the desk or room the click selected waits this long,
+ * so it is still under the pointer for the second click of a double-click.
  */
 export const DOUBLE_CLICK_MS = 400;
 
 type Listener = (target: Target | null) => void;
-
-/** The target the view reports for a desk. */
-const deskTarget = (sessionId: string): Target => ({ kind: 'desk', id: sessionId });
 
 export function createFloorView(
   host: { canvas: HTMLCanvasElement; labels: HTMLElement },
@@ -126,11 +123,11 @@ export function createFloorView(
     for (const fn of [...listeners[event]]) fn(target);
   };
   const labels = new LabelLayer(host.labels, {
-    select: (id, clicks) => {
+    select: (target, clicks) => {
       // A drag of the camera that started on the tag may end in a click on it: that click selects nothing.
-      if (!(relayed && clicks > 0)) clickSelect(() => id, clicks);
+      if (!(relayed && clicks > 0)) clickSelect(() => target, clicks);
     },
-    activate: (id) => doubleClick(() => id),
+    activate: (target) => doubleClick(() => target),
     lostFocus: () => canvas.focus(),
   });
 
@@ -139,9 +136,9 @@ export function createFloorView(
   let width = 300;
   let height = 150;
   let hasFloor = false;
-  let selected: string | null = null;
-  /** A desk the UI asked to pan to before it was on the floor; the pan happens when it arrives. */
-  let panPending: string | null = null;
+  let selected: Target | null = null;
+  /** A desk or room the UI asked to pan to before it was on the floor; the pan happens when it arrives. */
+  let panPending: Target | null = null;
   let tween: Tween | null = null;
   let reduced = theme.reducedMotion;
   let frame = 0;
@@ -149,7 +146,7 @@ export function createFloorView(
   let lost = false;
   let down: { x: number; y: number } | null = null;
   /** What the last click selected, and when: the second click of a double-click and the double-click keep to it. */
-  let clicked: { id: string | null; at: number } | null = null;
+  let clicked: { target: Target | null; at: number } | null = null;
   /** Cancels a pan that waits for the end of a double-click. */
   let panLater: (() => void) | null = null;
   /** A press of the main button on a tag: a click if it ends there, a drag of the camera once it moves away. */
@@ -269,30 +266,30 @@ export function createFloorView(
     request();
   }
 
-  function pickAt(clientX: number, clientY: number): string | null {
+  function pickAt(clientX: number, clientY: number): Target | null {
     const ndc = toNdc(clientX, clientY, canvas.getBoundingClientRect());
     if (!ndc) return null;
     world.scene.updateMatrixWorld();
-    return pickSession(camera, ndc, world.pickables());
+    return pickTarget(camera, ndc, world.pickables());
   }
 
   /**
    * A click that selects what `pick` names. The second click of a double-click selects what the first one did,
    * without looking again: the camera, and the desks with it, may have moved in between.
    */
-  function clickSelect(pick: () => string | null, clicks: number): void {
-    const id = clicks > 1 && clicked ? clicked.id : pick();
+  function clickSelect(pick: () => Target | null, clicks: number): void {
+    const target = clicks > 1 && clicked ? clicked.target : pick();
     // A click from the keyboard has no count, and starts no double-click.
-    clicked = clicks > 0 ? { id, at: env.now() } : null;
-    emit('select', id === null ? null : deskTarget(id));
+    clicked = clicks > 0 ? { target, at: env.now() } : null;
+    emit('select', target);
   }
 
-  /** A double-click activates the desk its first click picked; one that follows no click, what `pick` names. */
-  function doubleClick(pick: () => string | null): void {
+  /** A double-click activates the desk or room its first click picked; one that follows no click, what `pick` names. */
+  function doubleClick(pick: () => Target | null): void {
     stopPanLater();
-    const id = clicked && env.now() - clicked.at <= DOUBLE_CLICK_MS ? clicked.id : pick();
+    const target = clicked && env.now() - clicked.at <= DOUBLE_CLICK_MS ? clicked.target : pick();
     clicked = null;
-    if (id) emit('activate', deskTarget(id));
+    if (target) emit('activate', target);
   }
 
   // Only the main button selects: the others pan the camera. A press takes the camera from any move under way.
@@ -374,9 +371,9 @@ export function createFloorView(
   };
   const onTagMenu = (e: Event) => e.preventDefault();
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && selected !== null && world.desks.has(selected)) {
+    if (e.key === 'Enter' && selected !== null && world.focusPoint(selected) !== null) {
       e.preventDefault();
-      emit('activate', deskTarget(selected));
+      emit('activate', selected);
     }
   };
   const onVisibility = () => {
@@ -460,17 +457,15 @@ export function createFloorView(
     },
     select(target: Target | null, opts?: { pan?: boolean }) {
       if (disposed) return;
-      // A room target marks no desk, and clears the desk marked before.
-      const sessionId = target?.kind === 'desk' ? target.id : null;
-      selected = sessionId;
-      world.setSelected(sessionId);
-      labels.setSelected(sessionId);
+      selected = target;
+      world.setSelected(target);
+      labels.setSelected(target);
       stopPanLater();
-      const pan = sessionId !== null && opts?.pan === true;
-      const spot = pan ? world.focusPoint(sessionId) : null;
-      panPending = pan && !spot ? sessionId : null;
-      // A pan to the desk the view's own click just selected waits until a second click can no longer come.
-      const wait = spot && clicked && clicked.id === sessionId ? clicked.at + DOUBLE_CLICK_MS - env.now() : 0;
+      const pan = target !== null && opts?.pan === true;
+      const spot = pan ? world.focusPoint(target) : null;
+      panPending = pan && !spot ? target : null;
+      // A pan to what the view's own click just selected waits until a second click can no longer come.
+      const wait = spot && clicked && sameTarget(clicked.target, target) ? clicked.at + DOUBLE_CLICK_MS - env.now() : 0;
       if (spot && wait > 0) {
         panLater = env.later(wait, () => {
           panLater = null;

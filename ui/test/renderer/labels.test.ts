@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { OrthographicCamera } from 'three';
-import { COMPACT_PX, LabelLayer, projectToScreen, tagTitle, type LabelEvents } from '../../renderer/labels';
+import type { Target } from '../../renderer/index';
+import { COMPACT_PX, LabelLayer, projectToScreen, roomTitle, tagTitle, type LabelEvents } from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
-import { labelAnchor } from '../../renderer/world';
-import { checkoutFloor, checkoutIslands, desksOf, isoCamera, makeFloor } from './fixtures';
+import { boardAnchor, labelAnchor, roomTagAnchor } from '../../renderer/world';
+import { checkoutFloor, checkoutIslands, checkoutRooms, desksOf, isoCamera, makeFloor, roomFloor } from './fixtures';
 
 /** A camera looking straight down at a 10 m square around the origin. */
 function topDown(): OrthographicCamera {
@@ -15,12 +16,17 @@ function topDown(): OrthographicCamera {
   return camera;
 }
 
+const deskTarget = (id: string): Target => ({ kind: 'desk', id });
+const roomTarget = (id: string): Target => ({ kind: 'room', id });
+/** A target as the calls list writes it: a desk by its id, a room as 'room <run id>'. */
+const said = (t: Target) => (t.kind === 'desk' ? t.id : `room ${t.id}`);
+
 function layer() {
   const root = document.body.appendChild(document.createElement('div'));
   const calls: string[] = [];
   const events: LabelEvents = {
-    select: (id) => calls.push('select ' + id),
-    activate: (id) => calls.push('activate ' + id),
+    select: (target) => calls.push('select ' + said(target)),
+    activate: (target) => calls.push('activate ' + said(target)),
     lostFocus: () => calls.push('lostFocus'),
   };
   return { root, calls, labels: new LabelLayer(root, events) };
@@ -144,7 +150,7 @@ describe('the label layer', () => {
     labels.tag('oa-c3')!.dispatchEvent(first);
     expect(calls).toEqual([]);
     expect(first.defaultPrevented).toBe(false);
-    labels.setSelected('oa-c3');
+    labels.setSelected(deskTarget('oa-c3'));
     const second = enter();
     labels.tag('oa-c3')!.dispatchEvent(second);
     expect(calls).toEqual(['activate oa-c3']);
@@ -154,12 +160,12 @@ describe('the label layer', () => {
   it('marks the selected tag, also when it is created after the selection', () => {
     const { root, labels } = layer();
     labels.sync(checkoutFloor());
-    labels.setSelected('sw-b2');
-    labels.setSelected('oa-c3');
+    labels.setSelected(deskTarget('sw-b2'));
+    labels.setSelected(deskTarget('oa-c3'));
     expect([...root.querySelectorAll('.fv-sel')].map((e) => (e as HTMLElement).dataset.session)).toEqual(['oa-c3']);
     expect(labels.tag('oa-c3')!.getAttribute('aria-current')).toBe('true');
     expect(labels.tag('sw-b2')!.hasAttribute('aria-current')).toBe(false);
-    labels.setSelected('sw-x9');
+    labels.setSelected(deskTarget('sw-x9'));
     const islands = checkoutIslands();
     islands[0]!.desks.push({ id: 'sw-x9', state: 'working' });
     labels.sync(makeFloor(islands));
@@ -175,13 +181,13 @@ describe('the label layer', () => {
     labels.sync(checkoutFloor());
     expect(stops()).toEqual(['sw-a1']);
     expect(ids.filter((id) => labels.tag(id)!.tabIndex === -1)).toHaveLength(6);
-    labels.setSelected('oa-c3');
+    labels.setSelected(deskTarget('oa-c3'));
     expect(stops()).toEqual(['oa-c3']);
     labels.tag('ps-d4')!.focus();
     expect(stops()).toEqual(['ps-d4']);
     // A floor update marks the same selection again: the tab stop stays where the focus left it.
     labels.sync(checkoutFloor());
-    labels.setSelected('oa-c3');
+    labels.setSelected(deskTarget('oa-c3'));
     expect(stops()).toEqual(['ps-d4']);
     // When its desk leaves, the stop goes to the selected desk's tag, or with none selected to the first.
     const islands = checkoutIslands();
@@ -270,7 +276,7 @@ describe('the label layer', () => {
       // The third desk stands at the far end of the floor, away from its neighbours in floor order.
       desks[2]!.rect = desks[desks.length - 1]!.rect;
       labels.sync(floor);
-      labels.setSelected(desks[2]!.sessionId);
+      labels.setSelected(deskTarget(desks[2]!.sessionId));
       // A top-down camera over the second and the fourth desk, which are one step either side of it in floor order.
       const a = labelAnchor(desks[1]!);
       const b = labelAnchor(desks[3]!);
@@ -322,7 +328,7 @@ describe('the label layer', () => {
       const { labels, calls } = layer();
       labels.sync(checkoutFloor());
       zoomed(labels, 1);
-      labels.setSelected('ps-d4');
+      labels.setSelected(deskTarget('ps-d4'));
       away(labels);
       expect(calls).toEqual([]);
       expect(stops(labels)).toEqual(['ps-d4']);
@@ -366,7 +372,7 @@ describe('the label layer', () => {
     expect(rule('.fv-tag')).toContain('user-select: none;');
     const hidden = rule(
       '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
-        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you) > .fv-name',
+        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) > .fv-name',
     );
     expect(hidden).toContain('clip-path: inset(50%);');
     expect(hidden).not.toContain('display');
@@ -392,5 +398,176 @@ describe('the label layer', () => {
   it('describes a desk for its tooltip', () => {
     const desk = desksOf(checkoutFloor())[0]!;
     expect(tagTitle(desk)).toBe('sw-a1 · working · 1 agent running');
+  });
+});
+
+describe('room labels', () => {
+  const FIRST = 'wf_0000aaaa-001';
+  const SECOND = 'wf_0000aaaa-002';
+  const parts = (el: Element) => [...el.children].map((c) => [c.className, c.textContent]);
+
+  it('shows a tag per room: its name, its current phase and its counts, as a button that names the run', () => {
+    const { root, labels } = layer();
+    labels.sync(roomFloor());
+    expect(root.querySelectorAll('.fv-room')).toHaveLength(2);
+    const tag = labels.roomTag(FIRST)!;
+    expect(tag.tagName).toBe('BUTTON');
+    expect(tag.dataset.run).toBe(FIRST);
+    expect([...tag.classList]).toEqual(['fv-tag', 'fv-room']);
+    expect(parts(tag)).toEqual([
+      ['fv-dot', ''],
+      ['fv-name', 'checkout-verify'],
+      ['fv-phase', 'Build'],
+      ['fv-counts', '3 running · 2 done'],
+    ]);
+    expect(tag.title).toBe('checkout-verify · Build · 3 running · 2 done · Verify split payments end to end');
+    // The second run has no phases and no summary yet.
+    expect(parts(labels.roomTag(SECOND)!)).toEqual([
+      ['fv-dot', ''],
+      ['fv-name', 'docs-sweep'],
+      ['fv-counts', '10 running · 0 done'],
+    ]);
+    expect(labels.roomTag(SECOND)!.title).toBe('docs-sweep · 10 running · 0 done');
+  });
+
+  it('names a room without a name by its run id', () => {
+    const { labels } = layer();
+    const rooms = checkoutRooms();
+    rooms[1] = { ...rooms[1]!, name: null };
+    labels.sync(roomFloor(rooms));
+    expect(labels.roomTag(SECOND)!.querySelector('.fv-name')!.textContent).toBe(SECOND);
+    expect(roomTitle(roomFloor(rooms).rooms[1]!)).toBe(`${SECOND} · 10 running · 0 done`);
+  });
+
+  it('lists the phases on the whiteboard, each with its mark and, for screen readers, its word, and then the counts', () => {
+    const { labels } = layer();
+    labels.sync(roomFloor());
+    const board = labels.board(FIRST)!;
+    expect(board.tagName).toBe('DIV');
+    expect(board.className).toBe('fv-board');
+    expect(board.dataset.run).toBe(FIRST);
+    const items = [...board.querySelectorAll('ol > li')];
+    expect(items.map((li) => [li.className, li.textContent])).toEqual([
+      ['fv-ph-done', '\u2713Plan (done)'],
+      ['fv-ph-current', '\u25CFBuild (current)'],
+      ['fv-ph-upcoming', '\u25CBReview (upcoming)'],
+      ['fv-ph-upcoming', '\u25CBShip (upcoming)'],
+    ]);
+    const mark = items[0]!.querySelector('.fv-mark')!;
+    expect(mark.getAttribute('aria-hidden')).toBe('true');
+    expect(items[0]!.querySelector('.fv-sr')!.textContent).toBe(' (done)');
+    expect(board.querySelector('p')!.textContent).toBe('3 running · 2 done');
+    // A run whose phases are unknown shows its counts only.
+    const other = labels.board(SECOND)!;
+    expect(other.querySelector('ol')).toBeNull();
+    expect(other.textContent).toBe('10 running · 0 done');
+  });
+
+  it('writes run names, summaries and phases as text, never as markup', () => {
+    const { root, labels } = layer();
+    const floor = roomFloor();
+    floor.rooms[0] = { ...floor.rooms[0]!, name: HOSTILE, summary: HOSTILE, phases: [{ title: HOSTILE, state: 'current' }] };
+    labels.sync(floor);
+    expect(root.querySelector('img')).toBeNull();
+    const tag = labels.roomTag(FIRST)!;
+    expect(tag.querySelector('.fv-name')!.textContent).toBe(HOSTILE);
+    expect(tag.querySelector('.fv-phase')!.textContent).toBe(HOSTILE);
+    expect(tag.title).toBe(`${HOSTILE} · ${HOSTILE} · 3 running · 2 done · ${HOSTILE}`);
+    expect(labels.board(FIRST)!.querySelector('li')!.textContent).toBe(`\u25CF${HOSTILE} (current)`);
+  });
+
+  it('updates a room in place and removes the labels of a room that closes', () => {
+    const { root, labels } = layer();
+    labels.sync(roomFloor());
+    const tag = labels.roomTag(FIRST)!;
+    const board = labels.board(FIRST)!;
+    const rooms = checkoutRooms();
+    rooms[0] = { ...rooms[0]!, running: 1, finished: 4 };
+    labels.sync(roomFloor(rooms));
+    expect(labels.roomTag(FIRST)).toBe(tag);
+    expect(labels.board(FIRST)).toBe(board);
+    expect(tag.querySelector('.fv-counts')!.textContent).toBe('1 running · 4 done');
+    labels.sync(roomFloor(rooms.slice(1)));
+    expect(labels.roomTag(FIRST)).toBeUndefined();
+    expect(labels.board(FIRST)).toBeUndefined();
+    expect(tag.isConnected || board.isConnected).toBe(false);
+    labels.sync(checkoutFloor());
+    expect(root.querySelectorAll('.fv-room, .fv-board')).toHaveLength(0);
+  });
+
+  it('selects a room on click and activates it on double-click, and on Enter once it is selected', () => {
+    const { calls, labels } = layer();
+    labels.sync(roomFloor());
+    const tag = labels.roomTag(FIRST)!;
+    tag.click();
+    tag.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    const enter = () => new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    tag.dispatchEvent(enter());
+    labels.setSelected(roomTarget(FIRST));
+    const e = enter();
+    tag.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    expect(calls).toEqual([`select room ${FIRST}`, `activate room ${FIRST}`, `activate room ${FIRST}`]);
+  });
+
+  it('marks the selected room, every room of that run, and no desk', () => {
+    const { root, labels } = layer();
+    const rooms = checkoutRooms();
+    rooms.push({ ...rooms[0]!, host: 'oa-c3', seated: false });
+    labels.sync(roomFloor(rooms));
+    labels.setSelected(deskTarget('oa-c3'));
+    labels.setSelected(roomTarget(FIRST));
+    const marked = [...root.querySelectorAll('.fv-sel')] as HTMLElement[];
+    expect(marked.map((e) => e.dataset.run)).toEqual([FIRST, FIRST]);
+    expect(marked.every((e) => e.getAttribute('aria-current') === 'true')).toBe(true);
+    expect(labels.tag('oa-c3')!.hasAttribute('aria-current')).toBe(false);
+    labels.setSelected(roomTarget('wf_gone'));
+    expect(root.querySelectorAll('.fv-sel')).toHaveLength(0);
+  });
+
+  it('puts the room tags in the tab order after the desk tags', () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    labels.position(isoCamera(floor.size), 1600, 1000);
+    const focused = () => document.activeElement as HTMLElement;
+    const press = (key: string) => focused().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    labels.tag('ps-f7')!.focus();
+    press('ArrowRight');
+    expect(focused().dataset.run).toBe(FIRST);
+    expect(labels.roomTag(FIRST)!.tabIndex).toBe(0);
+    expect(labels.tag('ps-f7')!.tabIndex).toBe(-1);
+    press('End');
+    expect(focused().dataset.run).toBe(SECOND);
+    press('Home');
+    expect(focused().dataset.session).toBe('sw-a1');
+    // A room selected from the view takes the tab stop.
+    labels.setSelected(roomTarget(SECOND));
+    expect(labels.roomTag(SECOND)!.tabIndex).toBe(0);
+  });
+
+  it('hangs each room tag over its door and each board from the top of its whiteboard', () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    const camera = isoCamera(floor.size);
+    labels.position(camera, 1600, 1000);
+    const room = floor.rooms[0]!;
+    const tag = projectToScreen(roomTagAnchor(room.rect), camera, 1600, 1000);
+    const board = projectToScreen(boardAnchor(room.rect), camera, 1600, 1000);
+    expect(labels.roomTag(FIRST)!.style.transform).toBe(`translate(${tag.x}px, ${tag.y}px) translate(-50%, -100%)`);
+    expect(labels.board(FIRST)!.style.transform).toBe(`translate(${board.x}px, ${board.y}px) translate(-50%, -100%)`);
+    expect(labels.board(FIRST)!.style.visibility).toBe('');
+  });
+
+  it('keeps only the run names at low zoom: room tags keep their name, and the boards go, letting clicks through', () => {
+    const name = rule(
+      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
+        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) > .fv-name',
+    );
+    expect(name).toContain('clip-path: inset(50%);');
+    expect(rule('.fv-compact .fv-board')).toContain('display: none;');
+    expect(rule('.fv-board')).toContain('pointer-events: none;');
+    expect(rule('.fv-sr')).toContain('clip-path: inset(50%);');
   });
 });
