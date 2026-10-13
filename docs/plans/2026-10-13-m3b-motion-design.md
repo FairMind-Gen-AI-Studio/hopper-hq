@@ -68,8 +68,12 @@ A floor's plan is two numbers: `blocks` (1–4) and `roomCols` (1–2).
 
 Seating is a pure function owned by the server: `seat(previous, views, now) -> next`, per floor.
 
-- **One place advances it**: the collector's change and tick path. That path also covers time-derived transitions (done→idle after 4 h, idle→dormant). The collector stores the result next to `firstSeen` and marks the floor dirty for persistence when it changes.
-- **Builds only read it.** `buildScene`, `buildFloorDetail` and the snapshot all read the stored seating, the way they read `firstSeen`. None of them calls `seat`, so the façade and the floor detail can never disagree. The same views and seating in any order give the same scene.
+- **It advances when the scene is read.** Time-derived states (done→idle after 4 h, idle→dormant) exist only at read time. The scene hub's 15 s tick re-reads the scene, so seating has to move on every read.
+  - The collector's scene reads (`render`, `scene`, `floor`) first advance the stored seating once, from the views they read. They then build from it.
+  - `render` builds the façade and the watched floors from one reading, so they always agree.
+  - `seat` is idempotent: run twice on the same views it changes nothing.
+  - The collector stores the result next to `firstSeen` and marks the floor dirty for persistence when it changes.
+- **Builds only read it**, the way they read `firstSeen`. The same views and seating in any order give the same scene.
 - Every tab therefore sees the same seats, and a reload reshuffles nothing.
 
 ### 3.2 Rules
@@ -86,10 +90,10 @@ Departures are applied before arrivals. Arrivals are handled in start order (`st
    - it takes the desk of the dormant session on this floor that has been dormant longest. That session loses its desk and goes through rule 2 when it wakes.
    - With no dormant session either, the plan grows by a block.
    - At `BLOCKS_MAX`, the session waits for a free desk. It is listed in the floor's `unseated` (§4), so it still appears in the attention bar and the floor panel. Waiting sessions take freed desks in start order.
-4. **Dormant**: the robot leaves by the elevator. The desk stays reserved, with its monitor off and the session's name on a nameplate.
+4. **Dormant**: the robot leaves by the elevator. The desk stays reserved, with its monitor off and the session's name on a nameplate. A dormant session with no desk takes a free one if there is one, but never takes another session's desk and never grows the plan. Sessions that are not dormant are seated first.
 5. **Ended**: the desk is freed at once.
 
-**Lounge:** an idle session takes the first free lounge seat and keeps it while it stays idle. With the lounge full, it rests at its desk in the M2 `resting` pose.
+**Lounge:** an idle session with a desk takes the first free lounge seat, in the order it became idle, and keeps it while it stays idle. With the lounge full, it rests at its desk in the M2 `resting` pose.
 
 **Rooms:**
 - A live run takes the first free room slot and keeps it until it ends, so rooms no longer shift when an earlier one closes.
@@ -105,7 +109,7 @@ Departures are applied before arrivals. Arrivals are handled in start order (`st
 
 ### 3.3 First start
 
-On the first M3b start, each floor gets the smallest plan that seats its live sessions. The sessions are seated in start order by the rules above.
+On the first M3b start, each floor gets the smallest plan that seats its sessions that are not dormant (at most `BLOCKS_MAX`). Sessions are seated in start order by the rules above, so dormant ones take the desks left over.
 
 ### 3.4 Persistence
 
@@ -138,8 +142,9 @@ The server says where each robot should be. The renderer works out how it gets t
 
   `at` is the target the renderer walks the robot to.
 - `lounge: { rect, seats }`.
-- `rooms: { slot, rect, run: MeetingRoom | null }[]`: every room of the plan.
-  - An empty room has its door closed and its lights dimmed. The door is closed only visually: the walk grid treats every door as open, so it does not change when rooms open and close.
+- `roomSlots: GridRect[]`: every room of the plan, by slot, empty or not.
+- `rooms: MeetingRoom[]`: the live runs that have a room. Each `MeetingRoom` gains its `slot`.
+  - An empty slot has its door closed and its lights dimmed. The door is closed only visually: the walk grid treats every door as open, so it does not change when rooms open and close.
   - `MeetingRoom.host` is dropped. The host's robot is the desk occupant's robot, with `at` pointing at the room.
 - `roomsMore` (as in v2).
 - `unseated: Occupant[]`: the floor's sessions without a desk. These are a dormant session whose desk another session took, and sessions waiting at the cap (§3.2). They have no robot on the floor. The floor panel lists them, and the façade counts them in `counts`, but they have no window.
@@ -147,6 +152,7 @@ The server says where each robot should be. The renderer works out how it gets t
 **Façade**:
 - One window per desk of the plan. `FacadeWindow` becomes `{ sessionId: string | null, state: ShownState | null }`.
 - Free desks are dark windows, so from outside a floor shows its size and how full it is.
+- The session count is the sum of `counts`, which covers unseated sessions too, not the number of windows.
 
 **Routes and selection**:
 - `#/floor/<key>/desk/<sessionId>` is unchanged. A free desk cannot be selected.
