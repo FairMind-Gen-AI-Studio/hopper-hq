@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SEATS_MAX } from '../../../src/scene/layout';
+import { INTERNS_MAX, SEATS_MAX } from '../../../src/scene/layout';
 import {
   BOARD,
   CAMERA_DISTANCE,
@@ -20,6 +20,7 @@ import {
   floorCenter,
   frustumFor,
   headSpot,
+  internSpots,
   labelAnchor,
   placardAnchor,
   robotSpot,
@@ -67,6 +68,28 @@ describe('world maths', () => {
     for (const state of ['working', 'in_meeting', 'no_signal', 'idle'] as const) expect(at(state)).toEqual(seatSpot(RECT));
     for (const state of ['needs_you', 'done'] as const) expect(at(state)).toEqual(standSpot(RECT));
     expect(at('dormant')).toBeNull();
+  });
+
+  it('floats the interns in an arc behind the monitor, inside the desk cells, turned toward the middle', () => {
+    const a = deskAnchor(RECT);
+    const spots = internSpots(RECT);
+    expect(spots).toHaveLength(INTERNS_MAX);
+    for (const s of spots) {
+      // The monitor stands 0.24 m north of the desk top's centre: the interns hover north of it.
+      expect(s.z).toBeLessThan(a.z - 0.24 - 0.05);
+      expect(s.z).toBeGreaterThan(RECT.y);
+      expect(s.x).toBeGreaterThan(RECT.x);
+      expect(s.x).toBeLessThan(RECT.x + RECT.w);
+    }
+    const [middle, west, east] = spots;
+    expect([middle!.x, middle!.facing]).toEqual([a.x, 0]);
+    expect(west!.x).toBeLessThan(a.x);
+    expect(east!.x).toBeGreaterThan(a.x);
+    // The arc bows away from the desk in the middle, and its ends turn in.
+    expect(middle!.z).toBeLessThan(west!.z);
+    expect(west!.z).toBe(east!.z);
+    expect(west!.facing).toBeGreaterThan(0);
+    expect(east!.facing).toBe(-west!.facing);
   });
 
   it('hangs a desk label above the robot, or above the monitor of an empty desk', () => {

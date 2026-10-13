@@ -3,7 +3,8 @@ import { Mesh, type BufferGeometry, type Material } from 'three';
 import { FloorScene, layoutSignature } from '../../renderer/floor-scene';
 import { KIND_SCALE } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { HOME_AZIMUTH, deskAnchor, headSpot, robotSpot, roomKey, seatSpot, seatSpots, shadowExtent } from '../../renderer/world';
+import type { Intern } from '../../../src/scene/types';
+import { HOME_AZIMUTH, deskAnchor, headSpot, internSpots, robotSpot, roomKey, seatSpot, seatSpots, shadowExtent } from '../../renderer/world';
 import { checkoutFloor, checkoutIslands, checkoutRooms, desksOf, makeFloor, roomFloor, type IslandSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at the same island. */
@@ -331,5 +332,72 @@ describe('meeting rooms in the floor scene', () => {
       fs.apply(roomFloor());
     }
     expect(fs.geo.size).toBe(size);
+  });
+});
+
+describe('interns and away desks', () => {
+  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running });
+  /** The checkout floor with these interns at sw-a1's desk. */
+  const withInterns = (interns: Intern[], state: IslandSpec['desks'][number]['state'] = 'working') => {
+    const islands = checkoutIslands();
+    islands[0]!.desks[0] = { ...islands[0]!.desks[0]!, state, interns };
+    return makeFloor(islands);
+  };
+
+  it('flies the running interns in an arc behind the desk monitor, small and in the desk robot colours, and none that finished', () => {
+    const fs = sceneOf(withInterns([intern('i1'), intern('i2', false), intern('i3')]));
+    const entry = fs.desks.get('sw-a1')!;
+    expect([...entry.interns.keys()]).toEqual(['i1', 'i3']);
+    const spots = internSpots(entry.desk.rect);
+    [...entry.interns.values()].forEach((robot, k) => {
+      expect(robot.group.parent).toBe(fs.scene);
+      expect([robot.kind, robot.body, robot.tie]).toEqual(['intern', entry.robot!.body, entry.robot!.tie]);
+      expect([robot.group.position.x, robot.group.position.z, robot.group.rotation.y]).toEqual([spots[k]!.x, spots[k]!.z, spots[k]!.facing]);
+    });
+    expect(fs.scene.getObjectByName('intern i3')).toBe(entry.interns.get('i3')!.group);
+    expect(fs.desks.get('sw-b2')!.interns.size).toBe(0);
+  });
+
+  it('lets a click on an intern pick its desk', () => {
+    const fs = sceneOf(withInterns([intern('i1')]));
+    const robot = fs.desks.get('sw-a1')!.interns.get('i1')!;
+    const picks = new Set(fs.pickables());
+    expect(robot.pickables.every((m) => picks.has(m))).toBe(true);
+    expect(robot.pickables[0]!.userData.pick).toEqual({ sessionId: 'sw-a1' });
+  });
+
+  it('keeps an intern that flies on, moves it up the arc, and lands the ones that finish or leave with their desk', () => {
+    const fs = sceneOf(withInterns([intern('i1'), intern('i2')]));
+    const entry = fs.desks.get('sw-a1')!;
+    const [i1, i2] = [...entry.interns.values()];
+    fs.apply(withInterns([intern('i1', false), intern('i2')]));
+    expect([...entry.interns.values()]).toEqual([i2]);
+    const middle = internSpots(entry.desk.rect)[0]!;
+    expect([i2!.group.position.x, i2!.group.position.z]).toEqual([middle.x, middle.z]);
+    expect(i1!.group.parent).toBeNull();
+    const islands = checkoutIslands();
+    islands[0]!.desks.shift();
+    fs.apply(makeFloor(islands));
+    expect(i2!.group.parent).toBeNull();
+  });
+
+  it('flies no interns at a dormant desk, which has no robot to take its colours from', () => {
+    const fs = sceneOf(withInterns([intern('i1')], 'dormant'));
+    expect(fs.desks.get('sw-a1')!.interns.size).toBe(0);
+  });
+
+  it('hides the robot of a desk whose session sits at the head of a meeting, and shows it again when it comes back', () => {
+    const fs = sceneOf(roomFloor());
+    const entry = fs.desks.get('ps-d4')!;
+    expect(entry.desk.away).toBe(true);
+    const robot = entry.robot!;
+    expect(robot.group.visible).toBe(false);
+    expect(fs.desks.get('sw-a1')!.robot!.group.visible).toBe(true);
+    // The ring still marks the empty chair.
+    fs.setSelected('ps-d4');
+    expect([fs.ring.position.x, fs.ring.position.z]).toEqual([seatSpot(entry.desk.rect).x, seatSpot(entry.desk.rect).z]);
+    fs.apply(checkoutFloor());
+    expect(entry.robot).toBe(robot);
+    expect(robot.group.visible).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import {
   type Desk,
   type FloorDetail,
   type GridRect,
+  type Intern,
   type Island,
   type MeetingAgent,
   type MeetingRoom,
@@ -30,6 +31,7 @@ export interface DeskSpec {
   name?: string;
   agents?: number;
   cloud?: boolean;
+  interns?: Intern[];
 }
 
 export interface IslandSpec {
@@ -56,7 +58,7 @@ export function makeDesk(spec: DeskSpec, rect: Desk['rect'], body: number, tie: 
     activity: null,
     agentsRunning: spec.agents ?? 0,
     summary: null,
-    interns: [],
+    interns: spec.interns ?? [],
     internsMore: 0,
     away: false,
     runs: [],

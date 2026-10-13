@@ -2,7 +2,7 @@
  * Where things stand on a floor, in world units. Pure maths: no three.js objects and no DOM.
  * One grid cell is one metre. Grid x is world x (east), grid y is world z (south), and world y points up.
  */
-import { SEATS_MAX } from '../../src/scene/layout';
+import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
 import type { Desk, GridRect, MeetingRoom, Pose } from '../../src/scene/types';
 
 /** Wall height and thickness. */
@@ -74,6 +74,21 @@ export function isStanding(pose: Pose): boolean {
 export function robotSpot(desk: Desk): Spot | null {
   if (!desk.robot) return null;
   return isStanding(desk.robot.pose) ? standSpot(desk.rect) : seatSpot(desk.rect);
+}
+
+/**
+ * Where a desk's interns hover: in an arc behind its monitor, the first in the middle and the others either side, a
+ * little nearer the desk and turned toward the middle. Desks stand edge to edge, so the interns stay in its cells.
+ */
+const INTERN_ARC = [
+  { dx: 0, dz: -0.45, facing: 0 },
+  { dx: -0.55, dz: -0.36, facing: 0.3 },
+  { dx: 0.55, dz: -0.36, facing: -0.3 },
+] as const;
+
+export function internSpots(rect: GridRect): Spot[] {
+  const a = deskAnchor(rect);
+  return INTERN_ARC.slice(0, INTERNS_MAX).map((p) => ({ x: a.x + p.dx, z: a.z + p.dz, facing: p.facing }));
 }
 
 /** Height of a desk label's anchor: above a standing or a seated robot's head, or above the monitor of an empty desk. */

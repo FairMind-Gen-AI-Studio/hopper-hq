@@ -10,7 +10,20 @@ import { Materials } from './materials';
 import { Geometries, buildDesk, buildRoom, buildShell, updateDesk, updateRoom, type DeskObject, type RoomObject, type Shell } from './props';
 import { buildRobot, poseRobot, type RobotObject } from './robot';
 import type { ThemeTokens } from './theme';
-import { HOME_AZIMUTH, floorCenter, headSpot, robotSpot, roomKey, seatSpot, seatSpots, shadowExtent, visibleWalls, type Point, type Spot } from './world';
+import {
+  HOME_AZIMUTH,
+  floorCenter,
+  headSpot,
+  internSpots,
+  robotSpot,
+  roomKey,
+  seatSpot,
+  seatSpots,
+  shadowExtent,
+  visibleWalls,
+  type Point,
+  type Spot,
+} from './world';
 
 /** What the shell depends on: the footprint, the core, each island's key, colour and rectangle, and each room's rectangle. */
 export function layoutSignature(floor: Pick<FloorDetail, 'size' | 'core' | 'islands' | 'rooms'>): string {
@@ -21,6 +34,8 @@ export interface DeskEntry {
   desk: Desk;
   readonly obj: DeskObject;
   robot: RobotObject | null;
+  /** The robots of its running interns, by agent id, in the order of their places. */
+  readonly interns: Map<string, RobotObject>;
 }
 
 export interface RoomEntry {
@@ -146,10 +161,13 @@ export class FloorScene {
     return { x: spot.x, z: spot.z };
   }
 
-  /** Everything a click can pick: desks and robots. */
+  /** Everything a click can pick: desks, their robots and their interns. */
   pickables(): Object3D[] {
     const out: Object3D[] = [];
-    for (const e of this.entries.values()) out.push(...e.obj.pickables, ...(e.robot?.pickables ?? []));
+    for (const e of this.entries.values()) {
+      out.push(...e.obj.pickables, ...(e.robot?.pickables ?? []));
+      for (const intern of e.interns.values()) out.push(...intern.pickables);
+    }
     return out;
   }
 
@@ -168,7 +186,7 @@ export class FloorScene {
   private add(desk: Desk): void {
     const obj = buildDesk(desk, this.geo, this.mats);
     this.scene.add(obj.group);
-    const entry: DeskEntry = { desk, obj, robot: null };
+    const entry: DeskEntry = { desk, obj, robot: null, interns: new Map() };
     this.entries.set(desk.sessionId, entry);
     this.syncRobot(entry);
   }
@@ -182,10 +200,14 @@ export class FloorScene {
   private remove(id: string, entry: DeskEntry): void {
     entry.obj.group.removeFromParent();
     entry.robot?.group.removeFromParent();
+    for (const intern of entry.interns.values()) intern.group.removeFromParent();
     this.entries.delete(id);
   }
 
-  /** Builds, rebuilds (new colours), poses or removes the desk's robot. Geometries and materials are shared. */
+  /**
+   * Builds, rebuilds (new colours), poses or removes the desk's robot, and its interns. A robot whose session sits at
+   * the head of a meeting room stays, hidden: its chair is empty. Geometries and materials are shared.
+   */
   private syncRobot(entry: DeskEntry): void {
     const want = entry.desk.robot;
     let robot = entry.robot;
@@ -197,8 +219,29 @@ export class FloorScene {
       robot = buildRobot(entry.desk.sessionId, want, this.geo, this.mats);
       this.scene.add(robot.group);
     }
-    if (want && robot) poseRobot(robot, want, robotSpot(entry.desk)!);
+    if (want && robot) {
+      poseRobot(robot, want, robotSpot(entry.desk)!);
+      robot.group.visible = !entry.desk.away;
+    }
     entry.robot = robot;
+    this.syncInterns(entry);
+  }
+
+  /**
+   * Flies the desk's running interns in its arc, in the colours of its robot. A click on one picks the desk. A dormant
+   * desk has no robot, and its session, gone, runs no interns.
+   */
+  private syncInterns(entry: DeskEntry): void {
+    const { desk } = entry;
+    const spots = internSpots(desk.rect);
+    const flying = desk.robot ? desk.interns.filter((i) => i.running).slice(0, spots.length) : [];
+    const look: Robot = { pose: 'still', badge: null, body: desk.robot?.body ?? 0, tie: desk.robot?.tie ?? null };
+    this.syncCrew(entry.interns, flying.map((i, k) => [i.agentId, spots[k]!]), look, (id) => {
+      const robot = buildRobot(desk.sessionId, look, this.geo, this.mats, 'intern');
+      robot.group.name = `intern ${id}`;
+      this.scene.add(robot.group);
+      return robot;
+    });
   }
 
   private addRoom(key: string, room: MeetingRoom): void {
