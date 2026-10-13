@@ -40,16 +40,46 @@ interface FollowedRun {
   launched: boolean;
   /** Agent types from the agents' meta files, each read once. */
   types: Map<string, string>;
+  /** The end file's modification time when the run was taken up again, resumed under its id: an end file no newer is that earlier end. Null when it had none. */
+  endedBefore: number | null;
 }
+
+/** A run that is not followed: history, ended or gone. Its id is judged again when its files change or it is launched again. */
+interface SettledRun {
+  /** Its end file's modification time when it settled; null when it had none. */
+  end: number | null;
+  /** The latest change to its journal or its end file then. */
+  mark: number;
+  /** How far its journal was read, or how long it was when it settled: a resume reads on from there. */
+  offset: number;
+  /** The transcript launched it again since. */
+  relaunched: boolean;
+}
+
+/** What a run is when it is judged; see WorkflowScanner.judge. */
+type Verdict = 'live' | 'ended' | 'history' | 'gone' | 'unknown';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-async function mtime(path: string): Promise<number | null> {
+async function stats(path: string): Promise<{ mtime: number; size: number } | null> {
   try {
-    return (await stat(path)).mtimeMs;
+    const s = await stat(path);
+    return { mtime: s.mtimeMs, size: s.size };
   } catch {
     return null;
   }
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * When a run ended and started, from its end file: the end at its `timestamp`, else at `startTime + durationMs`, else at
+ * the file's modification time, and never after it; the start at `startTime`, never after the end, else at the end.
+ */
+function endTimes(d: Record<string, unknown>, mtime: number): { start: number; end: number } {
+  const stamp = typeof d.timestamp === 'string' ? Date.parse(d.timestamp) : NaN;
+  const end = Math.min(Number.isFinite(stamp) ? stamp : finite(d.startTime) && finite(d.durationMs) ? d.startTime + d.durationMs : mtime, mtime);
+  return { start: finite(d.startTime) ? Math.min(d.startTime, end) : end, end };
 }
 
 /** The meta of a script copy: only of a regular file of at most 256 KiB whose real path lies in the scripts directory. */
@@ -69,16 +99,17 @@ async function readScriptMeta(scriptsDir: string, path: string): Promise<ScriptM
 /**
  * Follows the workflow runs of one live session on disk. `S` is the session's directory, next to its transcript:
  * - `S/subagents/workflows/wf_X/journal.jsonl` says which agents the run started and which finished, or failed;
- * - `S/workflows/wf_X.json` is written once, when the run ends;
+ * - `S/workflows/wf_X.json` is written when the run ends, and again when a run resumed under its id ends;
  * - `S/workflows/scripts/` holds copies of the scripts, for their meta.
- * A run is taken up when it ended or wrote its journal since the session's process started; any other is history, and is
- * never looked at again. Agent transcripts are never read. Every event is stamped with the scan's time.
+ * A run that goes on is followed; one that ended since the session's process started is read from its end file alone,
+ * stamped with the times it gives; any other is history. A run that is not followed is judged again when its journal or
+ * its end file changes, or the transcript launches it again: it was resumed. Agent transcripts are never read.
  */
 export class WorkflowScanner {
   /** The launches the transcript reported, by run id. A launch alone makes no run. */
   private readonly launches = new Map<string, WorkflowLaunch>();
-  /** Runs never to look at again: history, or ended. */
-  private readonly done = new Set<string>();
+  /** Runs that are not followed: history, ended or gone. */
+  private readonly settled = new Map<string, SettledRun>();
   private readonly runs = new Map<string, FollowedRun>();
   private readonly open: ReadonlySet<string>;
 
@@ -88,6 +119,8 @@ export class WorkflowScanner {
 
   noteLaunch(launch: WorkflowLaunch): void {
     this.launches.set(launch.runId, launch);
+    const settled = this.settled.get(launch.runId);
+    if (settled) settled.relaunched = true;
   }
 
   /** One scan of the session directory `sessionDir`. A run that cannot be read now is tried again on the next scan. */
@@ -99,13 +132,23 @@ export class WorkflowScanner {
       names = [];
     }
     for (const id of [...new Set([...names, ...this.open])].sort()) {
-      if (!RUN_ID.test(id) || this.done.has(id) || this.runs.has(id)) continue;
-      const verdict = await this.judge(sessionDir, id);
-      if (verdict === 'history') this.done.add(id);
-      else if (verdict === 'gone') {
-        this.done.add(id);
-        this.o.emit({ sessionId: this.o.sessionId, ts: now, source: 'fs', cwd: this.o.cwd, type: 'workflow.finished', runId: id, status: 'killed' });
-      } else if (verdict === 'live' && this.runs.size < MAX_FOLLOWED_RUNS) await this.take(sessionDir, id, now);
+      if (!RUN_ID.test(id) || this.runs.has(id)) continue;
+      const settled = this.settled.get(id);
+      const end = await stats(join(sessionDir, 'workflows', `${id}.json`));
+      const journal = await stats(join(sessionDir, 'subagents', 'workflows', id, 'journal.jsonl'));
+      if (settled && !settled.relaunched && Math.max(end?.mtime ?? -Infinity, journal?.mtime ?? -Infinity) <= settled.mark) continue;
+      const { verdict, endedBefore } = this.judge(id, end?.mtime ?? null, journal?.mtime ?? null, settled);
+      if (verdict === 'unknown') continue;
+      if (verdict === 'live') {
+        if (this.runs.size >= MAX_FOLLOWED_RUNS) continue;
+        this.settled.delete(id);
+        // A run taken up again reads its journal on from where it was left.
+        await this.take(sessionDir, id, now, settled?.offset ?? 0, endedBefore);
+        continue;
+      }
+      if (verdict === 'gone') this.o.emit({ sessionId: this.o.sessionId, ts: now, source: 'fs', cwd: this.o.cwd, type: 'workflow.finished', runId: id, status: 'killed' });
+      if (verdict === 'ended') await this.end(sessionDir, id, null, null);
+      this.settled.set(id, { end: end?.mtime ?? null, mark: Math.max(end?.mtime ?? -Infinity, journal?.mtime ?? -Infinity), offset: settled?.offset ?? journal?.size ?? 0, relaunched: false });
     }
     for (const run of [...this.runs.values()]) {
       try {
@@ -117,28 +160,42 @@ export class WorkflowScanner {
   }
 
   /**
-   * What a run seen for the first time is: live, history, gone (an open run that died with an earlier process), or not
-   * known yet (neither an end file nor a journal).
+   * What a run is, from the modification times of its end file and its journal (null when missing), and how it was left
+   * when it settled:
+   * - launched again since it settled, or its journal written after its end file: resumed under its id. It is live when
+   *   launched again or written since the session's process started, and its end file is that of an earlier end; else
+   *   gone (it died with an earlier process) when the collector holds it open, else history;
+   * - its end file written again, and its journal, since it settled: resumed and ended between two looks. It is live, and
+   *   followed through its new lines to its new end;
+   * - an end file: ended when written since the session's process started, or when the collector holds the run open;
+   *   else history;
+   * - a journal alone: live when written since the session's process started; else gone when held open, else history;
+   * - neither: gone when held open, else not known yet.
    */
-  private async judge(sessionDir: string, id: string): Promise<'live' | 'history' | 'gone' | 'unknown'> {
+  private judge(id: string, end: number | null, journal: number | null, settled: SettledRun | undefined): { verdict: Verdict; endedBefore: number | null } {
     const open = this.open.has(id);
-    const ended = await mtime(join(sessionDir, 'workflows', `${id}.json`));
-    if (ended !== null) return open || ended >= this.o.since ? 'live' : 'history';
-    const written = await mtime(join(sessionDir, 'subagents', 'workflows', id, 'journal.jsonl'));
-    if (written !== null && written >= this.o.since) return 'live';
-    if (open) return 'gone';
-    return written === null ? 'unknown' : 'history';
+    if (settled?.relaunched || (end !== null && journal !== null && journal > end)) {
+      if (settled?.relaunched || (journal !== null && journal >= this.o.since)) return { verdict: 'live', endedBefore: end };
+      return { verdict: open ? 'gone' : 'history', endedBefore: null };
+    }
+    if (end !== null) {
+      if (settled?.end != null && end !== settled.end && journal !== null && journal > settled.mark) return { verdict: 'live', endedBefore: settled.end };
+      return { verdict: end >= this.o.since || open ? 'ended' : 'history', endedBefore: null };
+    }
+    if (journal !== null && journal >= this.o.since) return { verdict: 'live', endedBefore: null };
+    return { verdict: open ? 'gone' : journal === null ? 'unknown' : 'history', endedBefore: null };
   }
 
-  private async take(sessionDir: string, id: string, now: number): Promise<void> {
+  private async take(sessionDir: string, id: string, now: number, offset: number, endedBefore: number | null): Promise<void> {
     const launch = this.launches.get(id);
-    const run: FollowedRun = { id, journal: { path: join(sessionDir, 'subagents', 'workflows', id, 'journal.jsonl'), offset: 0, skipping: false }, launched: false, types: new Map() };
+    const run: FollowedRun = { id, journal: { path: join(sessionDir, 'subagents', 'workflows', id, 'journal.jsonl'), offset, skipping: false }, launched: false, types: new Map(), endedBefore };
     this.runs.set(id, run);
-    this.started(id, now, { summary: launch?.summary ?? null }, true);
-    if (launch) await this.launched(sessionDir, run, launch, now, false);
+    // The bare start first: it is what makes the run, or starts a finished one again.
+    this.started(id, now, {}, true);
+    if (launch) await this.launched(sessionDir, run, launch, now, true);
   }
 
-  /** What the launch says beyond the run id: its summary (unless already sent) and its script's meta. */
+  /** What the launch says beyond the run id: its summary and its script's meta. */
   private async launched(sessionDir: string, run: FollowedRun, launch: WorkflowLaunch, now: number, summary: boolean): Promise<void> {
     run.launched = true;
     if (summary) this.started(run.id, now, { summary: launch.summary });
@@ -157,8 +214,13 @@ export class WorkflowScanner {
       for (const line of lines) await this.journalLine(sessionDir, run, line, now);
       drained = lines.length === 0;
     }
-    // The end file comes after the journal's last line: it is read once the journal is read to its end.
-    if (drained) await this.end(sessionDir, run, now);
+    // The end file comes after the journal's last line: it is read once the journal is read to its end, and an end file
+    // older than the journal is the end of the run before it was resumed.
+    if (!drained) return;
+    const ended = await this.end(sessionDir, run.id, run.endedBefore, (await stats(run.journal.path))?.mtime ?? null);
+    if (ended === null) return;
+    this.runs.delete(run.id);
+    this.settled.set(run.id, { end: ended, mark: ended, offset: run.journal.offset, relaunched: false });
   }
 
   private async journalLine(sessionDir: string, run: FollowedRun, line: string, now: number): Promise<void> {
@@ -196,19 +258,23 @@ export class WorkflowScanner {
     return type;
   }
 
-  /** Once the run's end file is there: what it says of the run, then its end. The run is not followed any more. */
-  private async end(sessionDir: string, run: FollowedRun, now: number): Promise<void> {
-    const path = join(sessionDir, 'workflows', `${run.id}.json`);
-    let size: number;
+  /**
+   * The run's end, from its end file when there is one written after `after` and no earlier than `journal`: the end,
+   * then what the file says of the run, each stamped with the times it gives. Resolves with the file's modification
+   * time; null when there is no such file.
+   */
+  private async end(sessionDir: string, id: string, after: number | null, journal: number | null): Promise<number | null> {
+    const path = join(sessionDir, 'workflows', `${id}.json`);
+    let at: { size: number; mtime: number };
     try {
       const s = await stat(path);
-      if (!s.isFile()) return;
-      size = s.size;
+      if (!s.isFile() || (after !== null && s.mtimeMs <= after) || (journal !== null && s.mtimeMs < journal)) return null;
+      at = { size: s.size, mtime: s.mtimeMs };
     } catch {
-      return;
+      return null;
     }
     let d: Record<string, unknown> = {};
-    if (size <= MAX_END_BYTES) {
+    if (at.size <= MAX_END_BYTES) {
       try {
         const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) d = parsed as Record<string, unknown>;
@@ -222,11 +288,12 @@ export class WorkflowScanner {
         return title ? [title] : [];
       }).slice(0, MAX_PHASES)
       : [];
-    this.started(run.id, now, { name: cleanOrNull(str(d.workflowName), 120), summary: cleanOrNull(str(d.summary), 200), phases });
     const status = d.status === 'failed' || d.status === 'killed' ? d.status : 'completed';
-    this.o.emit({ sessionId: this.o.sessionId, ts: now, source: 'fs', cwd: this.o.cwd, type: 'workflow.finished', runId: run.id, status });
-    this.runs.delete(run.id);
-    this.done.add(run.id);
+    const { start, end } = endTimes(d, at.mtime);
+    // The end first: a run the session does not hold is made already finished, and the file's fields only fill it.
+    this.o.emit({ sessionId: this.o.sessionId, ts: end, source: 'fs', cwd: this.o.cwd, type: 'workflow.finished', runId: id, status, startedAt: start });
+    this.started(id, start, { name: cleanOrNull(str(d.workflowName), 120), summary: cleanOrNull(str(d.summary), 200), phases });
+    return at.mtime;
   }
 
   /** A workflow.started with the fields that are known; with none, only when `bare` asks for the run alone. */

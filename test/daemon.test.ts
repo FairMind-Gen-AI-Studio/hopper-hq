@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { encodeProjectDir } from '../src/adapters/claude-code/fs-adapter.js';
 import { demoSummaryLine } from '../src/adapters/demo.js';
 import { newSession } from '../src/core/reducer.js';
-import type { RawEvent, Session } from '../src/core/types.js';
+import type { RawEvent, Session, WorkflowRun } from '../src/core/types.js';
 import { readDaemonFile } from '../src/daemon-file.js';
 import { startDaemon } from '../src/daemon.js';
 import { CSP } from '../src/server/headers.js';
@@ -260,6 +260,67 @@ describe('startDaemon and summaries', () => {
     }
     expect(s.signals[0]!.aborted).toBe(true);
     expect(lines.filter((l) => l.includes('summary failed'))).toEqual([]);
+  });
+
+  /**
+   * A data directory holding session S1, done and seen, with summaries on, and a Claude directory where its process still
+   * runs, with the end file of a run that ended since that process started. `held` says whether the saved row has the run.
+   */
+  async function restarted(held: boolean) {
+    const dataDir = await tmp('shq-data-');
+    const claudeDir = await tmp('shq-claude-');
+    const cwd = '/home/dev/payments-svc';
+    const R = 'wf_0000aaaa-001';
+    // Whole seconds: file times keep them exactly.
+    const now = Math.floor(Date.now() / 1000) * 1000;
+    const [startedAt, runStart, runEnd, doneAt, seenAt] = [now - 50_000, now - 40_000, now - 30_000, now - 20_000, now - 10_000];
+    await mkdir(join(claudeDir, 'sessions'));
+    await writeFile(join(claudeDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'S1', cwd, startedAt }));
+    const project = join(claudeDir, 'projects', encodeProjectDir(cwd));
+    const runDir = join(project, 'S1', 'subagents', 'workflows', R);
+    await mkdir(runDir, { recursive: true });
+    await mkdir(join(project, 'S1', 'workflows'));
+    await writeFile(join(project, 'S1.jsonl'), '');
+    await writeFile(join(runDir, 'journal.jsonl'), [{ type: 'started', agentId: 'a1', label: 'plan', phase: 'Plan' }, { type: 'result', agentId: 'a1' }].map((l) => JSON.stringify(l) + '\n').join(''));
+    await utimes(join(runDir, 'journal.jsonl'), (runEnd - 1000) / 1000, (runEnd - 1000) / 1000);
+    const end = join(project, 'S1', 'workflows', `${R}.json`);
+    await writeFile(end, JSON.stringify({ runId: R, workflowName: 'checkout-verify', status: 'completed', startTime: runStart, durationMs: runEnd - runStart, timestamp: new Date(runEnd).toISOString() }));
+    await utimes(end, runEnd / 1000, runEnd / 1000);
+    const run: WorkflowRun = {
+      id: R, name: null, summary: null, phases: [], currentPhase: 'Plan', status: 'completed', onDisk: true, startedAt: runStart, endedAt: runEnd,
+      agents: [{ id: 'a1', label: 'plan', phase: 'Plan', type: 'agent', running: false, startedAt: runStart, updatedAt: runEnd }], agentsFinished: 1,
+    };
+    const row: Session = {
+      ...newSession('S1', startedAt, { cwd, repoRoot: cwd, repoName: 'payments-svc', worktree: false, branch: 'main' }),
+      pid: process.pid, title: 'Verify the checkout', lastPrompt: 'Verify the checkout', lastAnswer: 'The checkout is verified.',
+      state: 'done', stateSince: doneAt, seenAt, runs: held ? [run] : [],
+    };
+    const store = await Store.open(join(dataDir, 'scranton.db'));
+    store.saveSessions([row], Date.now());
+    store.close();
+    await writeSummaryConfig(dataDir, { enabled: true });
+    return { dataDir, claudeDir, row, run };
+  }
+
+  it('reads a run that ended before a restart again, leaving its seen session as it was, and summarizes nothing', async () => {
+    for (const held of [true, false]) {
+      const r = await restarted(held);
+      const s = standIn(async () => 'Done: the checkout is verified.');
+      const d = await startDaemon({ port: 0, dataDir: r.dataDir, claudeDir: r.claudeDir, log: quiet, summarizer: { provider: s.provider, settleMs: 0 } });
+      try {
+        // The end file names the run: once the name is in, the scan has read it.
+        await vi.waitFor(() => expect(d.collector.session('S1')?.runs[0]?.name).toBe('checkout-verify'), { timeout: 5000 });
+        await d.collector.idle();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const after = d.collector.session('S1')!;
+        expect([held, after.state, after.stateSince, after.seenAt, d.collector.view('S1')!.effectiveState]).toEqual([held, 'done', r.row.stateSince, r.row.seenAt, 'idle']);
+        const expected = held ? { ...r.run, name: 'checkout-verify' } : { ...r.run, name: 'checkout-verify', currentPhase: null, agents: [], agentsFinished: 0 };
+        expect(after.runs).toEqual([expected]);
+        expect([s.configs, s.signals]).toEqual([[], []]);
+      } finally {
+        await d.stop();
+      }
+    }
   });
 
   it('summarizes the demo with its own lines', async () => {
