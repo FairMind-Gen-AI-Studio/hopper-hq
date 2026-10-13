@@ -114,12 +114,13 @@
   .time { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
   /*
    * The summary line: no width of its own, so the chip is as wide as its first line, and the line is cut to it. Some of
-   * the summary always shows, and the age gives way first: nothing spills over Go. A stale line says so in words, in the
-   * same colour.
+   * the summary always shows, and the age gives way first: nothing spills over Go. A stale line is in the same colour:
+   * its summary is set in italics, which show however narrow the chip, and its age says so in words.
    */
   .sub { grid-column: 2 / -1; width: 0; min-width: 100%; display: flex; gap: 4px; overflow: hidden; font-size: 12px; line-height: 18px; color: var(--muted); white-space: nowrap; }
   .s-text { flex: 1 1 8ch; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
   .s-age { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .stale .s-text { font-style: italic; }
   .needs .time { color: var(--needs-ink); font-weight: 600; }
   .go {
     border: 0;

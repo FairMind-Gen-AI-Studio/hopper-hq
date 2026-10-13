@@ -142,4 +142,10 @@ describe('AttentionBar layout', () => {
     expect(source).not.toMatch(/opacity/);
     for (const night of [false, true]) expect(contrast(token('muted', night), token('panel', night))).toBeGreaterThanOrEqual(4.5);
   });
+
+  it('sets an out-of-date line in italics, which stay in view in a narrow chip when the words saying so give way', () => {
+    expect(rule('.stale .s-text')).toEqual({ 'font-style': 'italic' });
+    expect(rule('.s-text')).not.toHaveProperty('font-style');
+    expect(rule('.s-text')).toMatchObject({ 'min-width': '8ch' });
+  });
 });
