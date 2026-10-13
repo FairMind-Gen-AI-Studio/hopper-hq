@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { newSession } from '../../src/core/reducer.js';
-import type { ChildAgent, Session, SessionState, Workspace } from '../../src/core/types.js';
+import type { ChildAgent, RunAgent, Session, SessionState, WorkflowRun, Workspace } from '../../src/core/types.js';
 import { toView, type SessionView } from '../../src/core/view.js';
 import { buildFloorDetail, buildScene } from '../../src/scene/build.js';
+import { layoutFloor } from '../../src/scene/layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../src/scene/palette.js';
-import { SCENE_VERSION } from '../../src/scene/types.js';
+import { SCENE_VERSION, type MeetingRoom } from '../../src/scene/types.js';
 import { demoViews } from '../helpers/demo-views.js';
 
 const MIN = 60_000;
@@ -25,6 +26,18 @@ function view(id: string, workspace: Workspace, state: SessionState, extra: Part
 }
 
 const child = (id: string, type: string, running = true): ChildAgent => ({ id, type, description: null, running, lastAction: null, updatedAt: NOW - MIN });
+
+const runAgent = (id: string, extra: Partial<RunAgent> = {}): RunAgent => ({
+  id, label: null, phase: null, type: 'workflow-subagent', running: true, startedAt: NOW - 10 * MIN, updatedAt: NOW - MIN, ...extra,
+});
+
+/** A run the filesystem confirmed, still going, with no agent yet. */
+const run = (id: string, extra: Partial<WorkflowRun> = {}): WorkflowRun => ({
+  id, name: null, summary: null, phases: [], currentPhase: null, status: 'running', onDisk: true, startedAt: NOW - 20 * MIN, endedAt: null, agents: [], agentsFinished: 0, ...extra,
+});
+
+/** A live run with one running agent, started at `startedAt`. */
+const live = (id: string, startedAt: number, extra: Partial<WorkflowRun> = {}): WorkflowRun => run(id, { startedAt, agents: [runAgent(`${id}-a`, { startedAt })], ...extra });
 
 function render(views: SessionView[]) {
   const scene = buildScene(views);
@@ -248,6 +261,20 @@ describe('wait reasons', () => {
     });
   });
 
+  it('types a wait a workflow agent raised from its run, looking at the children first', () => {
+    const runs = [run('wf_0000aaaa-001', { agents: [runAgent('w1', { type: 'code-reviewer' }), runAgent('w2', { type: 'agent' }), runAgent('both', { type: 'Plan' })] })];
+    const scene = buildScene([
+      waiting('typed', { waitAgentId: 'w1', runs }),
+      waiting('untyped', { waitAgentId: 'w2', runs }),
+      waiting('both', { waitAgentId: 'both', runs, children: [child('both', 'Explore')] }),
+    ]);
+    expect(Object.fromEntries(scene.attention.needsYou.map((e) => [e.sessionId, e.reason?.agent]))).toEqual({
+      typed: { id: 'w1', type: 'code-reviewer' },
+      untyped: { id: 'w2', type: null },
+      both: { id: 'both', type: 'Explore' },
+    });
+  });
+
   it('shows the same reason on the desk, and none once the session no longer needs the user', () => {
     const desks = buildFloorDetail([
       waiting('a', { waitAgentId: 'a1', children: [child('a1', 'Explore')] }),
@@ -269,6 +296,202 @@ describe('version 2', () => {
     const desk = floor.islands[0]!.desks[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.away, desk.runs]).toEqual([null, [], 0, false, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();
+  });
+});
+
+describe('interns', () => {
+  it('shows running subagents in the order they started, then the latest to finish, three at most, and counts the rest', () => {
+    const children = [
+      { ...child('f1', 'Plan', false), updatedAt: NOW - 9 * MIN },
+      { ...child('r1', 'Explore'), description: 'Find every caller of useCart()' },
+      { ...child('f2', 'Plan', false), updatedAt: NOW - 2 * MIN },
+      child('r2', 'agent'),
+      { ...child('f3', 'Explore', false), updatedAt: NOW - 2 * MIN },
+    ];
+    const desk = buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children })], 'repo:/w/api')!.islands[0]!.desks[0]!;
+    expect(desk.interns).toEqual([
+      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true },
+      { agentId: 'r2', type: null, label: null, running: true },
+      { agentId: 'f3', type: 'Explore', label: null, running: false },
+    ]);
+    expect(desk.internsMore).toBe(2);
+    const few = buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: children.slice(0, 2) })], 'repo:/w/api')!.islands[0]!.desks[0]!;
+    expect([few.interns.map((i) => i.agentId), few.internsMore]).toEqual([['r1', 'f1'], 0]);
+  });
+
+  it('counts running subagents and running workflow agents together', () => {
+    const runs = [run('wf_0000aaaa-001', { agents: [runAgent('w1'), runAgent('w2'), runAgent('w3', { running: false })], agentsFinished: 1 })];
+    const desk = buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children: [child('c1', 'Explore'), child('c2', 'Plan', false)], runs })], 'repo:/w/api')!.islands[0]!.desks[0]!;
+    expect(desk.agentsRunning).toBe(3);
+  });
+});
+
+describe('summaries', () => {
+  it('gives the desk and its attention entry the summary line, stale once a prompt came after it', () => {
+    const summary = { text: 'Waits for the \u001b[1mcheckout tests', at: NOW - 4 * MIN, inputHash: '0123456789abcdef' };
+    const views = [
+      view('fresh', ws('/w/api', 'main'), 'done', { summary, lastPromptAt: NOW - 4 * MIN }),
+      view('stale', ws('/w/api', 'main'), 'done', { summary, lastPromptAt: NOW - 3 * MIN }),
+      view('none', ws('/w/api', 'main'), 'done', { lastPromptAt: NOW - 3 * MIN }),
+      view('blank', ws('/w/api', 'main'), 'done', { summary: { ...summary, text: ' \u0007 ' } }),
+    ];
+    const desks = Object.fromEntries(buildFloorDetail(views, 'repo:/w/api')!.islands[0]!.desks.map((d) => [d.sessionId, d.summary]));
+    expect(desks).toEqual({
+      fresh: { text: 'Waits for the [1mcheckout tests', at: NOW - 4 * MIN, stale: false },
+      stale: { text: 'Waits for the [1mcheckout tests', at: NOW - 4 * MIN, stale: true },
+      none: null,
+      blank: null,
+    });
+    expect(Object.fromEntries(buildScene(views).attention.done.map((e) => [e.sessionId, e.summary]))).toEqual(desks);
+  });
+});
+
+describe('runs on a desk', () => {
+  it('lists live runs by start, then the others, the latest to end first, five at most, each with its own status and counts', () => {
+    const runs = [
+      run('wf_0000aaaa-001', { name: 'old', status: 'completed', startedAt: NOW - 60 * MIN, endedAt: NOW - 50 * MIN, agentsFinished: 3 }),
+      run('wf_0000aaaa-002', { name: 'later', status: 'failed', startedAt: NOW - 40 * MIN, endedAt: NOW - 5 * MIN, agentsFinished: 1 }),
+      // Seen through the hooks only, with no agent left running: it holds nothing, though it never ended.
+      run('wf_0000aaaa-003', { onDisk: false, startedAt: NOW - 30 * MIN, agents: [runAgent('h1', { running: false })], agentsFinished: 1 }),
+      run('wf_0000aaaa-004', { name: 'second', startedAt: NOW - 8 * MIN, agents: [runAgent('a1'), runAgent('a2', { running: false })], agentsFinished: 1 }),
+      run('wf_0000aaaa-005', { name: 'first', onDisk: false, startedAt: NOW - 9 * MIN, agents: [runAgent('a3')] }),
+      run('wf_0000aaaa-006', { status: 'killed', startedAt: NOW - 70 * MIN, endedAt: NOW - 65 * MIN }),
+    ];
+    const desk = buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { runs })], 'repo:/w/api')!.islands[0]!.desks[0]!;
+    expect(desk.runs).toEqual([
+      { runId: 'wf_0000aaaa-005', name: 'first', status: 'running', startedAt: NOW - 9 * MIN, endedAt: null, counts: { running: 1, finished: 0 } },
+      { runId: 'wf_0000aaaa-004', name: 'second', status: 'running', startedAt: NOW - 8 * MIN, endedAt: null, counts: { running: 1, finished: 1 } },
+      { runId: 'wf_0000aaaa-002', name: 'later', status: 'failed', startedAt: NOW - 40 * MIN, endedAt: NOW - 5 * MIN, counts: { running: 0, finished: 1 } },
+      { runId: 'wf_0000aaaa-003', name: null, status: 'running', startedAt: NOW - 30 * MIN, endedAt: null, counts: { running: 0, finished: 1 } },
+      { runId: 'wf_0000aaaa-001', name: 'old', status: 'completed', startedAt: NOW - 60 * MIN, endedAt: NOW - 50 * MIN, counts: { running: 0, finished: 3 } },
+    ]);
+  });
+});
+
+describe('meeting rooms', () => {
+  it('gives each live run on the floor a room, by start then run id, four at most, and counts the rest', () => {
+    const views = [
+      view('h1', ws('/w/api', 'feat/rooms'), 'in_meeting', {
+        runs: [live('wf_0000aaaa-003', NOW - 5 * MIN), live('wf_0000aaaa-001', NOW - 9 * MIN), run('wf_0000aaaa-009', { status: 'completed', startedAt: NOW - 30 * MIN, endedAt: NOW - 20 * MIN })],
+      }),
+      view('h2', ws('/w/web', 'feat/rooms'), 'working', {
+        runs: [
+          live('wf_0000aaaa-002', NOW - 5 * MIN),
+          live('wf_0000aaaa-004', NOW - MIN),
+          live('wf_0000aaaa-005', NOW - 7 * MIN, { onDisk: false, agents: [runAgent('gone', { running: false })] }),
+          live('wf_0000aaaa-006', NOW - 2 * MIN),
+        ],
+      }),
+      view('h3', ws('/w/api', 'main'), 'working', { runs: [live('wf_0000aaaa-007', NOW - 10 * MIN)] }),
+    ];
+    const floor = buildFloorDetail(views, 'feature:rooms')!;
+    expect(floor.rooms.map((r) => [r.runId, r.hostSessionId])).toEqual([
+      ['wf_0000aaaa-001', 'h1'],
+      ['wf_0000aaaa-002', 'h2'],
+      ['wf_0000aaaa-003', 'h1'],
+      ['wf_0000aaaa-006', 'h2'],
+    ]);
+    expect(floor.roomsMore).toBe(1);
+    const layout = layoutFloor(floor.islands.map((i) => ({ key: i.key, deskIds: i.desks.map((d) => d.sessionId) })), floor.rooms.map((r) => r.runId));
+    expect([floor.rooms.map((r) => r.rect), floor.size]).toEqual([layout.rooms.map((r) => r.rect), layout.size]);
+    // A run is on its host's floor only.
+    const department = buildFloorDetail(views, 'repo:/w/api')!;
+    expect([department.rooms.map((r) => r.runId), department.roomsMore]).toEqual([['wf_0000aaaa-007'], 0]);
+  });
+
+  it('names a room after its run, and marks phases done, current and upcoming from the current one', () => {
+    const phases = ['Plan', 'Build', 'Review', 'Ship'];
+    const room = (extra: Partial<WorkflowRun>) =>
+      buildFloorDetail([view('h', ws('/w/api', 'main'), 'working', { runs: [live('wf_0000aaaa-001', NOW - MIN, extra)] })], 'repo:/w/api')!.rooms[0]!;
+    const named = room({ name: 'checkout-verify', summary: 'Verify split payments end to end', phases, currentPhase: 'Review' });
+    expect([named.name, named.summary, named.phases]).toEqual([
+      'checkout-verify',
+      'Verify split payments end to end',
+      [{ title: 'Plan', state: 'done' }, { title: 'Build', state: 'done' }, { title: 'Review', state: 'current' }, { title: 'Ship', state: 'upcoming' }],
+    ]);
+    const upcoming = phases.map((title) => ({ title, state: 'upcoming' as const }));
+    const cases: Array<[Partial<WorkflowRun>, MeetingRoom['phases']]> = [
+      [{ phases, currentPhase: 'Plan' }, [{ title: 'Plan', state: 'current' }, ...upcoming.slice(1)]],
+      [{ phases, currentPhase: null }, upcoming],
+      [{ phases, currentPhase: 'Deploy' }, upcoming],
+      // The script's meta was out of reach: the current phase alone, or nothing.
+      [{ phases: [], currentPhase: 'Build' }, [{ title: 'Build', state: 'current' }]],
+      [{ phases: [], currentPhase: null }, []],
+    ];
+    for (const [extra, expected] of cases) expect([extra, room(extra).phases]).toEqual([extra, expected]);
+    expect([room({}).name, room({}).summary]).toEqual([null, null]);
+  });
+
+  it('lists running agents in start order, then finished ones, the latest to finish first, 24 at most, with the run counts', () => {
+    const agents = [
+      ...Array.from({ length: 20 }, (_, i) => runAgent(`f${String(i).padStart(2, '0')}`, { running: false, startedAt: NOW - 30 * MIN + i, updatedAt: NOW - 20 * MIN + i })),
+      ...Array.from({ length: 6 }, (_, i) => runAgent(`r${i}`, { startedAt: NOW - 5 * MIN - i })),
+    ];
+    agents[20] = { ...agents[20]!, label: 'Review the ledger', phase: 'Review', type: 'agent' };
+    const r = buildFloorDetail([view('h', ws('/w/api', 'main'), 'working', { runs: [run('wf_0000aaaa-001', { agents, agentsFinished: 25 })] })], 'repo:/w/api')!.rooms[0]!;
+    expect(r.counts).toEqual({ running: 6, finished: 25 });
+    expect(r.agents.map((a) => a.agentId)).toEqual(['r5', 'r4', 'r3', 'r2', 'r1', 'r0', ...Array.from({ length: 18 }, (_, i) => `f${String(19 - i).padStart(2, '0')}`)]);
+    expect(r.agents[5]).toEqual({ agentId: 'r0', label: 'Review the ledger', phase: 'Review', type: null, running: true });
+    expect(r.agents[6]).toEqual({ agentId: 'f19', label: null, phase: null, type: 'workflow-subagent', running: false });
+  });
+
+  it('seats an in_meeting host at the head of its first room and marks its desk away, keeping its robot', () => {
+    const views = [
+      view('meet', ws('/w/api', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-002', NOW - 5 * MIN), live('wf_0000aaaa-001', NOW - 9 * MIN)] }),
+      view('busy', ws('/w/web', 'feat/rooms'), 'working', { runs: [live('wf_0000aaaa-003', NOW - 4 * MIN)] }),
+      view('helped', ws('/w/web', 'feat/rooms'), 'in_meeting', { children: [child('c1', 'Explore')] }),
+    ];
+    const floor = buildFloorDetail(views, 'feature:rooms')!;
+    const api = slotOf('/w/api', REPO_SLOTS);
+    const web = slotOf('/w/web', REPO_SLOTS);
+    const tie = slotOf('rooms', FEATURE_SLOTS);
+    expect(floor.rooms.map((r) => [r.runId, r.host, r.look])).toEqual([
+      ['wf_0000aaaa-001', { pose: 'still', badge: 'meeting', body: api, tie }, { body: api, tie }],
+      ['wf_0000aaaa-002', null, { body: api, tie }],
+      ['wf_0000aaaa-003', null, { body: web, tie }],
+    ]);
+    expect(Object.fromEntries(floor.islands.flatMap((i) => i.desks).map((d) => [d.sessionId, [d.away, d.robot]]))).toEqual({
+      meet: [true, { pose: 'still', badge: 'meeting', body: api, tie }],
+      busy: [false, { pose: 'typing', badge: 'typing', body: web, tie }],
+      helped: [false, { pose: 'still', badge: 'meeting', body: web, tie }],
+    });
+  });
+
+  it('leaves at its desk an in_meeting host whose run got no room', () => {
+    const views = [
+      view('busy', ws('/w/web', 'feat/rooms'), 'working', { runs: [1, 2, 3, 4].map((n) => live(`wf_0000aaaa-00${n}`, NOW - 10 * MIN + n)) }),
+      view('late', ws('/w/api', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-005', NOW - MIN)] }),
+    ];
+    const floor = buildFloorDetail(views, 'feature:rooms')!;
+    expect([floor.rooms.map((r) => [r.runId, r.host]), floor.roomsMore]).toEqual([
+      [['wf_0000aaaa-001', null], ['wf_0000aaaa-002', null], ['wf_0000aaaa-003', null], ['wf_0000aaaa-004', null]],
+      1,
+    ]);
+    expect(floor.islands.flatMap((i) => i.desks).map((d) => [d.sessionId, d.away])).toEqual([['late', false], ['busy', false]]);
+  });
+
+  it('gives the same rooms, byte for byte, whatever the order of the sessions', () => {
+    const views = [
+      view('m1', ws('/w/api', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-001', NOW - 5 * MIN), live('wf_0000aaaa-002', NOW - 5 * MIN)] }),
+      view('m2', ws('/w/web', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-001', NOW - 5 * MIN)] }),
+      view('m3', ws('/w/web', 'feat/rooms'), 'working', { runs: [live('wf_0000aaaa-000', NOW - 5 * MIN), live('wf_0000aaaa-003', NOW - 6 * MIN)] }),
+    ];
+    const expected = JSON.stringify(buildFloorDetail(views, 'feature:rooms'));
+    let seed = 5;
+    for (let n = 0; n < 20; n++) {
+      const order = [...views];
+      for (let i = order.length - 1; i > 0; i--) {
+        seed = (seed * 48271) % 2147483647;
+        const j = seed % (i + 1);
+        [order[i], order[j]] = [order[j]!, order[i]!];
+      }
+      expect(JSON.stringify(buildFloorDetail(order, 'feature:rooms'))).toBe(expected);
+    }
+    const floor = buildFloorDetail(views, 'feature:rooms')!;
+    expect([floor.rooms.map((r) => [r.runId, r.hostSessionId, r.host !== null]), floor.roomsMore]).toEqual([
+      [['wf_0000aaaa-003', 'm3', false], ['wf_0000aaaa-000', 'm3', false], ['wf_0000aaaa-001', 'm1', true], ['wf_0000aaaa-001', 'm2', true]],
+      1,
+    ]);
   });
 });
 
@@ -309,6 +532,39 @@ describe('untrusted text', () => {
       { kind: 'question', text: 'wh[2Jy', detail: 'de tail', agent: { id: 'ag', type: 'Explore' } },
       'Bash: [31mls',
     ]);
+  });
+});
+
+describe('untrusted text in rooms, interns, runs and summaries', () => {
+  const UNSAFE = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/;
+  const strings = (x: unknown): string[] =>
+    typeof x === 'string' ? [x] : Array.isArray(x) ? x.flatMap(strings) : x && typeof x === 'object' ? Object.entries(x).flatMap(([k, v]) => [k, ...strings(v)]) : [];
+
+  it('cleans every string and caps every id', () => {
+    const long = 'x'.repeat(300);
+    const hostile = view('h', ws('/w/api', 'main'), 'in_meeting', {
+      summary: { text: 'sum\u202Emary', at: NOW - MIN, inputHash: '0123456789abcdef' },
+      children: [{ ...child(`c\u0007${long}`, 'Ex\u0000plore'), description: 'look\u001b[2J' }],
+      runs: [
+        run(`wf_\u0007${long}`, {
+          name: 'na\u0085me',
+          summary: 'su\u200Emmary',
+          phases: ['Pl\u0007an', '\u2066'],
+          currentPhase: 'Pl\u0007an',
+          agents: [runAgent(`a\u0007${long}`, { label: 'la\u0000bel', phase: 'Re\u0007view', type: 'ty\u202Epe' })],
+        }),
+      ],
+    });
+    const out = render([hostile]);
+    for (const s of strings(out)) expect(s).not.toMatch(UNSAFE);
+    const floor = out.floors[0]!;
+    const room = floor.rooms[0]!;
+    const desk = floor.islands[0]!.desks[0]!;
+    expect([room.runId, room.agents[0]!.agentId, desk.interns[0]!.agentId, desk.runs[0]!.runId].map((id) => Array.from(id).length)).toEqual([256, 256, 256, 256]);
+    expect([room.name, room.summary, room.phases, room.agents[0]!.label, room.agents[0]!.phase, room.agents[0]!.type]).toEqual([
+      'na me', 'summary', [{ title: 'Plan', state: 'current' }], 'label', 'Review', 'type',
+    ]);
+    expect([desk.summary?.text, desk.interns[0]!.type, desk.interns[0]!.label, desk.runs[0]!.name]).toEqual(['summary', 'Explore', 'look[2J', 'na me']);
   });
 });
 

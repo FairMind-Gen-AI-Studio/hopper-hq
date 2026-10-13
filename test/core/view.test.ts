@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THRESHOLDS as T } from '../../src/config.js';
 import { newSession } from '../../src/core/reducer.js';
-import type { Session, SessionState } from '../../src/core/types.js';
+import type { Session, SessionState, WorkflowRun } from '../../src/core/types.js';
 import { buildAttention, buildFloors, byCodeUnit, effectiveState, floorKeyOf, islandKeyOf, toView } from '../../src/core/view.js';
 import { KEY_MAX } from '../../src/scene/text.js';
 import { WS } from '../helpers/events.js';
@@ -29,6 +29,17 @@ describe('effectiveState', () => {
     expect(effectiveState(sess('a', 'working', 0), 10 * 60 * 1000, T)).toEqual({ state: 'no_signal', since: 10 * 60 * 1000 });
     const busyChild = sess('a', 'working', 0, { children: [{ id: 'c', type: 'Explore', description: null, running: true, lastAction: null, updatedAt: 9 * 60 * 1000 }] });
     expect(effectiveState(busyChild, 10 * 60 * 1000, T).state).toBe('working');
+  });
+
+  it('counts the steps of a running workflow agent too, and not those of one that finished', () => {
+    const MIN = 60 * 1000;
+    const run = (running: boolean): WorkflowRun => ({
+      id: 'wf_0000aaaa-001', name: null, summary: null, phases: [], currentPhase: null, status: 'running', onDisk: true, startedAt: 0, endedAt: null,
+      agents: [{ id: 'w1', label: null, phase: null, type: 'workflow-subagent', running, startedAt: 0, updatedAt: 9 * MIN }], agentsFinished: running ? 0 : 1,
+    });
+    expect(effectiveState(sess('a', 'working', 0, { runs: [run(true)] }), 10 * MIN, T).state).toBe('working');
+    expect(effectiveState(sess('a', 'working', 0, { runs: [run(true)] }), 19 * MIN, T)).toEqual({ state: 'no_signal', since: 19 * MIN });
+    expect(effectiveState(sess('a', 'working', 0, { runs: [run(false)] }), 10 * MIN, T)).toEqual({ state: 'no_signal', since: 10 * MIN });
   });
 
   it('leaves other states alone', () => {

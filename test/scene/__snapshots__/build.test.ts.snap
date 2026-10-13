@@ -81,7 +81,20 @@ exports[`the demo building > matches the snapshot 1`] = `
               "agentsRunning": 2,
               "away": false,
               "focusable": true,
-              "interns": [],
+              "interns": [
+                {
+                  "agentId": "demo-wf-1",
+                  "label": "Implement the split ledger entries",
+                  "running": true,
+                  "type": "general-purpose",
+                },
+                {
+                  "agentId": "demo-wf-2",
+                  "label": "Implement the refund path",
+                  "running": true,
+                  "type": "general-purpose",
+                },
+              ],
               "internsMore": 0,
               "location": "local",
               "name": "payments-svc-d4",
@@ -161,7 +174,14 @@ exports[`the demo building > matches the snapshot 1`] = `
               "agentsRunning": 1,
               "away": false,
               "focusable": true,
-              "interns": [],
+              "interns": [
+                {
+                  "agentId": "demo-a1-explore",
+                  "label": "Find every caller of useCart()",
+                  "running": true,
+                  "type": "Explore",
+                },
+              ],
               "internsMore": 0,
               "location": "local",
               "name": "storefront-web-a1",
