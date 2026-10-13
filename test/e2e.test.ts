@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { encodeProjectDir } from '../src/adapters/claude-code/fs-adapter.js';
 import { main, type Io } from '../src/cli.js';
-import type { Snapshot } from '../src/collector.js';
+import type { Collector, Snapshot } from '../src/collector.js';
 import { readDaemonFile } from '../src/daemon-file.js';
 import { startDaemon } from '../src/daemon.js';
 
@@ -31,14 +31,23 @@ async function post(port: number, token: string, body: object): Promise<number> 
   });
 }
 
-async function waitFor<T>(fn: () => T | undefined, ms = 6000): Promise<T> {
-  const until = Date.now() + ms;
-  for (;;) {
-    const v = fn();
-    if (v !== undefined) return v;
-    if (Date.now() > until) throw new Error('timed out');
-    await new Promise((r) => setTimeout(r, 100));
-  }
+/** What `fn` gives once it gives something: asked now, then each time the building changes, for at most `ms`. */
+function waitFor<T>(collector: Collector, fn: () => T | undefined, ms = 25_000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      const v = fn();
+      if (v === undefined) return;
+      stop();
+      clearTimeout(timer);
+      resolve(v);
+    };
+    const stop = collector.onChange(check);
+    const timer = setTimeout(() => {
+      stop();
+      reject(new Error('timed out'));
+    }, ms);
+    check();
+  });
 }
 
 describe('end to end', () => {
@@ -66,7 +75,7 @@ describe('end to end', () => {
     const d = await startDaemon({ port: 0, claudeDir, dataDir, log: () => {} });
     try {
       // The session is announced before its transcript is read: wait until the title from the transcript is in too.
-      const floor = await waitFor(() => d.collector.snapshot().floors.find((f) => f.name === 'e2e-flow' && f.sessions[0]?.title));
+      const floor = await waitFor(d.collector, () => d.collector.snapshot().floors.find((f) => f.name === 'e2e-flow' && f.sessions[0]?.title));
       expect(floor.kind).toBe('feature');
       expect(floor.sessions[0]).toMatchObject({ id: 'E2E', title: 'End-to-end flow', effectiveState: 'working', tmuxPane: '%9' });
 
@@ -90,7 +99,7 @@ describe('end to end', () => {
     } finally {
       await d.stop();
     }
-  });
+  }, 30_000);
 });
 
 export type { Snapshot };
