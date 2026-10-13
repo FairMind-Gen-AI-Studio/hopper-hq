@@ -107,7 +107,7 @@ describe('startDaemon and its data directory', () => {
     const claudeDir = await tmp();
     const first = await startDaemon({ port: 0, dataDir, claudeDir, watchFiles: false, log: quiet });
     try {
-      await expect(startDaemon({ port: 0, dataDir, claudeDir, watchFiles: false, log: quiet })).rejects.toThrow(DataDirInUseError);
+      await expect(startDaemon({ port: 0, dataDir, claudeDir, watchFiles: false, log: quiet })).rejects.toMatchObject({ pid: process.pid, withoutLock: false });
       expect((await readDaemonFile(dataDir))?.port).toBe(first.port);
     } finally {
       await first.stop();
@@ -175,7 +175,7 @@ describe('startDaemon and its data directory', () => {
       const port = await listen(other);
       try {
         await claim(dataDir, port);
-        await expect(startDaemon({ port: 0, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet })).rejects.toThrow(DataDirInUseError);
+        await expect(startDaemon({ port: 0, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet })).rejects.toMatchObject({ pid: 4242, withoutLock: true });
         expect(await readdir(dataDir)).not.toContain('scranton.db');
         expect(await dataDirInUse(dataDir)).toBe(false);
         expect((await readDaemonFile(dataDir))?.pid).toBe(4242);

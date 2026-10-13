@@ -1,13 +1,20 @@
 import { chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** Thrown when another process holds the data directory: one daemon runs per directory. */
+/**
+ * Thrown when another process holds the data directory: one daemon runs per directory. That is a daemon holding the lock,
+ * or an older one that never takes it but answers for the directory (withoutLock). pid is the one in daemon.json when known.
+ */
 export class DataDirInUseError extends Error {
   readonly dataDir: string;
+  readonly pid: number | null;
+  readonly withoutLock: boolean;
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, opts: { pid?: number | null; withoutLock?: boolean } = {}) {
     super(`Another scranton-hq daemon is running on ${dataDir}.`);
     this.dataDir = dataDir;
+    this.pid = opts.pid ?? null;
+    this.withoutLock = opts.withoutLock ?? false;
   }
 }
 

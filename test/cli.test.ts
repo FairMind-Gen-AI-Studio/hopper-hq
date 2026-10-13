@@ -198,8 +198,27 @@ describe('cli start and demo', () => {
     const c = capture();
     const args = ['start', '--port', '0', '--no-watch', '--data-dir', dataDir, '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))];
     expect(await main(args, { ...c.io, untilStopped: async () => {} })).toBe(1);
-    expect(c.err).toEqual([`scranton-hq is already running. Check with: scranton-hq status --data-dir ${dataDir}`]);
+    expect(c.err).toEqual([`scranton-hq is already running (process ${process.pid}). Check with: scranton-hq status --data-dir ${dataDir}`]);
     expect(await main(['status', '--format', 'json', '--data-dir', dataDir], capture().io)).toBe(0);
+  });
+
+  it('start names the process of an older daemon that answers without holding the lock, and how to stop it', async () => {
+    const older = await mkdtemp(join(tmpdir(), 'shq-older-'));
+    const token = 'ab'.repeat(24);
+    const server = createServer((req, res) => {
+      res.statusCode = req.headers.authorization === `Bearer ${token}` ? 200 : 401;
+      res.end('{"ok":true}');
+    });
+    const port = await listen(server);
+    try {
+      await writeDaemonFile(older, { port, token, pid: 4242, startedAt: Date.now() });
+      const c = capture();
+      const args = ['start', '--port', '0', '--no-watch', '--data-dir', older, '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))];
+      expect(await main(args, { ...c.io, untilStopped: async () => {} })).toBe(1);
+      expect(c.err).toEqual([`scranton-hq is already running on this data directory (process 4242). Stop it with Ctrl-C where it runs, or with scranton-hq down --data-dir ${older}.`]);
+    } finally {
+      await close(server);
+    }
   });
 
   it('demo says so, and exits, when a demo already runs on its data directory', async () => {

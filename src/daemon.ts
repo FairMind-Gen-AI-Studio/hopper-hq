@@ -10,7 +10,7 @@ import { createGitResolver } from './adapters/git.js';
 import { callDaemon } from './client.js';
 import { Collector } from './collector.js';
 import { DEFAULT_PORT, resolvePaths, type Paths } from './config.js';
-import { removeDaemonFile, writeDaemonFile } from './daemon-file.js';
+import { readDaemonFile, removeDaemonFile, writeDaemonFile } from './daemon-file.js';
 import { DataDirInUseError, lockDataDir, type DataDirLock } from './daemon-lock.js';
 import { loginUrl, UiAuth } from './server/auth.js';
 import { SceneHub } from './server/events.js';
@@ -84,10 +84,12 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   silenceExperimentalWarnings();
   const paths = resolvePaths(opts);
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
-  const lock = await lockDataDir(paths.dataDir);
+  const lock = await lockDataDir(paths.dataDir).catch(async (err) => {
+    throw err instanceof DataDirInUseError ? new DataDirInUseError(paths.dataDir, { pid: (await readDaemonFile(paths.dataDir))?.pid ?? null }) : err;
+  });
   try {
     // A daemon from before the lock never takes it: one that answers with this directory's token still owns the store.
-    if ((await callDaemon<unknown>(paths.dataDir, 'GET', '/api/health', 500))?.ok) throw new DataDirInUseError(paths.dataDir);
+    if ((await callDaemon<unknown>(paths.dataDir, 'GET', '/api/health', 500))?.ok) throw new DataDirInUseError(paths.dataDir, { pid: (await readDaemonFile(paths.dataDir))?.pid, withoutLock: true });
     return await serve(opts, paths, lock);
   } catch (err) {
     lock.release();
