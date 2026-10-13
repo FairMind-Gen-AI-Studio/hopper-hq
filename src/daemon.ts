@@ -120,7 +120,15 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
     store.close();
     throw err;
   }
-  await writeDaemonFile(paths.dataDir, { port, token, pid: process.pid, startedAt: Date.now() });
+  try {
+    await writeDaemonFile(paths.dataDir, { port, token, pid: process.pid, startedAt: Date.now() });
+  } catch (err) {
+    // Without its file nobody can find or stop this daemon: it must not keep listening.
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+    store.close();
+    throw err;
+  }
 
   const fsAdapter = opts.demo || opts.watchFiles === false
     ? null

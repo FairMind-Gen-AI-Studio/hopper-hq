@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -124,6 +125,22 @@ describe('startDaemon and its data directory', () => {
     } finally {
       await close(blocker);
     }
+    expect(await dataDirInUse(dataDir)).toBe(false);
+  });
+
+  it('stops listening and frees the data directory when it cannot write the daemon file', async () => {
+    const dataDir = await tmp();
+    await mkdir(daemonFilePath(dataDir));
+    const probe = createServer();
+    const port = await listen(probe);
+    await close(probe);
+    await expect(startDaemon({ port, dataDir, claudeDir: await tmp(), watchFiles: false, log: quiet })).rejects.toMatchObject({ code: 'EISDIR' });
+    const refused = await new Promise<boolean>((resolve) => {
+      const socket = connect(port, '127.0.0.1');
+      socket.on('connect', () => (socket.destroy(), resolve(false)));
+      socket.on('error', () => resolve(true));
+    });
+    expect(refused).toBe(true);
     expect(await dataDirInUse(dataDir)).toBe(false);
   });
 
