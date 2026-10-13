@@ -337,6 +337,19 @@ describe('WorkflowScanner', () => {
     ]);
   });
 
+  it("reads an agent's meta file only when it is at most 64 KiB", async () => {
+    const s = scanner();
+    await writeRun(R1, [started('a1', 'plan', 'Plan'), started('a2', 'build', 'Build')], NEW);
+    // Exactly 64 KiB, then one byte more.
+    const meta = (pad: string) => JSON.stringify({ agentType: 'workflow-subagent', description: 'ignored', pad });
+    for (const [id, size] of [['a1', 64 * 1024], ['a2', 64 * 1024 + 1]] as const) await writeFile(join(runDir(R1), `agent-${id}.meta.json`), meta('p'.repeat(size - meta('').length)));
+    expect(await scan(s)).toEqual([
+      { type: 'workflow.started', runId: R1 },
+      { type: 'agent.started', agentId: 'a1', agentType: 'workflow-subagent', description: 'plan', runId: R1, phase: 'Plan' },
+      { type: 'agent.started', agentId: 'a2', agentType: 'agent', description: 'build', runId: R1, phase: 'Build' },
+    ]);
+  });
+
   it('follows at most MAX_FOLLOWED_RUNS runs at once: a new run waits until one ends', async () => {
     const s = scanner();
     const id = (i: number) => `wf_0000cccc-${String(i).padStart(3, '0')}`;

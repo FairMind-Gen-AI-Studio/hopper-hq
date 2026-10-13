@@ -233,4 +233,20 @@ describe('FsAdapter', () => {
       expect.objectContaining({ type: 'agent.finished', agentId: 'a1' }),
     ]);
   });
+
+  it("reads a subagent's meta file only when it is at most 64 KiB", async () => {
+    await writeSession(SESSION);
+    await writeTranscript(encodeProjectDir(CWD), LINES);
+    const subDir = join(root, 'projects', encodeProjectDir(CWD), 'S1', 'subagents');
+    await mkdir(subDir, { recursive: true });
+    // Exactly 64 KiB, then one byte more.
+    const meta = (description: string) => JSON.stringify({ agentType: 'Explore', description });
+    for (const [id, size] of [['a1', 64 * 1024], ['a2', 64 * 1024 + 1]] as const) {
+      await writeFile(join(subDir, `agent-${id}.jsonl`), '{}\n');
+      await utimes(join(subDir, `agent-${id}.jsonl`), now / 1000, now / 1000);
+      await writeFile(join(subDir, `agent-${id}.meta.json`), meta('x'.repeat(size - meta('').length)));
+    }
+    await adapter().poll();
+    expect(Object.fromEntries(events.flatMap((e) => (e.type === 'agent.started' ? [[e.agentId, e.agentType]] : [])))).toEqual({ a1: 'Explore', a2: 'agent' });
+  });
 });

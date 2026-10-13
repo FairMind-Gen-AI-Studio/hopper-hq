@@ -13,6 +13,8 @@ export const MAX_FOLLOWED_RUNS = 16;
 const MAX_SCRIPT_BYTES = 256 * 1024;
 /** A run's end file embeds its script and its results: a bigger one is not read. */
 const MAX_END_BYTES = 8 * 1024 * 1024;
+/** An agent's meta file holds a few short fields: a bigger one is not read. */
+const MAX_META_BYTES = 64 * 1024;
 const MAX_PHASES = 32;
 /** Journal reads per run and scan, as for transcripts. */
 const READS_PER_SCAN = 8;
@@ -78,6 +80,12 @@ function endTimes(d: Record<string, unknown>, mtime: number): { start: number; e
   const stamp = typeof d.timestamp === 'string' ? Date.parse(d.timestamp) : NaN;
   const end = Math.min(Number.isFinite(stamp) ? stamp : finite(d.startTime) && finite(d.durationMs) ? d.startTime + d.durationMs : mtime, mtime);
   return { start: finite(d.startTime) ? Math.min(d.startTime, end) : end, end };
+}
+
+/** An agent's meta file, parsed: null unless it is a regular file of at most 64 KiB. Throws when it is missing or not JSON. */
+export async function readAgentMeta(path: string): Promise<unknown> {
+  const s = await stat(path);
+  return s.isFile() && s.size <= MAX_META_BYTES ? JSON.parse(await readFile(path, 'utf8')) : null;
 }
 
 /** The meta of a script copy: only of a regular file of at most 256 KiB whose real path lies in the scripts directory. */
@@ -253,7 +261,7 @@ export class WorkflowScanner {
     if (known) return known;
     let type = 'agent';
     try {
-      const d = JSON.parse(await readFile(join(sessionDir, 'subagents', 'workflows', run.id, `agent-${agentId}.meta.json`), 'utf8')) as { agentType?: unknown } | null;
+      const d = (await readAgentMeta(join(sessionDir, 'subagents', 'workflows', run.id, `agent-${agentId}.meta.json`))) as { agentType?: unknown } | null;
       type = truncate(str(d?.agentType), 80) || 'agent';
     } catch {
       // no meta file: the type stays unknown

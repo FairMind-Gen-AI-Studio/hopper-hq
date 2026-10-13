@@ -1,11 +1,11 @@
-import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { access, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { RawEvent } from '../../core/types.js';
 import type { WorkspaceResolver } from '../git.js';
 import { readHeadLines, readNewLines, readTailLines, type TailState } from './jsonl.js';
 import { isSameProcess, psProbe, readSessionsDir, type LiveSessionFile, type ProcessProbe } from './sessions-dir.js';
 import { parseTranscriptLine } from './transcript.js';
-import { WorkflowScanner } from './workflows.js';
+import { readAgentMeta, WorkflowScanner } from './workflows.js';
 
 export interface FsAdapterOptions {
   claudeDir: string;
@@ -289,13 +289,13 @@ export class FsAdapter {
     if (cached) return cached;
     let meta = { type: 'agent', description: null as string | null };
     try {
-      const d = JSON.parse(await readFile(join(dir, `agent-${id}.meta.json`), 'utf8')) as Record<string, unknown>;
+      const d = (await readAgentMeta(join(dir, `agent-${id}.meta.json`))) as Record<string, unknown> | null;
       meta = {
-        type: typeof d.agentType === 'string' && d.agentType ? d.agentType : 'agent',
-        description: typeof d.description === 'string' && d.description ? d.description : null,
+        type: typeof d?.agentType === 'string' && d.agentType ? d.agentType : 'agent',
+        description: typeof d?.description === 'string' && d.description ? d.description : null,
       };
     } catch {
-      // no meta file: keep the defaults
+      // no meta file, or one that is not JSON: keep the defaults
     }
     t.metas.set(id, meta);
     return meta;
