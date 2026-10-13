@@ -178,9 +178,9 @@ export function createFloorView(
   let press: PointerEvent | null = null;
   /** The last press on a tag went on to the canvas as a drag. */
   let relayed = false;
-  /** The arrows held on the canvas, whether Shift turns them into a turn and a tilt, and when they last moved the camera. */
+  /** The arrows held on the canvas, whether Shift is down with them, and when they last moved the camera. */
   const held = new Set<string>();
-  let turning = false;
+  let shifted = false;
   let keyAt = 0;
 
   function pose(): CameraPose {
@@ -297,7 +297,7 @@ export function createFloorView(
     }
     if (held.size) {
       // A turn asked for while an arrow is held runs first; the arrow takes over again once it ends.
-      if (!tween) applyPose(keyPose(pose(), heldMove(), turning, Math.min(now - keyAt, KEY_STEP_MS) / 1000, (camera.top - camera.bottom) / camera.zoom));
+      if (!tween) applyPose(keyPose(pose(), heldMove(), shifted, Math.min(now - keyAt, KEY_STEP_MS) / 1000, (camera.top - camera.bottom) / camera.zoom));
       keyAt = now;
       again = true;
     }
@@ -428,11 +428,12 @@ export function createFloorView(
   };
   const onTagMenu = (e: Event) => e.preventDefault();
   /**
-   * Enter activates the selected desk or room. An arrow held moves the camera across the floor, and with Shift turns and
-   * tilts it; like a press, it takes the camera from any move under way. Arrows with Ctrl, Cmd or Alt are the browser's.
+   * Enter activates the selected desk or room. Arrows held walk and steer across the floor, and with Shift tilt the view
+   * and step aside (camera.keyPose); like a press, they take the camera from any move under way. Arrows with Ctrl, Cmd
+   * or Alt are the browser's.
    */
   const onKeyDown = (e: KeyboardEvent) => {
-    turning = e.shiftKey;
+    shifted = e.shiftKey;
     if (e.key === 'Enter' && selected !== null && world.focusPoint(selected) !== null) {
       e.preventDefault();
       emit('activate', selected);
@@ -452,7 +453,7 @@ export function createFloorView(
     request();
   };
   const onKeyUp = (e: KeyboardEvent) => {
-    turning = e.shiftKey;
+    shifted = e.shiftKey;
     held.delete(e.key);
   };
   const stopKeys = () => held.clear();

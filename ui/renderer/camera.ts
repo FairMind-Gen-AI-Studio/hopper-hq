@@ -11,8 +11,8 @@ export const MIN_POLAR = 0.2;
 export const MAX_POLAR = 1.3;
 export const QUARTER = Math.PI / 2;
 /**
- * How far held arrow keys carry the camera each second: across the ground, this share of the view's height; with
- * Shift, round the vertical axis and up or down, these angles.
+ * How far held arrow keys carry the camera each second: a walk or a step aside covers this share of the view's height,
+ * and a turn and a tilt these angles.
  */
 export const KEY_PAN = 0.6;
 export const KEY_TURN = QUARTER;
@@ -80,30 +80,24 @@ export interface KeyMove {
 }
 
 /**
- * Where held arrows carry the camera in `seconds`: across the ground, ahead being the way the camera looks, or, with
- * `turn` (Shift), round the vertical axis (left the way Q turns) and up toward straight down or down toward the
- * ground. `shown` is the view's height in world units: a move covers the same share of it at every zoom.
+ * Where held arrows carry the camera in `seconds`. Up and down walk ahead and back, ahead being the way the camera
+ * looks; left and right steer, turning the way ahead about the point the camera looks at, so that a walk curves. With
+ * `shift`, up and down tilt the view, up toward straight down, and left and right step aside. `shown` is the view's
+ * height in world units: a walk covers the same share of it at every zoom.
  */
-export function keyPose(from: CameraPose, move: KeyMove, turn: boolean, seconds: number, shown: number): CameraPose {
-  if (turn) {
-    return {
-      ...from,
-      azimuth: from.azimuth + move.right * KEY_TURN * seconds,
-      polar: move.forward === 0 ? from.polar : clampPolar(from.polar - move.forward * KEY_TILT * seconds),
-    };
-  }
-  const length = Math.hypot(move.forward, move.right);
-  if (length === 0) return from;
-  const step = (KEY_PAN * shown * seconds) / length;
+export function keyPose(from: CameraPose, move: KeyMove, shift: boolean, seconds: number, shown: number): CameraPose {
+  const ahead = shift ? 0 : move.forward;
+  const aside = shift ? move.right : 0;
+  const step = KEY_PAN * shown * seconds;
   const s = Math.sin(from.azimuth);
   const c = Math.cos(from.azimuth);
   // Ahead on the ground is (-sin, -cos), away from the camera; the right of the screen is (cos, -sin).
   return {
-    ...from,
-    target: {
-      x: from.target.x + (-move.forward * s + move.right * c) * step,
-      z: from.target.z + (-move.forward * c - move.right * s) * step,
-    },
+    target: { x: from.target.x + (-ahead * s + aside * c) * step, z: from.target.z + (-ahead * c - aside * s) * step },
+    // Steering left turns the way ahead toward the left of the screen: the azimuth grows.
+    azimuth: shift ? from.azimuth : from.azimuth - move.right * KEY_TURN * seconds,
+    polar: shift && move.forward !== 0 ? clampPolar(from.polar - move.forward * KEY_TILT * seconds) : from.polar,
+    zoom: from.zoom,
   };
 }
 

@@ -804,7 +804,7 @@ describe('the floor view', () => {
     expect(cameraPose(renderer).azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
   });
 
-  it('moves across the floor while an arrow is held on it, and draws on demand again once it is let go', () => {
+  it('walks ahead while up is held on the floor, and draws on demand again once it is let go', () => {
     const { renderer, env, view, canvas } = setup(dayTheme(true));
     view.setFloor(checkoutFloor());
     env.flush();
@@ -821,43 +821,61 @@ describe('the floor view', () => {
     expect(key(canvas, 'keydown', 'ArrowUp', { repeat: true })).toBe(false);
     key(canvas, 'keyup', 'ArrowUp');
     env.flush();
-    const stopped = cameraPose(renderer);
     expect(env.queue.size).toBe(0);
+  });
+
+  it('steers while left or right is held, and walks a curve with up and left together', () => {
+    const { renderer, env, view, canvas } = setup(dayTheme(true));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const home = cameraPose(renderer);
     key(canvas, 'keydown', 'ArrowRight');
     for (let i = 0; i < 10; i++) env.step(16);
     key(canvas, 'keyup', 'ArrowRight');
     env.flush();
+    // Steering right turns the floor the way Q does, about the point the camera looks at.
     const right = cameraPose(renderer);
-    // The right of the screen, from home: x grows and z falls.
-    expect(right.target.x).toBeGreaterThan(stopped.target.x + 0.5);
-    expect(right.target.z).toBeLessThan(stopped.target.z - 0.5);
+    expect(right.azimuth).toBeLessThan(HOME_AZIMUTH - 0.1);
+    expect(right.target.x).toBeCloseTo(home.target.x, 6);
+    expect(right.target.z).toBeCloseTo(home.target.z, 6);
     expect(env.queue.size).toBe(0);
+    key(canvas, 'keydown', 'ArrowUp');
+    key(canvas, 'keydown', 'ArrowLeft');
+    for (let i = 0; i < 20; i++) env.step(16);
+    key(canvas, 'keyup', 'ArrowLeft');
+    key(canvas, 'keyup', 'ArrowUp');
+    env.flush();
+    const curved = cameraPose(renderer);
+    expect(curved.azimuth).toBeGreaterThan(right.azimuth + 0.2);
+    expect(Math.hypot(curved.target.x - right.target.x, curved.target.z - right.target.z)).toBeGreaterThan(0.5);
+    expect(curved.polar).toBeCloseTo(POLAR, 6);
   });
 
-  it('turns and tilts while Shift and an arrow are held, within the tilt limits, and moves again once Shift is let go', () => {
+  it('tilts while Shift and up or down are held, within the tilt limits, steps aside with Shift and left or right, and walks again once Shift is let go', () => {
     const { renderer, env, view, canvas } = setup(dayTheme(true));
     view.setFloor(checkoutFloor());
     env.flush();
+    const home = cameraPose(renderer);
     key(canvas, 'keydown', 'Shift', { shiftKey: true });
     key(canvas, 'keydown', 'ArrowRight', { shiftKey: true });
     for (let i = 0; i < 10; i++) env.step(16);
     key(canvas, 'keyup', 'ArrowRight', { shiftKey: true });
     env.flush();
-    // The way E turns.
-    const turned = cameraPose(renderer);
-    expect(turned.azimuth).toBeGreaterThan(HOME_AZIMUTH + 0.1);
-    expect(turned.polar).toBeCloseTo(POLAR, 6);
+    // The right of the screen, from home: x grows and z falls; no turn.
+    const aside = cameraPose(renderer);
+    expect(aside.target.x).toBeGreaterThan(home.target.x + 0.5);
+    expect(aside.target.z).toBeLessThan(home.target.z - 0.5);
+    expect(aside.azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
     key(canvas, 'keydown', 'ArrowUp', { shiftKey: true });
     for (let i = 0; i < 200; i++) env.step(16);
     const top = cameraPose(renderer);
     expect(top.polar).toBeCloseTo(MIN_POLAR, 6);
-    expect(top.azimuth).toBeCloseTo(turned.azimuth, 6);
-    expect(top.target.x).toBeCloseTo(turned.target.x, 6);
+    expect(top.target.x).toBeCloseTo(aside.target.x, 6);
     key(canvas, 'keyup', 'Shift');
     for (let i = 0; i < 10; i++) env.step(16);
-    const moved = cameraPose(renderer);
-    expect(Math.hypot(moved.target.x - top.target.x, moved.target.z - top.target.z)).toBeGreaterThan(0.5);
-    expect(moved.polar).toBeCloseTo(MIN_POLAR, 6);
+    const walked = cameraPose(renderer);
+    expect(Math.hypot(walked.target.x - top.target.x, walked.target.z - top.target.z)).toBeGreaterThan(0.5);
+    expect(walked.polar).toBeCloseTo(MIN_POLAR, 6);
     key(canvas, 'keyup', 'ArrowUp');
     key(canvas, 'keydown', 'ArrowDown', { shiftKey: true });
     for (let i = 0; i < 300; i++) env.step(16);
@@ -871,9 +889,9 @@ describe('the floor view', () => {
     const { w, h } = checkoutFloor().size;
     view.setFloor(checkoutFloor());
     env.flush();
-    key(canvas, 'keydown', 'ArrowLeft');
+    key(canvas, 'keydown', 'ArrowDown');
     for (let i = 0; i < 600; i++) env.step(16);
-    key(canvas, 'keyup', 'ArrowLeft');
+    key(canvas, 'keyup', 'ArrowDown');
     env.flush();
     const t = cameraPose(renderer).target;
     expect(t.x > -1e-6 && t.x < w + 1e-6 && t.z > -1e-6 && t.z < h + 1e-6).toBe(true);
