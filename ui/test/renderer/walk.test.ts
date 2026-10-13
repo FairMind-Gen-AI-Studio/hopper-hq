@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BLOCK_DESKS, LOUNGE_SEATS, ROOMS_PER_COL, layoutPlan } from '../../../src/scene/layout';
 import type { FloorDetail } from '../../../src/scene/types';
-import { WALK_CELL, lineOfSight, walkGrid, type WalkGrid } from '../../renderer/walk';
-import { elevatorSpot, headSpot, loungeSpots, seatSpot, seatSpots, standSpot, type Point, type Spot } from '../../renderer/world';
+import { WALK_CELL, findPath, lineOfSight, walkGrid, type WalkGrid } from '../../renderer/walk';
+import { deskAnchor, elevatorSpot, headSpot, loungeSpots, seatSpot, seatSpots, standSpot, type Point, type Spot } from '../../renderer/world';
 import { makeFloor, type DeskSpec, type RoomSpec } from './fixtures';
 
 type Plan = Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>;
@@ -232,5 +232,86 @@ describe('lineOfSight', () => {
     expect(lineOfSight(line, { x: 1.99, z: 0.25 }, { x: 2.51, z: 0.25 })).toBe(false);
     expect(lineOfSight(line, { x: 0.1, z: 0.25 }, { x: 1.99, z: 0.25 })).toBe(true);
     expect(lineOfSight(line, { x: 2.6, z: 0.4 }, { x: 4.4, z: 0.1 })).toBe(true);
+  });
+});
+
+describe('findPath', () => {
+  /** A grid drawn as a picture: a line per row of cells, north first, '#' where blocked. */
+  const gridOf = (lines: string[]): WalkGrid => ({ cols: lines[0]!.length, rows: lines.length, blocked: Uint8Array.from(lines.join('').split(''), (ch) => (ch === '#' ? 1 : 0)) });
+  /** The centre of cell (c, r). */
+  const centre = (c: number, r: number): Point => ({ x: (c + 0.5) * WALK_CELL, z: (r + 0.5) * WALK_CELL });
+  /** Whether each step of the walk, from `from` through the path, is in sight. */
+  const inSight = (grid: WalkGrid, from: Point, path: Point[]) => path.every((p, i) => lineOfSight(grid, i === 0 ? from : path[i - 1]!, p));
+
+  it('walks from the elevator to every seat, stand, lounge, room seat and head spot at every plan size, each step in sight, ending exactly on the spot', () => {
+    let walks = 0;
+    for (const { blocks, roomCols } of SIZES) {
+      const floor = fullFloor(blocks, roomCols);
+      const grid = walkGrid(floor);
+      const from = elevatorSpot(floor.core);
+      const bad: string[] = [];
+      for (const [name, to] of spotsOf(floor)) {
+        const path = findPath(grid, from, to);
+        const last = path[path.length - 1]!;
+        if (last.x !== to.x || last.z !== to.z) bad.push(`${name}: ends at ${JSON.stringify(last)}`);
+        if (!inSight(grid, from, path)) bad.push(`${name}: ${JSON.stringify(path)} has a step out of sight`);
+        walks++;
+      }
+      expect(bad, `${blocks}x${roomCols}`).toEqual([]);
+    }
+    expect(walks).toBe(600);
+  });
+
+  const floor = fullFloor(1, 1);
+  const grid = walkGrid(floor);
+  const desks = floor.pods[0]!.desks;
+
+  it('goes straight to an end it can see', () => {
+    expect(findPath(grid, elevatorSpot(floor.core), { x: 9, z: 5 })).toEqual([{ x: 9, z: 5 }]);
+    expect(findPath(grid, { x: 9, z: 5 }, { x: 9.1, z: 5.1 })).toEqual([{ x: 9.1, z: 5.1 }]);
+  });
+
+  it('goes round the desks between two chairs back to back, and through the door to the head of a room', () => {
+    const from = seatSpot(desks[0]!);
+    const to = seatSpot(desks[2]!);
+    expect(findPath(grid, from, to)).toEqual([{ x: 2.75, z: 7.75 }, { x: 2.75, z: 10.25 }, { x: to.x, z: to.z }]);
+    const head = headSpot(floor.roomSlots[1]!);
+    expect(findPath(grid, elevatorSpot(floor.core), head)).toEqual([{ x: 16.25, z: 8.75 }, { x: 18.25, z: 12.25 }, { x: head.x, z: head.z }]);
+  });
+
+  it('leaves a blocked cell by the nearest free one, and ends exactly on a blocked end, from the free cell nearest it', () => {
+    // Standing on a desk top: out to the nearer of the two free cells by its chair (the one west), then on.
+    expect(findPath(grid, deskAnchor(desks[0]!), { x: 9, z: 5 })).toEqual([{ x: 3.75, z: 7.75 }, { x: 9, z: 5 }]);
+    const onDesk = deskAnchor(floor.pods[1]!.desks[2]!);
+    expect(onDesk).toEqual({ x: 12, z: 9.6 });
+    expect(findPath(grid, { x: 9, z: 5 }, onDesk)).toEqual([{ x: 10.75, z: 10.25 }, { x: 11.75, z: 10.25 }, { x: 12, z: 9.6 }]);
+  });
+
+  it('gives [to] when either end is shut in, or every cell is blocked', () => {
+    const box = gridOf(['.....', '.###.', '.#.#.', '.###.', '.....']);
+    expect(findPath(box, centre(0, 0), centre(2, 2))).toEqual([centre(2, 2)]);
+    expect(findPath(box, centre(2, 2), centre(4, 4))).toEqual([centre(4, 4)]);
+    expect(findPath(gridOf(['###', '###']), centre(0, 0), centre(2, 1))).toEqual([centre(2, 1)]);
+  });
+
+  it('never cuts a corner between two blocked cells', () => {
+    // The north-west pocket opens only across the corner of (1, 1): shut in. With (2, 1) open, the way goes round.
+    const pocket = gridOf(['..#..', '..#..', '##...', '.....']);
+    expect(findPath(pocket, centre(0, 0), centre(4, 0))).toEqual([centre(4, 0)]);
+    const open = gridOf(['..#..', '.....', '##...', '.....']);
+    const path = findPath(open, centre(0, 0), centre(4, 0));
+    expect(path).toEqual([centre(3, 1), centre(4, 0)]);
+    expect(inSight(open, centre(0, 0), path)).toBe(true);
+  });
+
+  it('gives the same path for the same ends on any grid of the same plan', () => {
+    const full = fullFloor(4, 2);
+    const from = elevatorSpot(full.core);
+    const to = loungeSpots(full.lounge.rect)[4]!;
+    const path = findPath(walkGrid(full), from, to);
+    // The longest walk from the elevator on the fullest plan: down the east side of the west pods, round the coffee table.
+    expect(path).toEqual([{ x: 7.25, z: 4.25 }, { x: 7.25, z: 38.75 }, { x: 8.25, z: 41.25 }, { x: to.x, z: to.z }]);
+    expect(findPath(walkGrid(emptyFloor(4, 2)), from, to)).toEqual(path);
+    expect(findPath(walkGrid(full), { ...from }, { ...to })).toEqual(path);
   });
 });
