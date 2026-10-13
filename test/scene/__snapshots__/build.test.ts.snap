@@ -78,23 +78,10 @@ exports[`the demo building > matches the snapshot 1`] = `
           "desks": [
             {
               "activity": null,
-              "agentsRunning": 2,
-              "away": false,
+              "agentsRunning": 1,
+              "away": true,
               "focusable": true,
-              "interns": [
-                {
-                  "agentId": "demo-wf-1",
-                  "label": "Implement the split ledger entries",
-                  "running": true,
-                  "type": "general-purpose",
-                },
-                {
-                  "agentId": "demo-wf-2",
-                  "label": "Implement the refund path",
-                  "running": true,
-                  "type": "general-purpose",
-                },
-              ],
+              "interns": [],
               "internsMore": 0,
               "location": "local",
               "name": "payments-svc-d4",
@@ -112,7 +99,19 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "pose": "still",
                 "tie": 4,
               },
-              "runs": [],
+              "runs": [
+                {
+                  "counts": {
+                    "finished": 0,
+                    "running": 1,
+                  },
+                  "endedAt": null,
+                  "name": "checkout-verify",
+                  "runId": "wf_demo-checkout",
+                  "startedAt": 1791709200025,
+                  "status": "running",
+                },
+              ],
               "sessionId": "demo-ps-d4",
               "since": 1791709200027,
               "state": "in_meeting",
@@ -171,7 +170,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "running": true,
                 "since": 1791709200020,
               },
-              "agentsRunning": 1,
+              "agentsRunning": 2,
               "away": false,
               "focusable": true,
               "interns": [
@@ -180,6 +179,12 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "label": "Find every caller of useCart()",
                   "running": true,
                   "type": "Explore",
+                },
+                {
+                  "agentId": "demo-a1-review",
+                  "label": "Check the address form against the design",
+                  "running": true,
+                  "type": "general-purpose",
                 },
               ],
               "internsMore": 0,
@@ -229,12 +234,66 @@ exports[`the demo building > matches the snapshot 1`] = `
         "payments-svc",
         "storefront-web",
       ],
-      "rooms": [],
+      "rooms": [
+        {
+          "agents": [
+            {
+              "agentId": "demo-wf-0",
+              "label": "Map the split payment flow",
+              "phase": "Plan",
+              "running": true,
+              "type": "workflow-subagent",
+            },
+          ],
+          "counts": {
+            "finished": 0,
+            "running": 1,
+          },
+          "host": {
+            "badge": "meeting",
+            "body": 0,
+            "pose": "still",
+            "tie": 4,
+          },
+          "hostSessionId": "demo-ps-d4",
+          "look": {
+            "body": 0,
+            "tie": 4,
+          },
+          "name": "checkout-verify",
+          "phases": [
+            {
+              "state": "current",
+              "title": "Plan",
+            },
+            {
+              "state": "upcoming",
+              "title": "Build",
+            },
+            {
+              "state": "upcoming",
+              "title": "Review",
+            },
+            {
+              "state": "upcoming",
+              "title": "Ship",
+            },
+          ],
+          "rect": {
+            "h": 6,
+            "w": 8,
+            "x": 22,
+            "y": 2,
+          },
+          "runId": "wf_demo-checkout",
+          "summary": "Verify split payments end to end",
+        },
+      ],
       "roomsMore": 0,
       "shutters": false,
       "size": {
         "h": 12,
-        "w": 22,
+        "w": 32,
       },
       "version": 2,
     },
