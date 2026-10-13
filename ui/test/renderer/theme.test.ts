@@ -22,12 +22,13 @@ const NIGHT: Record<string, string> = {
 
 describe('theme tokens', () => {
   it('lists the renderer tokens, the room tokens among them, without the leading dashes', () => {
-    expect(COLOR_TOKENS).toHaveLength(47);
-    expect(new Set(COLOR_TOKENS).size).toBe(47);
+    expect(COLOR_TOKENS).toHaveLength(51);
+    expect(new Set(COLOR_TOKENS).size).toBe(51);
     expect(COLOR_TOKENS).toEqual(expect.arrayContaining(['scene-floor', 'bot-visor', 'accent', 's-nosignal', 'repo-7', 'feature-7', 'feature-none']));
     expect(COLOR_TOKENS).toEqual(expect.arrayContaining(['scene-board', 'bot-hardhat', 'bot-jet']));
     expect([DAY_COLORS['scene-board'], DAY_COLORS['bot-hardhat'], DAY_COLORS['bot-jet']]).toEqual(['#fafafa', '#4a5163', '#6b7280']);
     expect([COLOR_TOKENS.includes('scene-glass'), DAY_COLORS['scene-glass']]).toEqual([true, '#bcd7f2']);
+    expect(['scene-couch', 'scene-bean-a', 'scene-bean-b', 'scene-wood'].map((t) => DAY_COLORS[t as keyof typeof DAY_COLORS])).toEqual(['#d08c6e', '#f2b8c6', '#f3d27a', '#b98a5e']);
     expect(NUMBER_TOKENS).toEqual(['visor-int', 'window-int', 'lamp-int', 'screen-int', 'hemi-int', 'sun-int']);
     for (const name of [...COLOR_TOKENS, ...NUMBER_TOKENS]) expect(name.startsWith('-')).toBe(false);
     expect(Object.keys(DAY_COLORS).sort()).toEqual([...COLOR_TOKENS].sort());

@@ -130,7 +130,7 @@ describe('desks', () => {
     const { geo, mats } = kit();
     const desk = desksOf(checkoutFloor()).find((d) => d.sessionId === 'oa-c3')!;
     const obj = buildDesk(desk, geo, mats);
-    const a = deskAnchor(desk.rect);
+    const a = deskAnchor({ rect: desk.rect, chair: 'south' });
     expect(obj.group.position.toArray()).toEqual([a.x, 0, a.z]);
     expect(obj.pickables).toHaveLength(5);
     for (const m of obj.pickables) expect(m.userData.pick as PickData).toEqual({ kind: 'desk', id: 'oa-c3' });

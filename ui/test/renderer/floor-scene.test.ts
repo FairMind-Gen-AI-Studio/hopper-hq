@@ -63,7 +63,7 @@ describe('the floor scene', () => {
     const picks = new Set(fs.pickables());
     expect(gone.obj.pickables.some((m) => picks.has(m))).toBe(false);
     expect(fs.desks.get('sw-x9')!.obj.group.parent).toBe(fs.scene);
-    expect(fs.desks.get('sw-x9')!.obj.group.position.x).toBe(deskAnchor(gone.desk.rect).x);
+    expect(fs.desks.get('sw-x9')!.obj.group.position.x).toBe(deskAnchor({ rect: gone.desk.rect, chair: 'south' }).x);
   });
 
   it('rebuilds the shell only when the layout changes, and frees the old one', () => {
@@ -140,9 +140,9 @@ describe('the floor scene', () => {
     expect(fs.ring.visible).toBe(true);
     expect([fs.ring.position.x, fs.ring.position.z]).toEqual([robotSpot(desk)!.x, robotSpot(desk)!.z]);
     fs.setSelected(deskTarget('ps-f7'));
-    const empty = fs.desks.get('ps-f7')!.desk;
-    expect([fs.ring.position.x, fs.ring.position.z]).toEqual([seatSpot(empty.rect).x, seatSpot(empty.rect).z]);
-    expect(fs.focusPoint(deskTarget('ps-f7'))).toEqual({ x: seatSpot(empty.rect).x, z: seatSpot(empty.rect).z });
+    const empty = seatSpot({ rect: fs.desks.get('ps-f7')!.desk.rect, chair: 'south' });
+    expect([fs.ring.position.x, fs.ring.position.z]).toEqual([empty.x, empty.z]);
+    expect(fs.focusPoint(deskTarget('ps-f7'))).toEqual({ x: empty.x, z: empty.z });
     fs.setSelected(deskTarget('nobody'));
     expect(fs.ring.visible).toBe(false);
     expect(fs.focusPoint(deskTarget('nobody'))).toBeNull();
@@ -447,11 +447,11 @@ describe('interns and away desks', () => {
     return makeFloor(islands);
   };
 
-  it('flies the running interns in an arc behind the desk monitor, small and in the desk robot colours, and none that finished', () => {
+  it('flies the running interns in an arc over the desk, small and in the desk robot colours, and none that finished', () => {
     const fs = sceneOf(withInterns([intern('i1'), intern('i2', false), intern('i3')]));
     const entry = fs.desks.get('sw-a1')!;
     expect([...entry.interns.keys()]).toEqual(['i1', 'i3']);
-    const spots = internSpots(entry.desk.rect);
+    const spots = internSpots({ rect: entry.desk.rect, chair: 'south' });
     [...entry.interns.values()].forEach((robot, k) => {
       expect(robot.group.parent).toBe(fs.scene);
       expect([robot.kind, robot.body, robot.tie]).toEqual(['intern', entry.robot!.body, entry.robot!.tie]);
@@ -475,7 +475,7 @@ describe('interns and away desks', () => {
     const [i1, i2] = [...entry.interns.values()];
     fs.apply(withInterns([intern('i1', false), intern('i2')]));
     expect([...entry.interns.values()]).toEqual([i2]);
-    const middle = internSpots(entry.desk.rect)[0]!;
+    const middle = internSpots({ rect: entry.desk.rect, chair: 'south' })[0]!;
     expect([i2!.group.position.x, i2!.group.position.z]).toEqual([middle.x, middle.z]);
     expect(i1!.group.parent).toBeNull();
     const islands = checkoutIslands();
@@ -498,7 +498,8 @@ describe('interns and away desks', () => {
     expect(fs.desks.get('sw-a1')!.robot!.group.visible).toBe(true);
     // The ring still marks the empty chair.
     fs.setSelected(deskTarget('ps-d4'));
-    expect([fs.ring.position.x, fs.ring.position.z]).toEqual([seatSpot(entry.desk.rect).x, seatSpot(entry.desk.rect).z]);
+    const chair = seatSpot({ rect: entry.desk.rect, chair: 'south' });
+    expect([fs.ring.position.x, fs.ring.position.z]).toEqual([chair.x, chair.z]);
     fs.apply(checkoutFloor());
     expect(entry.robot).toBe(robot);
     expect(robot.group.visible).toBe(true);

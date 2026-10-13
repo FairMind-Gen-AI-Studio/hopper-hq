@@ -204,7 +204,7 @@ function key(canvas: HTMLCanvasElement, type: 'keydown' | 'keyup', name: string,
 
 function deskPoint(renderer: FakeRenderer, id: string): { x: number; y: number } {
   const desk = desksOf(checkoutFloor()).find((d) => d.sessionId === id)!;
-  const a = deskAnchor(desk.rect);
+  const a = deskAnchor({ rect: desk.rect, chair: 'south' });
   return screenOf(renderer, a.x, 0.74, a.z);
 }
 

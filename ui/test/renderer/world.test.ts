@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { INTERNS_MAX, SEATS_MAX } from '../../../src/scene/layout';
+import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX, layoutPlan } from '../../../src/scene/layout';
+import type { Occupant, Place, PodDesk } from '../../../src/scene/types';
 import {
+  BEANBAG_X,
   BOARD,
   CAMERA_DISTANCE,
+  CHAIR_Z,
+  COUCH_Z,
   DOOR_W,
+  ELEVATOR_STEP,
   FRAME_MARGIN,
   HOME_AZIMUTH,
   LABEL_Y,
@@ -17,12 +22,15 @@ import {
   cellToWorld,
   deskAnchor,
   doorGap,
+  elevatorSpot,
   floorCenter,
   frustumFor,
   headSpot,
   internSpots,
   labelAnchor,
+  loungeSpots,
   placardAnchor,
+  placeSpot,
   polarOf,
   robotSpot,
   roomKey,
@@ -35,10 +43,16 @@ import {
   visibleWalls,
   type Point,
 } from '../../renderer/world';
-import { makeDesk } from './fixtures';
+import { checkoutOf, checkoutIslands, makeDesk, makeOccupant } from './fixtures';
 
 const RECT = { x: 3, y: 7, w: 2, h: 2 };
+/** A desk of a pod's south row, chair on its south edge (as every version 2 desk), and one of its north row. */
+const SOUTH: Pick<PodDesk, 'rect' | 'chair'> = { rect: RECT, chair: 'south' };
+const NORTH: Pick<PodDesk, 'rect' | 'chair'> = { rect: RECT, chair: 'north' };
 const QUARTER = Math.PI / 2;
+/** How far the monitor stands from the desk top's centre, away from the chair (props.ts). */
+const MONITOR_Z = 0.24;
+const dist = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.z - b.z);
 
 describe('world maths', () => {
   it('maps a grid cell to the ground plane, one cell per metre', () => {
@@ -46,57 +60,127 @@ describe('world maths', () => {
     expect(floorCenter({ w: 22, h: 12 })).toEqual({ x: 11, z: 6 });
   });
 
-  it('puts the desk top toward the north edge of its cells and the chair toward the south edge', () => {
-    expect(deskAnchor(RECT)).toEqual({ x: 4, z: 7.6 });
-    const seat = seatSpot(RECT);
+  it('puts the desk top toward the edge opposite the chair, the chair toward its own edge, and a robot facing the monitor', () => {
+    expect(deskAnchor(SOUTH)).toEqual({ x: 4, z: 7.6 });
+    const seat = seatSpot(SOUTH);
     expect(seat.x).toBe(4);
     expect(seat.z).toBeCloseTo(8.38, 10);
     expect(seat.facing).toBe(Math.PI);
-    const stand = standSpot(RECT);
+    const stand = standSpot(SOUTH);
     expect(stand.x).toBeCloseTo(4.6, 10);
     expect(stand.z).toBeCloseTo(8.48, 10);
     expect(stand.facing).toBe(0);
-    // Both spots stay inside the desk's own cells.
-    for (const s of [seat, stand]) {
+    // The north row is the south row turned round: the chair on the north edge, the robot facing south.
+    expect(deskAnchor(NORTH)).toEqual({ x: 4, z: 8.4 });
+    const north = seatSpot(NORTH);
+    expect([north.x, north.facing]).toEqual([4, 0]);
+    expect(north.z).toBeCloseTo(7.62, 10);
+    const up = standSpot(NORTH);
+    expect([up.facing]).toEqual([Math.PI]);
+    expect(up.x).toBeCloseTo(4.6, 10);
+    expect(up.z).toBeCloseTo(7.52, 10);
+    // Every spot stays inside the desk's own cells.
+    for (const s of [seat, stand, north, up]) {
       expect(s.x).toBeGreaterThan(RECT.x);
       expect(s.x).toBeLessThan(RECT.x + RECT.w);
+      expect(s.z).toBeGreaterThan(RECT.y);
       expect(s.z).toBeLessThan(RECT.y + RECT.h);
     }
   });
 
   it('seats a robot by pose, stands it when it waves or holds a result, and has none for a dormant desk', () => {
     const at = (state: Parameters<typeof makeDesk>[0]['state']) => robotSpot(makeDesk({ id: 'x', state }, RECT, 0, null));
-    for (const state of ['working', 'in_meeting', 'no_signal', 'idle'] as const) expect(at(state)).toEqual(seatSpot(RECT));
-    for (const state of ['needs_you', 'done'] as const) expect(at(state)).toEqual(standSpot(RECT));
+    for (const state of ['working', 'in_meeting', 'no_signal', 'idle'] as const) expect(at(state)).toEqual(seatSpot(SOUTH));
+    for (const state of ['needs_you', 'done'] as const) expect(at(state)).toEqual(standSpot(SOUTH));
     expect(at('dormant')).toBeNull();
   });
 
-  it('floats the interns in an arc behind the monitor, inside the desk cells, turned toward the middle', () => {
-    const a = deskAnchor(RECT);
-    const spots = internSpots(RECT);
-    expect(spots).toHaveLength(INTERNS_MAX);
-    for (const s of spots) {
-      // The monitor stands 0.24 m north of the desk top's centre: the interns hover north of it.
-      expect(s.z).toBeLessThan(a.z - 0.24 - 0.05);
-      expect(s.z).toBeGreaterThan(RECT.y);
-      expect(s.x).toBeGreaterThan(RECT.x);
-      expect(s.x).toBeLessThan(RECT.x + RECT.w);
+  it('floats the interns over the desk\'s own half, between its monitor and its chair, turned toward the middle', () => {
+    for (const desk of [SOUTH, NORTH]) {
+      const a = deskAnchor(desk);
+      // Toward the chair: south for the south row, north for the north row.
+      const sign = desk.chair === 'south' ? 1 : -1;
+      const spots = internSpots(desk);
+      expect(spots).toHaveLength(INTERNS_MAX);
+      for (const s of spots) {
+        expect(sign * (s.z - a.z) + MONITOR_Z).toBeGreaterThanOrEqual(0.25);
+        expect(sign * (s.z - a.z)).toBeLessThan(CHAIR_Z);
+        expect(s.x).toBeGreaterThan(RECT.x);
+        expect(s.x).toBeLessThan(RECT.x + RECT.w);
+      }
+      const [middle, west, east] = spots;
+      expect([middle!.x, middle!.facing]).toEqual([a.x, sign === 1 ? 0 : Math.PI]);
+      expect(west!.x).toBeLessThan(a.x);
+      expect(east!.x).toBeGreaterThan(a.x);
+      // The arc bows toward the chair in the middle, and its ends turn in.
+      expect(sign * (middle!.z - west!.z)).toBeGreaterThan(0);
+      expect(west!.z).toBe(east!.z);
+      expect(Math.sin(west!.facing)).toBeGreaterThan(0);
+      expect(Math.sin(east!.facing)).toBeCloseTo(-Math.sin(west!.facing), 10);
     }
-    const [middle, west, east] = spots;
-    expect([middle!.x, middle!.facing]).toEqual([a.x, 0]);
-    expect(west!.x).toBeLessThan(a.x);
-    expect(east!.x).toBeGreaterThan(a.x);
-    // The arc bows away from the desk in the middle, and its ends turn in.
-    expect(middle!.z).toBeLessThan(west!.z);
-    expect(west!.z).toBe(east!.z);
-    expect(west!.facing).toBeGreaterThan(0);
-    expect(east!.facing).toBe(-west!.facing);
+  });
+
+  it('keeps every two intern spots of a pod at least half a metre apart', () => {
+    const spots = layoutPlan({ blocks: 1, roomCols: 1 }).pods[0]!.desks.flatMap((d) => internSpots(d));
+    expect(spots).toHaveLength(4 * INTERNS_MAX);
+    spots.forEach((s, i) => {
+      for (const other of spots.slice(i + 1)) expect(dist(s, other)).toBeGreaterThanOrEqual(0.5);
+    });
+  });
+
+  it('seats the lounge: the north couch west to east, the south couch west to east, then the west and east beanbags, each facing the table', () => {
+    const lounge = layoutPlan({ blocks: 1, roomCols: 1 }).lounge;
+    const c = { x: lounge.x + lounge.w / 2, z: lounge.y + lounge.h / 2 };
+    const spots = loungeSpots(lounge);
+    expect(spots).toHaveLength(LOUNGE_SEATS);
+    const [n0, n1, n2, s0, s1, s2, west, east] = spots;
+    for (const row of [[n0!, n1!, n2!], [s0!, s1!, s2!]]) {
+      expect(row[0]!.x).toBeLessThan(row[1]!.x);
+      expect(row[1]!.x).toBe(c.x);
+      expect(row[1]!.x).toBeLessThan(row[2]!.x);
+      expect(new Set(row.map((s) => s.z)).size).toBe(1);
+    }
+    expect(n0!.z).toBeLessThan(c.z);
+    expect(n0!.z).toBeGreaterThan(c.z - COUCH_Z);
+    expect(s0!.z).toBeGreaterThan(c.z);
+    expect([n0!.facing, s0!.facing]).toEqual([0, Math.PI]);
+    expect([west, east]).toEqual([{ x: c.x - BEANBAG_X, z: c.z, facing: QUARTER }, { x: c.x + BEANBAG_X, z: c.z, facing: -QUARTER }]);
+    spots.forEach((s, i) => {
+      expect(s.x).toBeGreaterThan(lounge.x);
+      expect(s.x).toBeLessThan(lounge.x + lounge.w);
+      expect(s.z).toBeGreaterThan(lounge.y);
+      expect(s.z).toBeLessThan(lounge.y + lounge.h);
+      for (const other of spots.slice(i + 1)) expect(dist(s, other)).toBeGreaterThanOrEqual(0.5);
+    });
+  });
+
+  it('steps out of the elevator in the middle of the core, just inside the doors, facing south', () => {
+    const core = layoutPlan({ blocks: 1, roomCols: 1 }).core;
+    expect(elevatorSpot(core)).toEqual({ x: core.x + core.w / 2, z: ELEVATOR_STEP, facing: 0 });
+    expect(ELEVATOR_STEP).toBeLessThan(core.y);
+  });
+
+  it('places a robot where its occupant is: at its desk by pose, on its lounge seat, at the head of its room, nowhere when gone', () => {
+    const plan = layoutPlan({ blocks: 1, roomCols: 2 });
+    const floor = { lounge: { rect: plan.lounge, seats: LOUNGE_SEATS }, roomSlots: plan.rooms };
+    const island = checkoutIslands()[0]!;
+    const who = (state: Occupant['state'], at: Place) => makeOccupant({ id: 'x', state }, 0, null, checkoutOf(island), at);
+    const desk = plan.pods[0]!.desks[1]!;
+    expect(placeSpot(floor, desk, who('working', { kind: 'desk' }))).toEqual(seatSpot(desk));
+    expect(placeSpot(floor, desk, who('needs_you', { kind: 'desk' }))).toEqual(standSpot(desk));
+    expect(placeSpot(floor, desk, who('idle', { kind: 'lounge', seat: 6 }))).toEqual(loungeSpots(plan.lounge)[6]);
+    expect(placeSpot(floor, desk, who('in_meeting', { kind: 'room', slot: 3 }))).toEqual(headSpot(plan.rooms[3]!));
+    expect(placeSpot(floor, desk, who('dormant', { kind: 'gone' }))).toBeNull();
+    // Nowhere to be: no desk, a seat or a slot the floor does not have.
+    expect(placeSpot(floor, null, who('working', { kind: 'desk' }))).toBeNull();
+    expect(placeSpot(floor, desk, who('idle', { kind: 'lounge', seat: LOUNGE_SEATS }))).toBeNull();
+    expect(placeSpot({ ...floor, roomSlots: plan.rooms.slice(0, 2) }, desk, who('in_meeting', { kind: 'room', slot: 3 }))).toBeNull();
   });
 
   it('hangs a desk label above the robot, or above the monitor of an empty desk', () => {
     const label = (state: Parameters<typeof makeDesk>[0]['state']) => labelAnchor(makeDesk({ id: 'x', state }, RECT, 0, null));
-    expect(label('working')).toEqual({ ...pick(seatSpot(RECT)), y: LABEL_Y.seated });
-    expect(label('needs_you')).toEqual({ ...pick(standSpot(RECT)), y: LABEL_Y.standing });
+    expect(label('working')).toEqual({ ...pick(seatSpot(SOUTH)), y: LABEL_Y.seated });
+    expect(label('needs_you')).toEqual({ ...pick(standSpot(SOUTH)), y: LABEL_Y.standing });
     expect(label('dormant')).toEqual({ x: 4, y: LABEL_Y.empty, z: 7.6 });
     expect(placardAnchor({ x: 2, y: 6, w: 4, h: 4 })).toEqual({ x: 2.2, y: 0.02, z: 9.85 });
   });

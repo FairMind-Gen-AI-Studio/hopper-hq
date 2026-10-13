@@ -190,7 +190,7 @@ export class FloorScene {
     }
     const entry = this.entries.get(target.id);
     if (!entry) return null;
-    const spot = robotSpot(entry.desk) ?? seatSpot(entry.desk.rect);
+    const spot = robotSpot(entry.desk) ?? seatSpot({ rect: entry.desk.rect, chair: 'south' });
     return { x: spot.x, z: spot.z };
   }
 
@@ -270,7 +270,7 @@ export class FloorScene {
    */
   private syncInterns(entry: DeskEntry): void {
     const { desk } = entry;
-    const spots = internSpots(desk.rect);
+    const spots = internSpots({ rect: desk.rect, chair: 'south' });
     const flying = desk.robot ? desk.interns.filter((i) => i.running).slice(0, spots.length) : [];
     const look: Robot = { pose: 'still', badge: null, body: desk.robot?.body ?? 0, tie: desk.robot?.tie ?? null };
     this.syncCrew(entry.interns, flying.map((i, k) => [i.agentId, spots[k]!]), look, (id) => {

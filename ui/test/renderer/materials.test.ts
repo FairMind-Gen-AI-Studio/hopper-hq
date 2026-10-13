@@ -18,6 +18,7 @@ function nightTheme(): ThemeTokens {
   t.colors['bot-hardhat'] = '#d3d8e0';
   t.colors['bot-jet'] = '#9aa3b2';
   t.colors['s-meeting'] = '#9b8cff';
+  t.colors['scene-couch'] = '#8e5a47';
   t.numbers['visor-int'] = 1.8;
   t.numbers['screen-int'] = 2;
   return t;
@@ -55,6 +56,17 @@ describe('materials', () => {
     const tint = new Color(theme.colors['scene-floor']).lerp(new Color(theme.colors['s-meeting']), ROOM_MIX);
     expect(hex(m.surface.roomFloor.color)).toBe(hex(tint));
     expect([m.surface.board.transparent, m.surface.hardhat.transparent, m.surface.roomFloor.transparent]).toEqual([false, false, false]);
+  });
+
+  it('colours the couches, the beanbags and the coffee table from their tokens, and tints the lounge rug toward the couches', () => {
+    for (const theme of [dayTheme(), nightTheme()]) {
+      const m = new Materials(theme);
+      expect([m.surface.couch, m.surface.beanA, m.surface.beanB, m.surface.wood].map((mat) => hex(mat.color))).toEqual(
+        (['scene-couch', 'scene-bean-a', 'scene-bean-b', 'scene-wood'] as const).map((t) => theme.colors[t]),
+      );
+      const tint = new Color(theme.colors['scene-floor']).lerp(new Color(theme.colors['scene-couch']), 0.25);
+      expect(hex(m.surface.loungeRug.color)).toBe(hex(tint));
+    }
   });
 
   it('makes the partitions see-through glass in the glass colour, which writes no depth', () => {
@@ -119,6 +131,7 @@ describe('materials', () => {
     expect(hex(m.surface.hardhat.color)).toBe('#d3d8e0');
     expect(hex(m.surface.jet.color)).toBe('#9aa3b2');
     expect(hex(m.surface.roomFloor.color)).toBe(hex(new Color('#3a3f55').lerp(new Color('#9b8cff'), ROOM_MIX)));
+    expect(hex(m.surface.couch.color)).toBe('#8e5a47');
   });
 
   it('frees every material once', () => {
@@ -127,6 +140,6 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    expect(m.all().length).toBe(24 + 3 * 8 + 8 + 1 + 6 + 1);
+    expect(m.all().length).toBe(29 + 3 * 8 + 8 + 1 + 6 + 1);
   });
 });

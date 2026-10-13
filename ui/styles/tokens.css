@@ -49,6 +49,7 @@
   --scene-floor: #E5E1EA; --scene-wall: #EEE8E0; --scene-base: #D3CBC2; --scene-desk: #EFE8DA; --scene-leg: #3A3F4B;
   --scene-chair: #7C8DB0; --scene-monitor: #23262E; --scene-key: #D9DCE3; --scene-plant: #4E9A5A; --scene-pot: #C46E4F;
   --scene-elevator: #A9B0BC; --scene-frame: #5C6170; --scene-paper: #FFFFFF; --scene-board: #FAFAFA; --scene-glass: #BCD7F2;
+  --scene-couch: #D08C6E; --scene-bean-a: #F2B8C6; --scene-bean-b: #F3D27A; --scene-wood: #B98A5E;
   --bot-shell: #D5DAE1; --bot-visor: #7FE7FF; --bot-hardhat: #4A5163; --bot-jet: #6B7280; --window-glow: #CFE4F7; --lamp-glow: #FFE2A8;
   --hemi-sky: #FFFFFF; --hemi-ground: #B9B2C4; --sun: #FFF4E5; --accent: #2C59C9;
 
@@ -75,6 +76,7 @@
     --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
     --scene-chair: #4F5B7A; --scene-monitor: #0E1015; --scene-key: #6B7080; --scene-plant: #2F6B3B; --scene-pot: #7E4532;
     --scene-elevator: #5E6575; --scene-frame: #2A2E3A; --scene-paper: #E4E7EE; --scene-board: #C9CED8; --scene-glass: #6E8DB8;
+    --scene-couch: #8E5A47; --scene-bean-a: #9C6B78; --scene-bean-b: #9C8A50; --scene-wood: #7A5B40;
     --bot-shell: #7E8796; --bot-visor: #8FF0FF; --bot-hardhat: #D3D8E0; --bot-jet: #9AA3B2; --window-glow: #2A3A6E; --lamp-glow: #FFC870;
     --hemi-sky: #8EA2D8; --hemi-ground: #1A1D2A; --sun: #9DB4FF; --accent: #7EA4FF;
     --s-working: #FFD27A; --s-needs: #FF5A5F; --s-done: #3DD68C; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A;
@@ -95,6 +97,7 @@
   --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
   --scene-chair: #4F5B7A; --scene-monitor: #0E1015; --scene-key: #6B7080; --scene-plant: #2F6B3B; --scene-pot: #7E4532;
   --scene-elevator: #5E6575; --scene-frame: #2A2E3A; --scene-paper: #E4E7EE; --scene-board: #C9CED8; --scene-glass: #6E8DB8;
+  --scene-couch: #8E5A47; --scene-bean-a: #9C6B78; --scene-bean-b: #9C8A50; --scene-wood: #7A5B40;
   --bot-shell: #7E8796; --bot-visor: #8FF0FF; --bot-hardhat: #D3D8E0; --bot-jet: #9AA3B2; --window-glow: #2A3A6E; --lamp-glow: #FFC870;
   --hemi-sky: #8EA2D8; --hemi-ground: #1A1D2A; --sun: #9DB4FF; --accent: #7EA4FF;
   --s-working: #FFD27A; --s-needs: #FF5A5F; --s-done: #3DD68C; --s-meeting: #9B8CFF; --s-nosignal: #D9A04A;

@@ -77,7 +77,7 @@ describe('picking', () => {
     fs.scene.updateMatrixWorld(true);
     const camera = isoCamera(floor.size);
     for (const d of desksOf(floor)) {
-      const a = deskAnchor(d.rect);
+      const a = deskAnchor({ rect: d.rect, chair: 'south' });
       expect(pickTarget(camera, ndcOf(camera, a.x, 0.74, a.z), fs.pickables()), d.sessionId).toEqual(desk(d.sessionId));
     }
     expect(pickTarget(camera, new Vector2(0.98, 0.98), fs.pickables())).toBeNull();

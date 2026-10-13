@@ -2,8 +2,8 @@
  * Where things stand on a floor, in world units. Pure maths: no three.js objects and no DOM.
  * One grid cell is one metre. Grid x is world x (east), grid y is world z (south), and world y points up.
  */
-import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
-import type { Desk, GridRect, MeetingRoom, Pose } from '../../src/scene/types';
+import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX } from '../../src/scene/layout';
+import type { Desk, FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Pose } from '../../src/scene/types';
 import type { Target } from './index';
 
 /** Wall height and thickness. */
@@ -42,28 +42,38 @@ export function rectCenter(r: GridRect): Point {
 }
 
 /**
- * A desk fills its 2x2 cells: the top, with the monitor on its north edge, sits toward the north edge of the cells,
- * and the chair toward the south edge. A seated robot faces the monitor; a standing one stands east of the chair,
- * facing the room.
+ * A desk fills its 2x2 cells: the top, with the monitor on the edge opposite the chair, sits toward that edge of the
+ * cells, and the chair toward its own edge. A seated robot faces the monitor; a standing one stands east of the chair,
+ * facing away from the desk. Below, distances run from the desk top's centre toward the chair.
  */
 export const DESK_TOP_Z = 0.6;
 export const CHAIR_Z = 0.78;
 export const STAND_X = 0.6;
 export const STAND_Z = 0.88;
 
-/** The centre of the desk top on the ground plane: the origin of the desk's furniture. */
-export function deskAnchor(rect: GridRect): Point {
-  return { x: rect.x + rect.w / 2, z: rect.y + DESK_TOP_Z };
+/** 1 when the chair is on the desk's south edge, -1 when it is on its north edge: the sign of the way to the chair. */
+function toChair(desk: Pick<PodDesk, 'chair'>): 1 | -1 {
+  return desk.chair === 'south' ? 1 : -1;
 }
 
-export function seatSpot(rect: GridRect): Spot {
-  const a = deskAnchor(rect);
-  return { x: a.x, z: a.z + CHAIR_Z, facing: Math.PI };
+/** The centre of the desk top on the ground plane: toward the edge opposite the chair. */
+export function deskAnchor(desk: Pick<PodDesk, 'rect' | 'chair'>): Point {
+  const r = desk.rect;
+  return { x: r.x + r.w / 2, z: desk.chair === 'south' ? r.y + DESK_TOP_Z : r.y + r.h - DESK_TOP_Z };
 }
 
-export function standSpot(rect: GridRect): Spot {
-  const a = deskAnchor(rect);
-  return { x: a.x + STAND_X, z: a.z + STAND_Z, facing: 0 };
+/** On the chair, facing the monitor. */
+export function seatSpot(desk: Pick<PodDesk, 'rect' | 'chair'>): Spot {
+  const a = deskAnchor(desk);
+  const s = toChair(desk);
+  return { x: a.x, z: a.z + s * CHAIR_Z, facing: s === 1 ? Math.PI : 0 };
+}
+
+/** Beside the chair, facing away from the desk. */
+export function standSpot(desk: Pick<PodDesk, 'rect' | 'chair'>): Spot {
+  const a = deskAnchor(desk);
+  const s = toChair(desk);
+  return { x: a.x + STAND_X, z: a.z + s * STAND_Z, facing: s === 1 ? 0 : Math.PI };
 }
 
 /** Poses that stand up from the desk; the others sit. */
@@ -71,25 +81,65 @@ export function isStanding(pose: Pose): boolean {
   return pose === 'waving' || pose === 'holding';
 }
 
+/** A version 2 desk: its monitor on its north edge, its chair on its south edge. */
+function chairSouth(desk: Desk): Pick<PodDesk, 'rect' | 'chair'> {
+  return { rect: desk.rect, chair: 'south' };
+}
+
 /** Where the desk's robot is: on the chair, or beside it; null when the desk is empty (dormant). */
 export function robotSpot(desk: Desk): Spot | null {
   if (!desk.robot) return null;
-  return isStanding(desk.robot.pose) ? standSpot(desk.rect) : seatSpot(desk.rect);
+  return isStanding(desk.robot.pose) ? standSpot(chairSouth(desk)) : seatSpot(chairSouth(desk));
 }
 
 /**
- * Where a desk's interns hover: in an arc behind its monitor, the first in the middle and the others either side, a
- * little nearer the desk and turned toward the middle. Desks stand edge to edge, so the interns stay in its cells.
+ * Where a desk's interns hover: over the desk's own half, between its monitor and its chair, the first in the middle and
+ * the others either side, a little nearer the monitor and turned toward the middle. They face the chair. Back to back,
+ * two desks' interns stay over their own desks.
  */
 const INTERN_ARC = [
-  { dx: 0, dz: -0.45, facing: 0 },
-  { dx: -0.55, dz: -0.36, facing: 0.3 },
-  { dx: 0.55, dz: -0.36, facing: -0.3 },
+  { dx: 0, dz: 0.12, facing: 0 },
+  { dx: -0.55, dz: 0.02, facing: 0.3 },
+  { dx: 0.55, dz: 0.02, facing: -0.3 },
 ] as const;
 
-export function internSpots(rect: GridRect): Spot[] {
-  const a = deskAnchor(rect);
-  return INTERN_ARC.slice(0, INTERNS_MAX).map((p) => ({ x: a.x + p.dx, z: a.z + p.dz, facing: p.facing }));
+/** INTERNS_MAX spots at HOVER_Y over the desk's own half, between its monitor and its chair, clear of the monitors. The arcs of two back-to-back desks never meet: every two spots in a pod are at least 0.5 m apart. */
+export function internSpots(desk: Pick<PodDesk, 'rect' | 'chair'>): Spot[] {
+  const a = deskAnchor(desk);
+  const s = toChair(desk);
+  return INTERN_ARC.slice(0, INTERNS_MAX).map((p) => ({ x: a.x + p.dx, z: a.z + s * p.dz, facing: s === 1 ? p.facing : Math.PI - p.facing }));
+}
+
+/**
+ * The lounge, around its centre (prototypes/floor-3d-mockup.html): a coffee table, two three-seat couches facing each
+ * other across it, north and south, and a beanbag at each end of the table, west and east.
+ */
+export const COUCH = { w: 2.6, d: 0.9 } as const;
+/** How far north and south of the lounge's centre the couches stand, and the gap between two seats of a couch. */
+export const COUCH_Z = 1.3;
+export const COUCH_SEAT_GAP = 0.8;
+/** A seat sits this much nearer the table than its couch's centre. */
+export const COUCH_SEAT_IN = 0.1;
+export const COFFEE_TABLE = { w: 1.6, d: 0.8 } as const;
+/** How far west and east of the lounge's centre the beanbags sit, and their radius. */
+export const BEANBAG_X = 2.2;
+export const BEANBAG_R = 0.5;
+
+/** LOUNGE_SEATS spots in seat order: the north couch west to east (3), the south couch west to east (3), the west beanbag, the east beanbag. */
+export function loungeSpots(lounge: GridRect): Spot[] {
+  const c = rectCenter(lounge);
+  // Each couch faces the table: the north one south, the south one north.
+  const couch = (sign: 1 | -1) => [-1, 0, 1].map((k): Spot => ({ x: c.x + k * COUCH_SEAT_GAP, z: c.z + sign * (COUCH_Z - COUCH_SEAT_IN), facing: sign === 1 ? Math.PI : 0 }));
+  const spots = [...couch(-1), ...couch(1), { x: c.x - BEANBAG_X, z: c.z, facing: Math.PI / 2 }, { x: c.x + BEANBAG_X, z: c.z, facing: -Math.PI / 2 }];
+  return spots.slice(0, LOUNGE_SEATS);
+}
+
+/** How far into the floor, from the north wall, a robot stands once out of the elevator. */
+export const ELEVATOR_STEP = 0.8;
+
+/** Just inside the elevator doors, facing south. */
+export function elevatorSpot(core: GridRect): Spot {
+  return { x: core.x + core.w / 2, z: ELEVATOR_STEP, facing: 0 };
 }
 
 /** Height of a desk label's anchor: above a standing or a seated robot's head, or above the monitor of an empty desk. */
@@ -99,7 +149,7 @@ export const LABEL_Y = { standing: 1.45, seated: 1.6, empty: 1.6 } as const;
 export function labelAnchor(desk: Desk): Point3 {
   const spot = robotSpot(desk);
   if (!spot) {
-    const a = deskAnchor(desk.rect);
+    const a = deskAnchor(chairSouth(desk));
     return { x: a.x, y: LABEL_Y.empty, z: a.z };
   }
   return { x: spot.x, y: desk.robot && isStanding(desk.robot.pose) ? LABEL_Y.standing : LABEL_Y.seated, z: spot.z };
@@ -149,6 +199,18 @@ export function seatSpots(rect: GridRect): Spot[] {
 export function headSpot(rect: GridRect): Spot {
   const t = tableCenter(rect);
   return { x: t.x - TABLE.w / 2 - SEAT_OUT, z: t.z, facing: Math.PI / 2 };
+}
+
+/** Where an occupant's robot belongs: its seat or stand spot (by pose), its lounge seat, its room's head seat; null when gone. */
+export function placeSpot(floor: Pick<FloorDetail, 'lounge' | 'roomSlots'>, desk: Pick<PodDesk, 'rect' | 'chair'> | null, occupant: Occupant): Spot | null {
+  const at = occupant.at;
+  if (at.kind === 'desk') return desk && (occupant.robot && isStanding(occupant.robot.pose) ? standSpot(desk) : seatSpot(desk));
+  if (at.kind === 'lounge') return loungeSpots(floor.lounge.rect)[at.seat] ?? null;
+  if (at.kind === 'room') {
+    const rect = floor.roomSlots[at.slot];
+    return rect ? headSpot(rect) : null;
+  }
+  return null;
 }
 
 /** Where the door in the west partition starts and ends, north to south. */

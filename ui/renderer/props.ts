@@ -277,7 +277,7 @@ export function updateDesk(obj: DeskObject, desk: Desk, mats: Materials): void {
 }
 
 function placeAt(group: Group, rect: GridRect): void {
-  const a = deskAnchor(rect);
+  const a = deskAnchor({ rect, chair: 'south' });
   group.position.set(a.x, 0, a.z);
 }
 
