@@ -5,6 +5,7 @@ import { applyEvent, markSeen, normalizeSession, settleRestored } from './core/r
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, SessionSummary, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
 import { buildFloorDetail, buildScene } from './scene/build.js';
+import { parseSeating, seatFloor, type Seating } from './scene/seating.js';
 import { cleanOrNull, cleanText, isSessionId, taskTitle } from './scene/text.js';
 import type { BuildingScene, FloorDetail } from './scene/types.js';
 import type { FloorRecord, Store } from './store/store.js';
@@ -71,9 +72,14 @@ export class Collector {
    * sits on any more is forgotten, so that it opens on top when it comes back.
    */
   private readonly firstSeen = new Map<string, number>();
+  /**
+   * Who sits where on each floor. It moves on as the scene is read (seat), since time-derived states exist only then; it
+   * is saved with the floor and forgotten with it, so a floor that comes back opens at the base plan.
+   */
+  private readonly seating = new Map<string, Seating>();
   /** How many sessions that have not ended sit on each floor. Dormant ones count. */
   private readonly occupants = new Map<string, number>();
-  /** Floors opened or forgotten since the last save. */
+  /** Floors opened, forgotten or seated anew since the last save. */
   private readonly dirtyFloors = new Set<string>();
   /** Local sessions restored from the store that a session file once showed (they have a pid) and that no source has reported since: whether their process still runs is not known yet. */
   private readonly unconfirmed = new Set<string>();
@@ -89,7 +95,12 @@ export class Collector {
   constructor(private readonly o: CollectorOptions) {
     this.now = o.now ?? Date.now;
     this.log = o.log ?? ((line) => process.stderr.write(line + '\n'));
-    for (const [key, floor] of o.store?.loadFloors() ?? []) this.firstSeen.set(key, floor.firstSeen);
+    for (const [key, floor] of o.store?.loadFloors() ?? []) {
+      this.firstSeen.set(key, floor.firstSeen);
+      // A seating that does not read back is dropped: the floor's first read seats it again.
+      const seating = floor.plan === null ? null : parseSeating(floor.plan);
+      if (seating) this.seating.set(key, seating);
+    }
     let skipped = 0;
     for (const s of o.store?.loadSessions() ?? []) {
       // Saved before ids were checked: such a session could not be named in a URL.
@@ -134,6 +145,7 @@ export class Collector {
 
   private forgetFloor(key: string): void {
     this.firstSeen.delete(key);
+    this.seating.delete(key);
     this.dirtyFloors.add(key);
   }
 
@@ -258,8 +270,28 @@ export class Collector {
 
   private changed(id: string): void {
     this.dirty.add(id);
-    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.save(), this.o.saveDelayMs ?? 500);
+    this.scheduleSave();
     for (const fn of this.listeners) fn();
+  }
+
+  private scheduleSave(): void {
+    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.save(), this.o.saveDelayMs ?? 500);
+  }
+
+  /**
+   * Moves every floor's seating on to the sessions in `views`, and saves the floors whose seating changed. A read, not a
+   * change: the change listeners are not told.
+   */
+  private seat(views: readonly SessionView[]): ReadonlyMap<string, Seating> {
+    for (const floor of buildFloors(views, this.firstSeen)) {
+      const prev = this.seating.get(floor.key);
+      const next = seatFloor(prev ?? null, floor);
+      if (next === prev) continue;
+      this.seating.set(floor.key, next);
+      this.dirtyFloors.add(floor.key);
+      this.scheduleSave();
+    }
+    return this.seating;
   }
 
   /** The timer's save. A store error must not take the daemon down: sessions and floors stay changed and go with the next save. */
@@ -279,7 +311,8 @@ export class Collector {
     const floors = new Map(
       [...this.dirtyFloors].map((key): [string, FloorRecord | null] => {
         const firstSeen = this.firstSeen.get(key);
-        return [key, firstSeen === undefined ? null : { firstSeen, plan: null }];
+        const seating = this.seating.get(key);
+        return [key, firstSeen === undefined ? null : { firstSeen, plan: seating ? JSON.stringify(seating) : null }];
       }),
     );
     if (list.length || floors.size) this.o.store?.save(list, floors, this.now());
@@ -323,19 +356,29 @@ export class Collector {
     return s ? toView(s, this.now(), this.o.thresholds ?? DEFAULT_THRESHOLDS, this.o.featureRules ?? DEFAULT_FEATURE_RULES) : null;
   }
 
+  /** Who sits where on a floor, as the last scene read left it; null before its first read. */
+  seatingOf(key: string): Seating | null {
+    return this.seating.get(key) ?? null;
+  }
+
   /** The building every browser sees: façade, floor directory and attention. */
   scene(): BuildingScene {
-    return buildScene(this.liveViews(), this.firstSeen);
+    const views = this.liveViews();
+    this.seat(views);
+    return buildScene(views, this.firstSeen);
   }
 
   /** One floor in detail, or null when no live session is on it. */
   floor(key: string): FloorDetail | null {
-    return buildFloorDetail(this.liveViews(), key, this.firstSeen);
+    const views = this.liveViews();
+    this.seat(views);
+    return buildFloorDetail(views, key, this.firstSeen);
   }
 
   /** The building and the given floors (null for one nobody is on) from one reading of the clock: a session shows one state in all of them. */
   render(floorKeys: readonly string[]): { scene: BuildingScene; floors: Map<string, FloorDetail | null> } {
     const views = this.liveViews();
+    this.seat(views);
     return {
       scene: buildScene(views, this.firstSeen),
       floors: new Map(floorKeys.map((key) => [key, buildFloorDetail(views, key, this.firstSeen)])),

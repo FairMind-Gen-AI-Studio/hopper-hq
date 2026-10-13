@@ -5,6 +5,7 @@ import type { WorkspaceResolver } from '../src/adapters/git.js';
 import { Collector } from '../src/collector.js';
 import { newSession } from '../src/core/reducer.js';
 import type { RawEvent, Session } from '../src/core/types.js';
+import { emptySeating, parseSeating } from '../src/scene/seating.js';
 import { Store } from '../src/store/store.js';
 
 const resolver: WorkspaceResolver = async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
@@ -509,5 +510,152 @@ describe('the collector and the summarizer', () => {
     expect([c.ignored, c.dropped]).toEqual([2, 0]);
     expect(c.session('X1')).toBeNull();
     expect(c.session('S1')).toMatchObject({ lastPrompt: 'go', lastSeq: 0 });
+  });
+});
+
+describe('seating', () => {
+  const KEY = 'repo:/w/alpha';
+  const ws = { cwd: '/w/alpha', repoRoot: '/w/alpha', repoName: 'alpha', worktree: false, branch: 'main' };
+  const prompt = (sessionId: string, ts = NOW) => hook({ type: 'prompt', text: 'go', sessionId, cwd: '/w/alpha', ts });
+  /** The desks of a one-block plan, the given ids first. */
+  const desks = (...ids: string[]) => [...ids, ...Array<null>(8 - ids.length).fill(null)];
+
+  it('seats a floor at its first scene read and saves it with the floor, telling no change listener, and reading again changes nothing', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = await Store.open(':memory:');
+      const c = collector({ store, saveDelayMs: 10 });
+      await c.ingest(prompt('A1'));
+      await c.ingest(prompt('A2', NOW + 1));
+      vi.advanceTimersByTime(10);
+      // Neither the snapshot nor the attention summary seats anybody.
+      c.snapshot();
+      c.attentionSummary();
+      expect([c.seatingOf(KEY), store.loadFloors().get(KEY)]).toEqual([null, { firstSeen: NOW, plan: null }]);
+
+      const changes = vi.fn();
+      c.onChange(changes);
+      c.scene();
+      const seated = c.seatingOf(KEY)!;
+      expect(seated).toEqual({ ...emptySeating(), desks: desks('A1', 'A2') });
+      expect(changes).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(10);
+      expect(store.loadFloors().get(KEY)).toEqual({ firstSeen: NOW, plan: JSON.stringify(seated) });
+
+      const save = vi.spyOn(store, 'save');
+      c.floor(KEY);
+      c.render([KEY, 'repo:/w/nowhere']);
+      c.scene();
+      vi.advanceTimersByTime(10);
+      expect([c.seatingOf(KEY) === seated, save.mock.calls.length]).toEqual([true, 0]);
+      store.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('moves seating on at every scene read: render, floor and scene', async () => {
+    const c = collector();
+    await c.ingest(prompt('A1'));
+    c.render([]);
+    expect(c.seatingOf(KEY)!.desks).toEqual(desks('A1'));
+    await c.ingest(prompt('A2', NOW + 1));
+    c.floor('repo:/w/nowhere');
+    expect(c.seatingOf(KEY)!.desks).toEqual(desks('A1', 'A2'));
+    await c.ingest(prompt('A3', NOW + 2));
+    c.scene();
+    expect(c.seatingOf(KEY)!.desks).toEqual(desks('A1', 'A2', 'A3'));
+  });
+
+  it('keeps every seat across a restart: desks, a lounge sitter, rooms and the plan size', async () => {
+    const store = await Store.open(':memory:');
+    const a = collector({ store });
+    for (let i = 1; i <= 9; i++) await a.ingest(prompt(`A${i}`, NOW + i));
+    // A9 is done and seen: idle, it rests in the lounge. A1 runs a workflow: it holds a room.
+    await a.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, sessionId: 'A9', cwd: '/w/alpha', ts: NOW + 20 }));
+    expect(a.markSeen('A9')).toBe(true);
+    await a.ingest({ type: 'workflow.started', runId: 'wf_0000aaaa-001', sessionId: 'A1', ts: NOW + 30, source: 'fs', cwd: '/w/alpha' });
+    a.scene();
+    const seated = a.seatingOf(KEY)!;
+    expect(seated).toEqual({
+      blocks: 2,
+      roomCols: 1,
+      desks: [...['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9'], ...Array(7).fill(null)],
+      lounge: ['A9', ...Array(7).fill(null)],
+      rooms: ['wf_0000aaaa-001', null],
+    });
+    await a.close();
+
+    const b = collector({ store });
+    const restored = b.seatingOf(KEY);
+    expect(restored).toEqual(seated);
+    b.scene();
+    expect(b.seatingOf(KEY)).toBe(restored);
+    store.close();
+  });
+
+  it('seats a floor again at its first read when its stored seating does not read back', async () => {
+    const store = await Store.open(':memory:');
+    store.save([{ ...newSession('A1', 50, ws), state: 'working' }], new Map([[KEY, { firstSeen: 40, plan: JSON.stringify({ ...emptySeating(), blocks: 9 }) }]]), 1);
+    const c = collector({ store });
+    expect(c.seatingOf(KEY)).toBeNull();
+    c.scene();
+    expect(c.seatingOf(KEY)).toEqual({ ...emptySeating(), desks: desks('A1') });
+    await c.close();
+    expect(parseSeating(store.loadFloors().get(KEY)!.plan!)).toEqual(c.seatingOf(KEY));
+    store.close();
+  });
+
+  it('opens at the base plan a floor whose sessions all ended while it was down', async () => {
+    const store = await Store.open(':memory:');
+    const grown = { ...emptySeating(), blocks: 2, roomCols: 2, desks: ['A1', ...Array(15).fill(null)], rooms: [null, null, null, null] };
+    store.save([{ ...newSession('A1', 50, ws), state: 'ended' }], new Map([[KEY, { firstSeen: 40, plan: JSON.stringify(grown) }]]), 1);
+    const c = collector({ store });
+    expect(c.seatingOf(KEY)).toBeNull();
+    c.flush();
+    expect(store.loadFloors()).toEqual(new Map());
+    await c.ingest(prompt('A2'));
+    c.scene();
+    expect(c.seatingOf(KEY)).toEqual({ ...emptySeating(), desks: desks('A2') });
+    await c.close();
+    store.close();
+  });
+
+  it('forgets a floor\'s seating with the floor, so that it reopens at the base plan', async () => {
+    const store = await Store.open(':memory:');
+    const c = collector({ store });
+    for (let i = 1; i <= 9; i++) await c.ingest(prompt(`A${i}`, NOW + i));
+    c.scene();
+    expect(c.seatingOf(KEY)!.blocks).toBe(2);
+    for (let i = 1; i <= 9; i++) await c.ingest(hook({ type: 'session.ended', reason: 'exit', sessionId: `A${i}`, cwd: '/w/alpha', ts: NOW + 20 }));
+    expect(c.seatingOf(KEY)).toBeNull();
+    c.flush();
+    expect(store.loadFloors().has(KEY)).toBe(false);
+    await c.ingest(prompt('B1', NOW + 30));
+    c.scene();
+    expect(c.seatingOf(KEY)).toEqual({ ...emptySeating(), desks: desks('B1') });
+    await c.close();
+    store.close();
+  });
+
+  it('moves a session that went dormant with time out of the lounge at the next scene read, and not before', async () => {
+    let now = NOW + 1000;
+    const c = collector({ now: () => now });
+    await c.ingest(prompt('A1'));
+    await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, sessionId: 'A1', cwd: '/w/alpha', ts: NOW + 1 }));
+    expect(c.markSeen('A1')).toBe(true);
+    await c.ingest(prompt('A2', NOW + 2));
+    c.scene();
+    const resting = c.seatingOf(KEY)!;
+    expect([resting.desks, resting.lounge]).toEqual([desks('A1', 'A2'), desks('A1')]);
+
+    now += 3 * 24 * 60 * 60 * 1000;
+    expect(c.view('A1')!.effectiveState).toBe('dormant');
+    c.snapshot();
+    c.attentionSummary();
+    expect(c.seatingOf(KEY)).toBe(resting);
+    c.floor(KEY);
+    // Dormant, it keeps its desk.
+    expect([c.seatingOf(KEY)!.desks, c.seatingOf(KEY)!.lounge]).toEqual([desks('A1', 'A2'), desks()]);
   });
 });

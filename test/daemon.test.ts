@@ -11,6 +11,7 @@ import type { RawEvent, Session, WorkflowRun } from '../src/core/types.js';
 import { readDaemonFile } from '../src/daemon-file.js';
 import { startDaemon } from '../src/daemon.js';
 import { CSP } from '../src/server/headers.js';
+import type { Seating } from '../src/scene/seating.js';
 import { cleanText } from '../src/scene/text.js';
 import { Store } from '../src/store/store.js';
 import { writeSummaryConfig, type SummaryConfig } from '../src/summary/config.js';
@@ -450,6 +451,50 @@ describe('startDaemon and summaries', () => {
       expect(r.json).toMatchObject({ enabled: true, provider: 'demo', model: null, lastError: null });
     } finally {
       await d.stop();
+    }
+  });
+});
+
+describe('startDaemon and seating', () => {
+  it('keeps every seat across a restart: desks, a lounge sitter, rooms and the plan size', async () => {
+    const dataDir = await tmp('shq-data-');
+    const claudeDir = await tmp('shq-claude-');
+    const cwd = '/home/dev/payments-svc';
+    const key = `repo:${cwd}`;
+    const now = Date.now();
+    const ws = { cwd, repoRoot: cwd, repoName: 'payments-svc', worktree: false, branch: 'main' };
+    const run: WorkflowRun = { id: 'wf_0000aaaa-001', name: null, summary: null, phases: [], currentPhase: null, status: 'running', onDisk: true, startedAt: now - 60_000, endedAt: null, agents: [], agentsFinished: 0 };
+    // Nine working sessions grow the floor a block; S1 runs a workflow, which holds a room. S10 is done and seen: it rests in the lounge.
+    const rows: Session[] = Array.from({ length: 9 }, (_, i) => ({ ...newSession(`S${i + 1}`, now - 60_000 + i, ws), state: 'working' as const, stateSince: now - 1000, lastEventAt: now - 1000 }));
+    rows[0] = { ...rows[0]!, runs: [run] };
+    rows.push({ ...newSession('S10', now - 50_000, ws), state: 'done', stateSince: now - 30_000, seenAt: now - 20_000 });
+    const store = await Store.open(join(dataDir, 'scranton.db'));
+    store.saveSessions(rows, now);
+    store.close();
+
+    const a = await startDaemon({ port: 0, dataDir, claudeDir, watchFiles: false, log: quiet });
+    let seated: Seating | null = null;
+    try {
+      a.collector.scene();
+      seated = a.collector.seatingOf(key);
+      expect(seated).toEqual({
+        blocks: 2,
+        roomCols: 1,
+        desks: [...['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10'], ...Array(6).fill(null)],
+        lounge: ['S10', ...Array(7).fill(null)],
+        rooms: ['wf_0000aaaa-001', null],
+      });
+    } finally {
+      await a.stop();
+    }
+    const b = await startDaemon({ port: 0, dataDir, claudeDir, watchFiles: false, log: quiet });
+    try {
+      const restored = b.collector.seatingOf(key);
+      expect(restored).toEqual(seated);
+      b.collector.scene();
+      expect(b.collector.seatingOf(key)).toBe(restored);
+    } finally {
+      await b.stop();
     }
   });
 });
