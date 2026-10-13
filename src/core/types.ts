@@ -51,6 +51,54 @@ export interface OpenTool {
   startedAt: number;
 }
 
+export type RunStatus = 'running' | 'completed' | 'failed' | 'killed';
+
+/** An agent a workflow run's script started. */
+export interface RunAgent {
+  id: string;
+  /** The journal's label or the spawn's description; null when unknown. */
+  label: string | null;
+  /** The phase the agent started in; null when unknown. */
+  phase: string | null;
+  /** Agent type from its meta file or the spawn ('workflow-subagent', 'Explore', ...); 'agent' when unknown. */
+  type: string;
+  running: boolean;
+  startedAt: number;
+  updatedAt: number;
+}
+
+/** A workflow run a session started (design §5). */
+export interface WorkflowRun {
+  /** 'wf_…' */
+  id: string;
+  /** The script's meta.name; null until known. */
+  name: string | null;
+  /** The script's meta.description (the launch result's Summary line); null until known. */
+  summary: string | null;
+  /** Phase titles in order; empty when unknown. */
+  phases: string[];
+  /** Phase of the most recently started agent; null before the first. */
+  currentPhase: string | null;
+  status: RunStatus;
+  /** True once a filesystem event confirmed the run. Until then only its running agents keep the session in a meeting. */
+  onDisk: boolean;
+  startedAt: number;
+  endedAt: number | null;
+  /** The latest agents (running ones are never dropped). */
+  agents: RunAgent[];
+  /** How many of the run's agents finished, including any dropped from `agents`. */
+  agentsFinished: number;
+}
+
+/** The "where it stands" line (M3a design §3). */
+export interface SessionSummary {
+  text: string;
+  /** When it was written. */
+  at: number;
+  /** Hash of the input it was written from: the same input is not summarized twice. */
+  inputHash: string;
+}
+
 export interface Session {
   id: string;
   agentKind: 'claude-code';
@@ -75,6 +123,16 @@ export interface Session {
   openTool: OpenTool | null;
   backgroundTasks: number;
   children: ChildAgent[];
+  /** Workflow runs, the latest first-started last; at most 10, running ones never dropped. */
+  runs: WorkflowRun[];
+  /** The main agent's last tool labels, oldest first; at most 10. */
+  recentActions: string[];
+  /** The main agent's last reply text, cleaned, at most 2000 characters; null when unknown. */
+  lastAnswer: string | null;
+  lastAnswerAt: number | null;
+  /** When the user last sent a prompt; null when unknown. */
+  lastPromptAt: number | null;
+  summary: SessionSummary | null;
   startedAt: number;
   /** ts of the last applied ordered event. */
   lastEventAt: number;
@@ -118,7 +176,10 @@ export type CollectorEvent = EventBase &
     | { type: 'tool.finished'; toolId: string | null; ok: boolean; agentId: string | null }
     | { type: 'waiting'; reason: WaitReason; agentId: string | null }
     | { type: 'turn.finished'; backgroundTasks: number }
-    | { type: 'agent.started'; agentId: string; agentType: string; description: string | null }
+    | { type: 'agent.started'; agentId: string; agentType: string; description: string | null; runId?: string | null; phase?: string | null }
+    | { type: 'workflow.started'; runId: string; name?: string | null; summary?: string | null; phases?: string[] }
+    | { type: 'workflow.finished'; runId: string; status: 'completed' | 'failed' | 'killed' }
+    | { type: 'answer'; text: string }
     | { type: 'agent.finished'; agentId: string }
     | { type: 'session.ended'; reason: string }
   );
