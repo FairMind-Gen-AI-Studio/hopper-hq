@@ -1,9 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Mesh } from 'three';
+import { Box3, Mesh, type Object3D } from 'three';
 import type { Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
-import { BOT, HEAD_DOWN, HOVER_Y, KIND_SCALE, POSES, STRIDE, buildRobot, poseOf, poseRobot, rootHeight, strideRobot, type RobotObject } from '../../renderer/robot';
+import {
+  BOT,
+  HEAD_DOWN,
+  HOVER_Y,
+  KIND_SCALE,
+  LOOPS,
+  POSES,
+  STRIDE,
+  animateRobot,
+  buildRobot,
+  loopOf,
+  phaseOf,
+  poseOf,
+  poseRobot,
+  rootHeight,
+  strideRobot,
+  type Loop,
+  type RobotKind,
+  type RobotObject,
+} from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
 import { SEAT_Y, labelAnchor, placeSpot } from '../../renderer/world';
 import { checkoutFloor, seatsOf } from './fixtures';
@@ -243,5 +262,145 @@ describe('robots', () => {
     buildRobot('e', { pose: 'typing', badge: null, body: 4, tie: null }, geo, mats, 'workflow');
     buildRobot('f', { pose: 'still', badge: null, body: 6, tie: 0 }, geo, mats, 'intern');
     expect(geo.size).toBe(kinds);
+  });
+});
+
+describe('loops at rest', () => {
+  type Look = Pick<Robot, 'pose' | 'badge'>;
+  const SPOT = { x: 3, z: 4, facing: Math.PI / 2 };
+  /** A robot of this kind in this look, in its pose at SPOT. */
+  function rested(look: Look, kind: RobotKind = 'session'): RobotObject {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, body: 0, tie: null }, geo, mats, kind);
+    poseRobot(obj, look, SPOT);
+    return obj;
+  }
+  /** Every number that places a part of the robot, by part and axis, and whether each part shows. */
+  function numbers(obj: RobotObject): Map<string, number> {
+    const r = obj.rig;
+    const names = new Map<Object3D, string>([
+      [obj.group, 'root'],
+      [r.legL, 'legL'],
+      [r.legR, 'legR'],
+      [r.waist, 'waist'],
+      [r.armL, 'armL'],
+      [r.armR, 'armR'],
+      [r.neck, 'neck'],
+      [r.paper, 'paper'],
+    ]);
+    const out = new Map<string, number>();
+    let part = 0;
+    obj.group.traverse((o) => {
+      const name = names.get(o) ?? `part ${part++}`;
+      for (const axis of ['x', 'y', 'z'] as const) {
+        out.set(`${name} position.${axis}`, o.position[axis]);
+        out.set(`${name} rotation.${axis}`, o.rotation[axis]);
+        out.set(`${name} scale.${axis}`, o.scale[axis]);
+      }
+      out.set(`${name} visible`, o.visible ? 1 : 0);
+    });
+    return out;
+  }
+  /** Each look a robot rests in, its kind, and what its loop moves: by how much at most. */
+  const looks = (): Array<[look: Look, kind: RobotKind, moves: Record<string, number>]> => [
+    [{ pose: 'typing', badge: 'typing' }, 'session', { 'armL rotation.x': LOOPS.type.arm, 'armR rotation.x': LOOPS.type.arm }],
+    [{ pose: 'typing', badge: null }, 'workflow', { 'armL rotation.x': LOOPS.type.arm, 'armR rotation.x': LOOPS.type.arm }],
+    [{ pose: 'waving', badge: 'needs' }, 'session', { 'armR rotation.z': LOOPS.wave.arm }],
+    [{ pose: 'holding', badge: 'done' }, 'session', { 'armL rotation.x': LOOPS.sway.arm, 'armR rotation.x': LOOPS.sway.arm }],
+    [{ pose: 'still', badge: 'clock' }, 'session', { 'waist rotation.x': LOOPS.doze.lean, 'neck rotation.x': LOOPS.doze.neck }],
+    [{ pose: 'resting', badge: null }, 'session', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
+    [{ pose: 'still', badge: null }, 'intern', { 'root position.y': LOOPS.hover.bob }],
+    [{ pose: 'still', badge: 'meeting' }, 'session', {}],
+  ];
+
+  it('starts each robot at a phase in [0, 2π) hashed from its id: the same for the same id, spread round the circle', () => {
+    const ids = Array.from({ length: 256 }, (_, i) => JSON.stringify(['session', `s${i}`]));
+    const phases = ids.map(phaseOf);
+    expect(ids.map(phaseOf)).toEqual(phases);
+    expect(new Set(phases).size).toBe(256);
+    const eighths = new Array<number>(8).fill(0);
+    for (const p of phases) {
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThan(2 * Math.PI);
+      eighths[Math.floor(p / (Math.PI / 4))]!++;
+    }
+    // About a 32 in each eighth of the circle.
+    for (const n of eighths) expect(n).toBeGreaterThanOrEqual(16);
+    for (const n of eighths) expect(n).toBeLessThanOrEqual(48);
+    // Ids that differ only in their last character, as a floor's do, start well apart.
+    const near = ['sw-a1', 'sw-a2', 'sw-a3', 'sw-a4'].map(phaseOf);
+    for (let i = 1; i < near.length; i++) expect(Math.abs(near[i]! - near[i - 1]!)).toBeGreaterThan(0.3);
+  });
+
+  it('types while working and at a meeting table, waves when it needs you, sways its paper when done, dozes without a signal, breathes when idle and bobs as an intern, with none in a meeting', () => {
+    const want: Record<string, Loop | null> = { working: 'type', needs_you: 'wave', done: 'sway', no_signal: 'doze', idle: 'breathe', in_meeting: null };
+    const seen = new Set<string>();
+    for (const { occupant } of posed()) {
+      expect(loopOf(occupant.robot!), occupant.state).toBe(want[occupant.state]);
+      seen.add(occupant.state);
+    }
+    expect([...seen].sort()).toEqual(Object.keys(want).sort());
+    for (const [look, kind] of looks()) expect(loopOf(look, kind), `${look.pose} ${kind}`).toBe(kind === 'intern' ? 'hover' : loopOf(look));
+    expect([loopOf({ pose: 'typing', badge: null }, 'workflow'), loopOf({ pose: 'waving', badge: 'needs' }, 'intern')]).toEqual(['type', 'hover']);
+    expect(LOOPS).toEqual({
+      type: { rate: 15, arm: 0.08 },
+      wave: { rate: 7, arm: 0.3 },
+      sway: { rate: 2, arm: 0.06 },
+      breathe: { rate: 1.6, lean: 0.03, neck: 0.03 },
+      doze: { rate: 0.9, lean: 0.02, neck: 0.06 },
+      hover: { rate: 3, bob: 0.03 },
+    });
+  });
+
+  it('moves only the pivots of its loop, never further from its pose than the loop goes, and all the way to it', () => {
+    for (const [look, kind, moves] of looks()) {
+      const name = `${look.pose} ${look.badge} ${kind}`;
+      const obj = rested(look, kind);
+      const rest = numbers(obj);
+      const loop = loopOf(look, kind);
+      const period = loop ? (2 * Math.PI) / LOOPS[loop].rate : 1;
+      const reach = new Map<string, number>();
+      for (let k = 0; k <= 400; k++) {
+        animateRobot(obj, look, 5 + (k * period) / 400, 1.3);
+        for (const [key, v] of numbers(obj)) {
+          const d = Math.abs(v - rest.get(key)!);
+          if (d > 0) reach.set(key, Math.max(reach.get(key) ?? 0, d));
+        }
+      }
+      expect([...reach.keys()].sort(), name).toEqual(Object.keys(moves).sort());
+      for (const [key, most] of Object.entries(moves)) {
+        expect(reach.get(key)!, `${name} ${key}`).toBeLessThanOrEqual(most + 1e-12);
+        expect(reach.get(key)!, `${name} ${key}`).toBeGreaterThan(0.99 * most);
+      }
+    }
+  });
+
+  it('is in its pose where its loop is at zero, and poseRobot puts it back in it from anywhere in its loop', () => {
+    for (const [look, kind] of looks()) {
+      const name = `${look.pose} ${look.badge} ${kind}`;
+      const obj = rested(look, kind);
+      const rest = numbers(obj);
+      animateRobot(obj, look, 0, 0);
+      expect(numbers(obj), name).toEqual(rest);
+      animateRobot(obj, look, 0.37, 2);
+      if (loopOf(look, kind)) expect(numbers(obj), name).not.toEqual(rest);
+      else expect(numbers(obj), name).toEqual(rest);
+      poseRobot(obj, look, SPOT);
+      expect(numbers(obj), name).toEqual(rest);
+    }
+    // Posing allocates nothing: a look's pose is one object, a robot's without a signal too.
+    expect(poseOf({ pose: 'still', badge: 'clock' })).toBe(poseOf({ pose: 'still', badge: 'clock' }));
+  });
+
+  it('keeps two robots in the same loop out of step by their phases, the later one where the other was before', () => {
+    const look: Look = { pose: 'typing', badge: 'typing' };
+    const a = rested(look);
+    const b = rested(look);
+    animateRobot(a, look, 1, phaseOf('sw-a1'));
+    animateRobot(b, look, 1, phaseOf('sw-a2'));
+    expect(Math.abs(a.rig.armL.rotation.x - b.rig.armL.rotation.x)).toBeGreaterThan(0.01);
+    animateRobot(a, look, 1 + (phaseOf('sw-a2') - phaseOf('sw-a1')) / LOOPS.type.rate, phaseOf('sw-a1'));
+    expect(a.rig.armL.rotation.x).toBeCloseTo(b.rig.armL.rotation.x, 10);
+    expect(a.rig.armR.rotation.x).toBeCloseTo(b.rig.armR.rotation.x, 10);
   });
 });

@@ -1,7 +1,8 @@
 /**
  * A session's robot, from primitives (prototypes/floor-3d-mockup.html, dressBot): a monitor head with a glowing
  * visor, a body in the repo colour and a tie in the feature colour. At its place, each state has one pose (outline
- * §2.6), set by rotating the limb pivots; on its way there, it strides, swinging its legs and arms.
+ * §2.6), set by rotating the limb pivots, and a small loop it runs there (design §6.2); on its way there, it strides,
+ * swinging its legs and arms.
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
 import { CylinderGeometry, Group, SphereGeometry, type Mesh } from 'three';
@@ -44,10 +45,11 @@ export const POSES: Record<Pose, PoseSpec> = {
 
 /** A still robot with no signal (the clock badge) hangs its head; one in a meeting does not. */
 export const HEAD_DOWN = 0.3;
+const DOZING: PoseSpec = { ...POSES.still, neck: HEAD_DOWN };
 
+/** The pose of a robot's look: one object per look, so that posing a robot in every frame allocates nothing. */
 export function poseOf(robot: Pick<Robot, 'pose' | 'badge'>): PoseSpec {
-  const spec = POSES[robot.pose];
-  return robot.pose === 'still' && robot.badge === 'clock' ? { ...spec, neck: HEAD_DOWN } : spec;
+  return robot.pose === 'still' && robot.badge === 'clock' ? DOZING : POSES[robot.pose];
 }
 
 /** Height of the robot's feet: a seated robot sinks until its hips, at its size, rest on the chair; an intern hovers. */
@@ -190,6 +192,89 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
   r.neck.rotation.x = spec.neck;
   r.waist.rotation.x = spec.lean;
   r.paper.visible = spec.paper;
+}
+
+/**
+ * The loops robots run at their places (design §6.2), each a sine of `rate` radians a second: the forearms typing in
+ * turn; the raised hand waving side to side; both arms swaying the held paper; breathing, the upper body leaning and the
+ * head nodding with it, relaxed, or slower with the head down; an intern bobbing on its jetpack. Amplitudes are in
+ * radians, the bob's in metres.
+ */
+export const LOOPS = {
+  type: { rate: 15, arm: 0.08 },
+  wave: { rate: 7, arm: 0.3 },
+  sway: { rate: 2, arm: 0.06 },
+  breathe: { rate: 1.6, lean: 0.03, neck: 0.03 },
+  doze: { rate: 0.9, lean: 0.02, neck: 0.06 },
+  hover: { rate: 3, bob: 0.03 },
+} as const;
+
+export type Loop = keyof typeof LOOPS;
+
+/**
+ * The loop a robot runs at its place: working sessions and workflow agents type, one that needs you waves, one that is
+ * done sways its paper, one without a signal dozes, an idle one breathes, and an intern hovers. A host in a meeting
+ * runs none.
+ */
+export function loopOf(robot: Pick<Robot, 'pose' | 'badge'>, kind: RobotKind = 'session'): Loop | null {
+  if (kind === 'intern') return 'hover';
+  switch (robot.pose) {
+    case 'typing':
+      return 'type';
+    case 'waving':
+      return 'wave';
+    case 'holding':
+      return 'sway';
+    case 'resting':
+      return 'breathe';
+    case 'still':
+      return robot.badge === 'clock' ? 'doze' : null;
+  }
+}
+
+/** Where a robot's loop starts: a hash of its id spread over [0, 2π), so that robots side by side do not move in step. */
+export function phaseOf(id: string): number {
+  // FNV-1a over the UTF-16 code units, then a final mix so that ids that differ only at the end spread too.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return ((h >>> 0) / 2 ** 32) * 2 * Math.PI;
+}
+
+/**
+ * Runs the robot's loop at its place, `t` seconds on, from `phase`: the pivots its loop moves are set to the pose's
+ * (poseRobot) plus the loop's offset, and nothing else changes. Where the loop's sine is zero, as at t = 0 from phase 0,
+ * the robot is in its pose; a robot that runs no loop stays in it. It allocates nothing.
+ */
+export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>, t: number, phase: number): void {
+  const loop = loopOf(robot, obj.kind);
+  if (loop === null) return;
+  const s = Math.sin(t * LOOPS[loop].rate + phase);
+  const spec = poseOf(robot);
+  const r = obj.rig;
+  switch (loop) {
+    case 'type':
+      r.armL.rotation.x = spec.armL[0] + s * LOOPS.type.arm;
+      r.armR.rotation.x = spec.armR[0] - s * LOOPS.type.arm;
+      return;
+    case 'wave':
+      r.armR.rotation.z = spec.armR[1] + s * LOOPS.wave.arm;
+      return;
+    case 'sway':
+      r.armL.rotation.x = spec.armL[0] + s * LOOPS.sway.arm;
+      r.armR.rotation.x = spec.armR[0] + s * LOOPS.sway.arm;
+      return;
+    case 'breathe':
+    case 'doze':
+      r.waist.rotation.x = spec.lean + s * LOOPS[loop].lean;
+      r.neck.rotation.x = spec.neck + s * LOOPS[loop].neck;
+      return;
+    case 'hover':
+      obj.group.position.y = HOVER_Y + s * LOOPS.hover.bob;
+      return;
+  }
 }
 
 function dome(geo: Geometries) {
