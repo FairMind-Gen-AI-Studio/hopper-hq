@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import StatePill from '../../components/StatePill.svelte';
 import Toast from '../../components/Toast.svelte';
+import TopBar from '../../components/TopBar.svelte';
 import { createToasts } from '../../lib/toast';
 import { cleanup, click, render, text } from '../helpers/render';
 
@@ -16,6 +17,14 @@ describe('StatePill', () => {
     const pill = target.querySelector('.pill')!;
     expect(text(pill)).toBe('Needs you');
     expect(pill.classList.contains('sw-needs_you')).toBe(true);
+  });
+});
+
+describe('TopBar', () => {
+  it('says the building is provided by FairMind, with a link that opens apart from the page', () => {
+    const target = render(TopBar, { crumbs: [{ label: 'Building', route: { floor: null, desk: null, run: null } }], needsYou: 0, done: 0, theme: 'system', resolved: 'day', onNavigate: () => {}, onTheme: () => {} });
+    const credit = target.querySelector('a.credit')!;
+    expect([text(credit), credit.getAttribute('href'), credit.getAttribute('target'), credit.getAttribute('rel')]).toEqual(['by FairMind', 'https://fairmind.ai', '_blank', 'noopener noreferrer']);
   });
 });
 
