@@ -5,10 +5,12 @@
  *
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
  * and while the controls settle, a tween runs, an arrow key is held, a robot walks or the elevator doors open or close
- * (motion.frameRate); doors held open draw nothing until they start to close. Nothing is drawn while the page is
- * hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme, a wall that comes or goes
- * as the camera turns, or robots that come to rest (a robot on its way casts none). Nothing is drawn either while the
- * WebGL context is lost; once the browser restores it, the floor is drawn again.
+ * (motion.frameRate); doors held open ask for no frame until they start to close. Otherwise, while a robot at its place
+ * runs its loop (design §6.2), an ambient frame is drawn every AMBIENT_MS, about 20 a second; no loop runs under reduced
+ * motion or with motion: false, where robots rest in their poses and nothing is drawn while nothing moves. Nothing is
+ * drawn while the page is hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme, a wall
+ * that comes or goes as the camera turns, or robots that come to rest (a robot on its way casts none); never for a loop.
+ * Nothing is drawn either while the WebGL context is lost; once the browser restores it, the floor is drawn again.
  *
  * Robots walk to their new places when a floor changes (design §5.3), except at first sight: the first floor, a floor
  * given with snap, any floor while the page is hidden, under reduced motion and with motion: false, every robot is put
@@ -40,7 +42,7 @@ import {
 import { FloorScene } from './floor-scene';
 import type { FloorView, Target, ViewOptions } from './index';
 import { LabelLayer } from './labels';
-import { frameRate } from './motion';
+import { AMBIENT_MS, frameRate } from './motion';
 import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
 import { azimuthOf, cameraOffset, frustumFor, polarOf, sameTarget, type Point } from './world';
@@ -119,6 +121,11 @@ export const DRAG_PX = 6;
 export const DOUBLE_CLICK_MS = 400;
 /** The longest step a held arrow takes in one frame, in milliseconds: a late frame does not jump the camera. */
 export const KEY_STEP_MS = 50;
+/**
+ * How much sooner than AMBIENT_MS after a frame the next ambient frame is asked for: the display's frame it lands on is
+ * then the one AMBIENT_MS on, at 60 Hz and faster, rather than the one after it.
+ */
+export const AMBIENT_EARLY_MS = 8;
 /** What each arrow adds to the move while it is held. */
 const ARROWS: Readonly<Record<string, KeyMove>> = {
   ArrowUp: { forward: 1, right: 0 },
@@ -139,6 +146,7 @@ export function createFloorView(
   const { canvas } = host;
   const motion = opts.motion !== false;
   const world = new FloorScene(theme);
+  world.loops = motion && !theme.reducedMotion;
   const camera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
   const controls = new OrbitControls(camera, canvas);
   controls.minPolarAngle = MIN_POLAR;
@@ -196,7 +204,7 @@ export function createFloorView(
   let press: PointerEvent | null = null;
   /** The last press on a tag went on to the canvas as a drag. */
   let relayed = false;
-  /** Cancels the frame asked for when the elevator doors, held open, start to close. */
+  /** Cancels the frame asked for when the next ambient frame is due, or when the elevator doors, held open, start to close. */
   let wake: (() => void) | null = null;
   /** The arrows held on the canvas, whether Shift is down with them, and when they last moved the camera. */
   const held = new Set<string>();
@@ -334,15 +342,21 @@ export function createFloorView(
     labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
     labels.position(camera, width, height);
     report(step.moving);
-    // A frame with nothing moving is the last, but for one asked for when the doors start to close.
+    // A frame with nothing moving is the last, but for one asked for when the next ambient frame is due, or when the
+    // doors start to close, whichever comes first.
     wake?.();
     wake = null;
-    if (frameRate({ hidden: env.hidden(), lost, moving: again || step.moving, ambient: false }) === 'full') request();
-    else if (step.wake !== null) {
-      wake = env.later(step.wake - now, () => {
-        wake = null;
-        request();
-      });
+    const rate = frameRate({ hidden: env.hidden(), lost, moving: again || step.moving, ambient: step.ambient });
+    if (rate === 'full') request();
+    else {
+      const at = Math.min(rate === 'ambient' ? now + AMBIENT_MS - AMBIENT_EARLY_MS : Infinity, step.wake ?? Infinity);
+      // From the time it is now, after drawing: a frame that took long to draw does not put off the next.
+      if (at !== Infinity) {
+        wake = env.later(Math.max(0, at - env.now()), () => {
+          wake = null;
+          request();
+        });
+      }
     }
   }
 
@@ -580,6 +594,7 @@ export function createFloorView(
     setTheme(next: ThemeTokens) {
       if (disposed) return;
       reduced = next.reducedMotion;
+      world.loops = motion && !reduced;
       if (reduced) world.settle();
       report(world.moving);
       controls.enableDamping = !reduced;

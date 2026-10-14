@@ -4,9 +4,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target, ViewOptions } from '../../renderer/index';
 import { projectToScreen } from '../../renderer/labels';
-import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
+import { AMBIENT_MS, DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
+import { poseOf } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
+import { AMBIENT_EARLY_MS, DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { findPath, walkGrid } from '../../renderer/walk';
 import { HOME_AZIMUTH, LABEL_Y, POLAR, azimuthOf, cameraOffset, deskAnchor, elevatorSpot, floorCenter, labelAnchor, loungeSpots, seatSpot, standSpot, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
@@ -137,6 +138,12 @@ const FIRST = 'wf_0000aaaa-001';
 const SECOND = 'wf_0000aaaa-002';
 /** The checkout floor grown wider: a third run opens the second room column. */
 const widerFloor = () => roomFloor([...checkoutRooms(), { runId: 'wf_0000aaaa-003', host: 'oa-c3', slot: 2 }]);
+/** The checkout floor's sessions, all but the dormant one in a meeting at their desks: robots that run no loop at rest. */
+function meetingSpecs() {
+  const checkouts = checkoutSpecs();
+  for (const c of checkouts) for (const d of c.desks) if (d.state !== 'dormant') d.state = 'in_meeting';
+  return checkouts;
+}
 /** A target as the events list writes it: 'desk oa-c3', or 'null'. */
 const said = (target: Target | null): string => (target ? `${target.kind} ${target.id}` : 'null');
 
@@ -323,7 +330,8 @@ describe('the floor view', () => {
   });
 
   it('pans to a desk its own click selected once a second click can no longer come', () => {
-    const { renderer, env, view, canvas, events } = setup();
+    // With motion: false no ambient frame is asked for, and the pan's is the only timer.
+    const { renderer, env, view, canvas, events } = setup(dayTheme(), { motion: false });
     view.setFloor(checkoutFloor());
     env.flush();
     view.on('select', (picked) => view.select(picked, { pan: true }));
@@ -1248,12 +1256,13 @@ describe('robots walking in the floor view', () => {
 
   it('draws nothing while the elevator doors are held open after a robot leaves, and wakes to draw them closing', () => {
     const { renderer, env, view } = setup();
-    view.setFloor(checkoutFloor());
+    // Robots in meetings run no loop: nothing else draws while the doors are held open.
+    const floor = makeFloor(meetingSpecs());
+    view.setFloor(floor);
     env.flush();
-    const leaves = checkoutSpecs();
+    const leaves = meetingSpecs();
     leaves[1]!.desks.pop();
-    const from = seatSpot(seatOf(checkoutFloor(), 'oa-d5').desk);
-    const floor = checkoutFloor();
+    const from = seatSpot(seatOf(floor, 'oa-d5').desk);
     const pass = tripEnd(startTrip(from, findPath(walkGrid(floor), from, elevatorSpot(floor.core)), env.now(), WALK_SPEED));
     view.setFloor(makeFloor(leaves));
     env.flush(16, 1000);
@@ -1392,5 +1401,198 @@ describe('robots walking in the floor view', () => {
     const q = projectToScreen(labelAnchor(lounge, seatOf(lounge, 'sw-c3').desk, seatOf(lounge, 'sw-c3').occupant), renderer.camera!, W, H);
     expect(tag.style.transform).toBe(`translate(${q.x}px, ${q.y}px) translate(-50%, -100%)`);
     expect([ring.position.x, ring.position.z]).toEqual([sofa.x, sofa.z]);
+  });
+});
+
+describe('ambient frames in the floor view', () => {
+  /** The pivots poseRobot sets on a robot's limbs, in the scene the view last drew: the arms, the neck and the lean. */
+  const limbs = (renderer: FakeRenderer, id: string) => {
+    // robot.ts builds the legs, then the waist; on the waist, the left arm, the right arm, then the neck.
+    const waist = renderer.scene!.getObjectByName(`robot ${id}`)!.children[2]!;
+    const [armL, armR, neck] = waist.children;
+    return [armL!.rotation.x, armL!.rotation.z, armR!.rotation.x, armR!.rotation.z, neck!.rotation.x, waist.rotation.x];
+  };
+  /** The same pivots of a robot in the pose of its look. */
+  const pose = (look: Parameters<typeof poseOf>[0]) => {
+    const spec = poseOf(look);
+    return [spec.armL[0], spec.armL[1], spec.armR[0], spec.armR[1], spec.neck, spec.lean];
+  };
+  /** Every session's robot on the checkout floor, and the look it rests in. */
+  const LOOKS = [
+    ['sw-a1', { pose: 'typing', badge: 'typing' }],
+    ['sw-b2', { pose: 'holding', badge: 'done' }],
+    ['sw-c3', { pose: 'resting', badge: null }],
+    ['oa-c3', { pose: 'waving', badge: 'needs' }],
+    ['oa-d5', { pose: 'still', badge: 'clock' }],
+    ['ps-d4', { pose: 'still', badge: 'meeting' }],
+  ] as const;
+  /** Lets `steps` display frames of 16 ms pass; returns when the view drew in them. */
+  function run(env: FakeEnv, renderer: FakeRenderer, steps = 60): number[] {
+    const drawn: number[] = [];
+    for (let k = 0; k < steps; k++) {
+      const before = renderer.renders;
+      env.step(16);
+      if (renderer.renders > before) drawn.push(env.now());
+    }
+    return drawn;
+  }
+  /** The time between each two frames drawn. */
+  const gaps = (times: number[]) => times.slice(1).map((t, k) => t - times[k]!);
+
+  it('draws a frame every AMBIENT_MS while robots run their loops at rest, 20 in 60 display frames, and the shadow map for none', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    // Asked for AMBIENT_EARLY_MS sooner, the next frame lands on the display frame AMBIENT_MS on rather than the one after.
+    expect(env.queue.size).toBe(0);
+    expect([...env.timers.values()].map((t) => t.at - env.now())).toEqual([AMBIENT_MS - AMBIENT_EARLY_MS]);
+    const shadows = renderer.shadowDraws;
+    const typing = new Set<number>();
+    const drawn: number[] = [];
+    for (let k = 0; k < 60; k++) {
+      const before = renderer.renders;
+      env.step(16);
+      if (renderer.renders === before) continue;
+      drawn.push(env.now());
+      typing.add(limbs(renderer, 'sw-a1')[0]!);
+    }
+    expect(drawn).toHaveLength(20);
+    expect(new Set(gaps(drawn))).toEqual(new Set([48]));
+    expect(renderer.shadowDraws).toBe(shadows);
+    // Each frame finds the typing robot's arm somewhere else.
+    expect(typing.size).toBe(20);
+  });
+
+  it('asks for the next ambient frame AMBIENT_MS after the last one began, however long drawing it took', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    // Drawing now takes 20 ms.
+    const render = renderer.render.bind(renderer);
+    renderer.render = (scene, camera) => {
+      env.time += 20;
+      render(scene, camera);
+    };
+    view.select(desk('sw-a1'));
+    env.step(16);
+    const began = env.now() - 20;
+    expect([...env.timers.values()].map((t) => t.at - began)).toEqual([AMBIENT_MS - AMBIENT_EARLY_MS]);
+  });
+
+  it('draws every display frame while a robot walks, and ambient frames again once all is still', () => {
+    const { renderer, env, view } = setup();
+    // sw-c3, idle, rests on lounge seat 2, then walks back to its desk.
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[2] = { ...checkouts[0]!.desks[2]!, lounge: 2 };
+    const lounge = makeFloor(checkouts);
+    view.setFloor(lounge);
+    env.flush();
+    const moving: boolean[] = [];
+    view.on('moving', (m) => moving.push(m));
+    const start = env.now();
+    view.setFloor(checkoutFloor());
+    const sofa = loungeSpots(lounge.lounge.rect)[2]!;
+    const back = startTrip(sofa, findPath(walkGrid(lounge), sofa, seatSpot(seatOf(checkoutFloor(), 'sw-c3').desk)), start, WALK_SPEED);
+    const walking = Math.floor((tripEnd(back) - start) / 16);
+    expect(gaps(run(env, renderer, walking))).toEqual(new Array(walking - 1).fill(16));
+    env.flush(16, 1000);
+    expect([env.queue.size, env.timers.size, moving]).toEqual([0, 1, [true, false]]);
+    expect(run(env, renderer)).toHaveLength(20);
+    expect(moving).toEqual([true, false]);
+  });
+
+  it('wakes for the elevator doors as they start to close between two ambient frames, draws every frame while they close, then ambient frames again', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const leaves = checkoutSpecs();
+    leaves[1]!.desks.pop();
+    const from = seatSpot(seatOf(checkoutFloor(), 'oa-d5').desk);
+    const pass = tripEnd(startTrip(from, findPath(walkGrid(checkoutFloor()), from, elevatorSpot(checkoutFloor().core)), env.now(), WALK_SPEED));
+    const closing = pass + DOOR_HOLD_MS;
+    const shut = closing + DOOR_MS;
+    const moving: boolean[] = [];
+    view.on('moving', (m) => moving.push(m));
+    view.setFloor(makeFloor(leaves));
+    env.flush(16, 1000);
+    expect(moving).toEqual([true, false]);
+    const shadows = renderer.shadowDraws;
+    // While the doors are held open, ambient frames.
+    const held = run(env, renderer, Math.floor((closing - env.now()) / 16));
+    expect(new Set(gaps(held))).toEqual(new Set([48]));
+    const last = held.at(-1)!;
+    // The doors start to close before the next ambient frame would come: the view wakes for them instead.
+    expect(closing - last).toBeLessThan(AMBIENT_MS - AMBIENT_EARLY_MS);
+    expect([...env.timers.values()].map((t) => t.at)).toEqual([closing]);
+    const after = run(env, renderer, Math.ceil((shut - env.now()) / 16) + 12);
+    expect(after[0]! - closing).toBeGreaterThanOrEqual(0);
+    expect(after[0]! - closing).toBeLessThan(16);
+    const closed = after.findIndex((t) => t >= shut);
+    expect(new Set(gaps(after.slice(0, closed + 1)))).toEqual(new Set([16]));
+    expect(new Set(gaps(after.slice(closed)))).toEqual(new Set([48]));
+    expect(moving).toEqual([true, false, true, false]);
+    expect(renderer.shadowDraws).toBe(shadows);
+  });
+
+  it('draws no ambient frame and asks for none while the page is hidden or the context lost, and goes on once they are back', () => {
+    const { renderer, env, view, canvas } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    env.isHidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(env.timers.size).toBe(0);
+    expect(run(env, renderer)).toEqual([]);
+    env.isHidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(run(env, renderer)).toHaveLength(20);
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    expect(env.timers.size).toBe(0);
+    expect(run(env, renderer)).toEqual([]);
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(run(env, renderer)).toHaveLength(20);
+  });
+
+  it('draws no ambient frame under reduced motion or with motion: false, where every robot keeps the pose of its look', () => {
+    for (const [theme, opts] of [[dayTheme(true), undefined], [dayTheme(), { motion: false }]] as const) {
+      const { renderer, env, view } = setup(theme, opts);
+      view.setFloor(checkoutFloor());
+      env.flush();
+      expect([env.queue.size, env.timers.size]).toEqual([0, 0]);
+      expect(run(env, renderer)).toEqual([]);
+      // A frame drawn for another reason, at any time, finds them in their poses.
+      env.wait(1234);
+      view.select(desk('sw-a1'));
+      env.step(16);
+      for (const [id, look] of LOOKS) expect(limbs(renderer, id), `${id} ${JSON.stringify(opts)}`).toEqual(pose(look));
+      expect([env.queue.size, env.timers.size]).toEqual([0, 0]);
+    }
+  });
+
+  it('puts every robot back in its pose and stops drawing when motion turns reduced, and runs the loops again when it no longer is', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    run(env, renderer, 10);
+    expect(limbs(renderer, 'sw-a1')).not.toEqual(pose(LOOKS[0][1]));
+    view.setTheme(dayTheme(true));
+    env.step(16);
+    for (const [id, look] of LOOKS) expect(limbs(renderer, id), id).toEqual(pose(look));
+    expect([env.queue.size, env.timers.size]).toEqual([0, 0]);
+    expect(run(env, renderer)).toEqual([]);
+    view.setTheme(dayTheme());
+    expect(run(env, renderer)).toHaveLength(20);
+    expect(limbs(renderer, 'sw-a1')).not.toEqual(pose(LOOKS[0][1]));
+  });
+
+  it('draws no ambient frame for a floor with no robot, or with only hosts in meetings, who run no loop', () => {
+    const away = checkoutSpecs();
+    for (const c of away) for (const d of c.desks) d.state = 'dormant';
+    for (const floor of [makeFloor(away), makeFloor(meetingSpecs())]) {
+      const { renderer, env, view } = setup();
+      view.setFloor(floor);
+      env.flush();
+      expect([env.queue.size, env.timers.size]).toEqual([0, 0]);
+      expect(run(env, renderer)).toEqual([]);
+    }
   });
 });

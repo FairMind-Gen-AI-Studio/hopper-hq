@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { Box3, Mesh, type BufferGeometry, type Material } from 'three';
 import { CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
-import { DOOR_PANEL, DOOR_SLIDE } from '../../renderer/props';
-import { HOVER_Y, KIND_SCALE, POSES, STRIDE, rootHeight } from '../../renderer/robot';
+import { Materials } from '../../renderer/materials';
+import { DOOR_PANEL, DOOR_SLIDE, Geometries } from '../../renderer/props';
+import { HOVER_Y, KIND_SCALE, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
-import type { Intern } from '../../../src/scene/types';
+import type { Intern, Robot } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
 import {
   HOME_AZIMUTH,
@@ -973,5 +974,101 @@ describe('walking', () => {
     fs.apply(loungeFloor());
     expect(at(fs.sessions.get('sw-a1')!.robot!)).toEqual(spot(seatSpot(entry.desk!)));
     expect(fs.frame(1300).moving).toBe(false);
+  });
+});
+
+describe('loops at rest', () => {
+  type Look = Pick<Robot, 'pose' | 'badge'>;
+  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true });
+  /** The checkout floor with two interns over sw-a1's desk and both rooms open, ps-d4 at the head of the first. */
+  function busyFloor() {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: [intern('i1'), intern('i2')] };
+    return makeFloor(checkouts, undefined, checkoutRooms());
+  }
+  /** Every robot of the scene, with its walker's key and the look it rests in. */
+  function robots(fs: FloorScene): Array<{ key: string; look: Look; robot: RobotObject }> {
+    const out: Array<{ key: string; look: Look; robot: RobotObject }> = [];
+    for (const [id, entry] of fs.sessions) {
+      if (entry.robot) out.push({ key: JSON.stringify(['session', id]), look: entry.occupant.robot!, robot: entry.robot });
+      for (const [agentId, robot] of entry.interns) out.push({ key: JSON.stringify(['intern', id, agentId]), look: { pose: 'still', badge: null }, robot });
+    }
+    for (const [room, entry] of fs.rooms) {
+      for (const [agentId, robot] of entry.agents) out.push({ key: JSON.stringify(['agent', room, agentId]), look: { pose: 'typing', badge: null }, robot });
+    }
+    return out;
+  }
+  /** Where a robot stands, the way it faces, and its limbs. */
+  const limbs = (o: RobotObject) => {
+    const r = o.rig;
+    return [o.group.position.x, o.group.position.y, o.group.position.z, o.group.rotation.y, r.armL.rotation.x, r.armL.rotation.z, r.armR.rotation.x, r.armR.rotation.z, r.legL.rotation.x, r.legR.rotation.x, r.neck.rotation.x, r.waist.rotation.x];
+  };
+  /** The same robot built anew where it stands, in its pose, and in its loop at `t` from `phase` when given. */
+  function expected(o: RobotObject, look: Look, loop?: { t: number; phase: number }) {
+    const ref = buildRobot('ref', { ...look, body: 0, tie: null }, new Geometries(), new Materials(dayTheme()), o.kind);
+    poseRobot(ref, look, { x: o.group.position.x, z: o.group.position.z, facing: o.group.rotation.y });
+    if (loop) animateRobot(ref, look, loop.t, loop.phase);
+    return limbs(ref);
+  }
+
+  it('runs the loop of every robot at its place in each frame while loops are on, from the phase of its key, and none while they are off', () => {
+    const fs = sceneOf(busyFloor());
+    const all = robots(fs);
+    expect(new Set(all.map((r) => r.robot.kind))).toEqual(new Set(['session', 'intern', 'workflow']));
+    expect(fs.loops).toBe(false);
+    expect(fs.frame(5250).ambient).toBe(false);
+    for (const { key, look, robot } of all) expect(limbs(robot), key).toEqual(expected(robot, look));
+    fs.loops = true;
+    for (const now of [5250, 5300]) {
+      const step = fs.frame(now);
+      expect([step.moving, step.shadows, step.ambient]).toEqual([false, false, true]);
+      for (const { key, look, robot } of all) expect(limbs(robot), key).toEqual(expected(robot, look, { t: now / 1000, phase: phaseOf(key) }));
+    }
+    const typist = all.find((r) => r.key === JSON.stringify(['session', 'sw-a1']))!;
+    expect(limbs(typist.robot)).not.toEqual(expected(typist.robot, typist.look));
+    fs.loops = false;
+    expect(fs.frame(5350).ambient).toBe(false);
+    for (const { key, look, robot } of all) expect(limbs(robot), key).toEqual(expected(robot, look));
+  });
+
+  it('strides a robot on its way while the others run their loops, and calls a frame ambient only while a robot at its place runs one', () => {
+    const fs = sceneOf();
+    fs.loops = true;
+    const walker = fs.sessions.get('sw-c3')!.robot!;
+    const typist = fs.sessions.get('sw-a1')!.robot!;
+    const lounge = loungeFloor();
+    const seat = seatSpot(fs.sessions.get('sw-c3')!.desk!);
+    const there = startTrip(seat, findPath(walkGrid(lounge), seat, loungeSpots(lounge.lounge.rect)[2]!), 1000, WALK_SPEED);
+    fs.apply(lounge, 1000);
+    const step = fs.frame(1400);
+    expect([step.moving, step.ambient]).toEqual([true, true]);
+    expect(walker.rig.legL.rotation.x).toBeCloseTo(Math.sin((0.4 * there.speed * STRIDE.rate) / WALK_SPEED) * STRIDE.swing, 10);
+    expect([walker.rig.neck.rotation.x, walker.rig.waist.rotation.x]).toEqual([0, 0]);
+    expect(limbs(typist)).toEqual(expected(typist, { pose: 'typing', badge: 'typing' }, { t: 1.4, phase: phaseOf(JSON.stringify(['session', 'sw-a1'])) }));
+    // At its seat in the lounge, it breathes.
+    const end = tripEnd(there);
+    fs.frame(end);
+    expect(limbs(walker)).toEqual(expected(walker, { pose: 'resting', badge: null }, { t: end / 1000, phase: phaseOf(JSON.stringify(['session', 'sw-c3'])) }));
+    // With no robot on the floor, or only hosts in meetings, no frame is ambient.
+    const away = checkoutSpecs();
+    for (const c of away) for (const d of c.desks) d.state = 'dormant';
+    const meeting = checkoutSpecs();
+    for (const c of meeting) for (const d of c.desks) if (d.state !== 'dormant') d.state = 'in_meeting';
+    for (const floor of [makeFloor(away), makeFloor(meeting)]) {
+      const quiet = sceneOf(floor);
+      quiet.loops = true;
+      expect(quiet.frame(1000).ambient).toBe(false);
+    }
+  });
+
+  it('keeps the tag anchor of a robot at its place from frame to frame, and works it out again with each floor update', () => {
+    const fs = sceneOf();
+    fs.loops = true;
+    const first = fs.frame(1000).tags.get('sw-a1')!;
+    expect(fs.frame(1050).tags.get('sw-a1')).toBe(first);
+    fs.apply(checkoutFloor(), 1100);
+    const next = fs.frame(1150).tags.get('sw-a1')!;
+    expect(next).not.toBe(first);
+    expect(next).toEqual(first);
   });
 });
