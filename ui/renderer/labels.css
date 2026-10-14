@@ -122,6 +122,11 @@
   50% { box-shadow: 0 0 0 4px transparent; }
 }
 
+/* With motion off (tests, screenshots), the dot keeps still, as under reduced motion. */
+.fv-still .fv-badge-needs .fv-dot {
+  animation: none;
+}
+
 .fv-sign {
   padding: 3px 7px;
   border-radius: 3px;

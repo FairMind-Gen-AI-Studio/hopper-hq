@@ -1584,6 +1584,16 @@ describe('ambient frames in the floor view', () => {
     expect(limbs(renderer, 'sw-a1')).not.toEqual(pose(LOOKS[0][1]));
   });
 
+  it('keeps the dot of a desk that needs you still with motion: false, and lets it pulse otherwise', () => {
+    for (const motion of [false, true]) {
+      const { labels, env, view } = setup(dayTheme(), { motion });
+      view.setFloor(checkoutFloor());
+      env.flush();
+      expect(labels.querySelector('.fv-badge-needs .fv-dot')).not.toBeNull();
+      expect(labels.classList.contains('fv-still'), String(motion)).toBe(!motion);
+    }
+  });
+
   it('draws no ambient frame for a floor with no robot, or with only hosts in meetings, who run no loop', () => {
     const away = checkoutSpecs();
     for (const c of away) for (const d of c.desks) d.state = 'dormant';

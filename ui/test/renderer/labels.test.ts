@@ -413,6 +413,22 @@ describe('the label layer', () => {
     expect(root.classList.contains('fv-compact')).toBe(false);
   });
 
+  it('keeps the dot of a desk that needs you from pulsing while motion is off, until it is on again or the layer goes', () => {
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    expect(labels.tag('oa-c3')!.classList.contains('fv-badge-needs')).toBe(true);
+    expect(rule('.fv-badge-needs .fv-dot')).toContain('animation: fv-pulse 1.2s ease-in-out infinite;');
+    expect(rule('.fv-still .fv-badge-needs .fv-dot')).toContain('animation: none;');
+    expect(root.classList.contains('fv-still')).toBe(false);
+    labels.setMotion(false);
+    expect(root.classList.contains('fv-still')).toBe(true);
+    labels.setMotion(true);
+    expect(root.classList.contains('fv-still')).toBe(false);
+    labels.setMotion(false);
+    labels.dispose();
+    expect(root.classList.contains('fv-still')).toBe(false);
+  });
+
   it('styles compact tags so that hidden text still names them, and lets drags on a tag reach the camera', () => {
     expect(rule('.fv-tag')).toContain('touch-action: none;');
     expect(rule('.fv-tag')).toContain('user-select: none;');

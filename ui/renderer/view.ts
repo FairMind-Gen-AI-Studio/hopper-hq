@@ -181,6 +181,7 @@ export function createFloorView(
     activate: (target) => doubleClick(() => target),
     lostFocus: () => canvas.focus(),
   });
+  labels.setMotion(motion);
 
   let size = { ...MIN_SIZE };
   // A canvas's default size, until the first measure.

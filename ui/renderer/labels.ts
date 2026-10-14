@@ -128,6 +128,11 @@ export class LabelLayer {
     this.root.classList.toggle('fv-compact', compact);
   }
 
+  /** With motion off (ViewOptions.motion), nothing on the labels moves: the dot of a desk that needs you keeps still. */
+  setMotion(on: boolean): void {
+    this.root.classList.toggle('fv-still', !on);
+  }
+
   /** Moves every label to its anchor's place on the canvas, hiding those off the view. */
   position(camera: Camera, width: number, height: number): void {
     for (const label of [...this.signs.values(), ...this.boards.values(), ...this.tags.values()]) {
@@ -174,7 +179,7 @@ export class LabelLayer {
     for (const [key, label] of this.tags) this.drop(this.tags, key, label);
     for (const [key, label] of this.signs) this.drop(this.signs, key, label);
     for (const [key, label] of this.boards) this.drop(this.boards, key, label);
-    this.root.classList.remove('fv-labels', 'fv-compact');
+    this.root.classList.remove('fv-labels', 'fv-compact', 'fv-still');
   }
 
   /** The tag of a desk or a room: made once, as a button that selects and activates its target. */
