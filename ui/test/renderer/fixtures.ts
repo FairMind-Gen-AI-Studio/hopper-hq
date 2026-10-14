@@ -1,5 +1,5 @@
 import { OrthographicCamera } from 'three';
-import { LOUNGE_SEATS, MEETING_AGENTS_MAX, ROOMS_PER_COL } from '../../../src/scene/layout';
+import { BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, MEETING_AGENTS_MAX, ROOMS_PER_COL, SEATS_MAX } from '../../../src/scene/layout';
 import {
   SCENE_VERSION,
   type Checkout,
@@ -228,6 +228,32 @@ export function checkoutRooms(): RoomSpec[] {
 
 export function roomFloor(rooms = checkoutRooms()): FloorDetail {
   return makeFloor(checkoutSpecs(), undefined, rooms);
+}
+
+/**
+ * The fullest floor (design §7.1): four checkouts of BLOCK_DESKS sessions take every desk of four blocks. Each checkout's
+ * first session hosts a run at the head of its room's table, with SEATS_MAX agents at it, so that every room slot is open;
+ * its next two rest in the lounge, which fills; the others work, need you, are done or lost their signal. INTERNS_MAX
+ * interns fly over every desk.
+ */
+export function fullestFloor(): FloorDetail {
+  const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
+  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true }));
+  const repos = ['storefront-web', 'orders-api', 'payments-svc', 'search-svc'];
+  const checkouts = repos.map((repo, r): CheckoutSpec => ({
+    key: `/demo/${repo}`,
+    repo,
+    color: r,
+    tie: 4,
+    desks: Array.from({ length: BLOCK_DESKS }, (_, n): DeskSpec => {
+      const id = `${repo}-${n}`;
+      if (n === 0) return { id, state: 'in_meeting', agents: SEATS_MAX, interns: interns(id) };
+      if (n <= 2) return { id, state: 'idle', lounge: 2 * r + n - 1, interns: interns(id) };
+      return { id, state: busy[n % busy.length]!, interns: interns(id) };
+    }),
+  }));
+  const rooms = checkouts.map((c, slot): RoomSpec => ({ runId: `wf_0000aaaa-00${slot + 1}`, host: c.desks[0]!.id, running: SEATS_MAX, finished: 4, seated: true, slot }));
+  return makeFloor(checkouts, 'feature:checkout-v2', rooms);
 }
 
 /** Every session at a desk, with its desk, in desk order. */

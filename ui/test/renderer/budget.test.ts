@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest';
+import type { InstancedMesh, Mesh, Object3D } from 'three';
+import { BLOCKS_MAX, BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, ROOMS_MAX, SEATS_MAX } from '../../../src/scene/layout';
+import { FloorScene } from '../../renderer/floor-scene';
+import { dayTheme } from '../../renderer/theme';
+import { fullestFloor } from './fixtures';
+
+/**
+ * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
+ * rounded down. It shows 3,492 meshes, none instanced, in 3,492 draw calls, and 614 of them cast a shadow.
+ */
+const BUDGET = { meshes: 3841, draws: 3841, casters: 675 };
+
+/** Shown, and so are all its parents. */
+function shown(o: Object3D | null): boolean {
+  for (let x = o; x; x = x.parent) if (!x.visible) return false;
+  return true;
+}
+
+/**
+ * What the renderer draws of `root`, counted from the scene graph:
+ * - meshes: the shown meshes that are not instanced, each drawn on its own;
+ * - instanced: the shown instanced meshes with an instance to draw, and instances, how many they draw;
+ * - draws: the draw calls of the main pass, one per mesh and one per instanced mesh, every mesh having one material;
+ * - casters: the draw calls of the shadow pass, one per shown mesh or instanced mesh that casts a shadow.
+ */
+function costOf(root: Object3D) {
+  let meshes = 0;
+  let instanced = 0;
+  let instances = 0;
+  let casters = 0;
+  root.traverse((o) => {
+    const mesh = o as Mesh & Partial<InstancedMesh>;
+    if (!mesh.isMesh || !shown(mesh)) return;
+    if (mesh.isInstancedMesh) {
+      if (mesh.count === 0) return;
+      instanced++;
+      instances += mesh.count!;
+    } else meshes++;
+    if (mesh.castShadow) casters++;
+  });
+  return { meshes, instanced, instances, draws: meshes + instanced, casters };
+}
+
+/** The fullest floor in a scene, every robot at its place, the camera at home: the two walls that face it are cut away. */
+function fullestScene() {
+  const fs = new FloorScene(dayTheme());
+  fs.apply(fullestFloor());
+  return fs;
+}
+
+describe('the budget of the fullest floor', () => {
+  it('fills every desk of every block, the lounge and every room, with a full table and three interns at every desk', () => {
+    const fs = fullestScene();
+    const floor = fullestFloor();
+    const desks = floor.pods.flatMap((p) => p.desks);
+    expect([floor.pods.length, desks.length, desks.every((d) => d.occupant !== null)]).toEqual([2 * BLOCKS_MAX, BLOCKS_MAX * BLOCK_DESKS, true]);
+    const sessions = [...fs.sessions.values()];
+    expect(sessions.filter((e) => e.robot).length).toBe(BLOCKS_MAX * BLOCK_DESKS);
+    expect(sessions.filter((e) => e.occupant.at.kind === 'lounge').length).toBe(LOUNGE_SEATS);
+    expect(sessions.filter((e) => e.occupant.at.kind === 'room').length).toBe(ROOMS_MAX);
+    expect(sessions.map((e) => e.interns.size)).toEqual(desks.map(() => INTERNS_MAX));
+    expect([...fs.rooms.values()].map((r) => r.agents.size)).toEqual(Array.from({ length: ROOMS_MAX }, () => SEATS_MAX));
+  });
+
+  it('draws it within its budget of meshes, draw calls and shadow casters', () => {
+    const cost = costOf(fullestScene().scene);
+    expect(cost.meshes).toBeLessThanOrEqual(BUDGET.meshes);
+    expect(cost.draws).toBeLessThanOrEqual(BUDGET.draws);
+    expect(cost.casters).toBeLessThanOrEqual(BUDGET.casters);
+  });
+
+  it('lets no intern cast a shadow', () => {
+    const fs = fullestScene();
+    const interns = [...fs.sessions.values()].flatMap((e) => [...e.interns.values()]);
+    expect(interns).toHaveLength(BLOCKS_MAX * BLOCK_DESKS * INTERNS_MAX);
+    expect(interns.reduce((n, robot) => n + costOf(robot.group).casters, 0)).toBe(0);
+  });
+});
