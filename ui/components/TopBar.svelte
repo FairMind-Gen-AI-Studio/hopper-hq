@@ -29,6 +29,7 @@
 
 <header class="topbar">
   <h1 class="brand">Scranton HQ</h1>
+  <a class="credit" href="https://fairmind.ai" target="_blank" rel="noopener noreferrer">by FairMind</a>
   <nav class="crumbs" aria-label="Location">
     {#each crumbs as crumb, i (i)}
       {#if i > 0}<span class="sep" aria-hidden="true">/</span>{/if}
@@ -64,6 +65,8 @@
     text-transform: uppercase;
     line-height: 1;
   }
+  .credit { margin-left: -8px; color: var(--muted); font-size: 11px; letter-spacing: .04em; text-decoration: none; }
+  .credit:hover, .credit:focus-visible { color: var(--fg); text-decoration: underline; }
   .crumbs { display: flex; align-items: center; gap: 6px; color: var(--muted); min-width: 0; font-size: 13px; }
   .sep { opacity: .6; }
   .here { color: var(--fg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

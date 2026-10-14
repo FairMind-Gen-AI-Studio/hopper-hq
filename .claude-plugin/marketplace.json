@@ -1,7 +1,7 @@
 {
   "name": "scranton-hq",
   "description": "scranton-hq for Claude Code: see which of your sessions are waiting for you.",
-  "owner": { "name": "scranton-hq contributors" },
+  "owner": { "name": "FairMind" },
   "plugins": [
     {
       "name": "scranton-hq",
