@@ -1074,6 +1074,22 @@ describe('walking', () => {
     expect(end.tags.get('sw-c3')).toEqual(labelAnchor(floor, seatOf(floor, 'sw-c3').desk, seatOf(floor, 'sw-c3').occupant));
   });
 
+  it('shows no ring under a selected robot and hangs no tag for it while it waits unseen inside the elevator, and both once it is out', () => {
+    const fs = sceneOf();
+    fs.setSelected(deskTarget('sw-x9'));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.push({ id: 'sw-x9', state: 'working' });
+    fs.apply(makeFloor(checkouts), 1000);
+    const robot = fs.sessions.get('sw-x9')!.robot!;
+    expect([robot.group.visible, fs.ring.visible]).toEqual([false, false]);
+    expect(fs.frame(1000 + DOOR_MS - 1).tags.get('sw-x9')).toBeNull();
+    expect(fs.ring.visible).toBe(false);
+    const out = fs.frame(1000 + DOOR_MS);
+    const elevator = elevatorSpot(checkoutFloor().core);
+    expect([robot.group.visible, fs.ring.visible, fs.ring.position.x, fs.ring.position.z]).toEqual([true, true, elevator.x, elevator.z]);
+    expect(out.tags.get('sw-x9')).toEqual({ x: elevator.x, y: LABEL_Y.standing, z: elevator.z });
+  });
+
   it('puts every robot in its place at once when it settles: those on their way arrive, those leaving are gone', () => {
     const fs = sceneOf();
     const entry = fs.sessions.get('sw-a1')!;

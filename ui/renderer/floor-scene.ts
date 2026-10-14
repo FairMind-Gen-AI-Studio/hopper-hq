@@ -80,8 +80,11 @@ export interface FrameStep {
   wake: number | null;
   /** A robot came to rest and casts its shadow again: the shadow map must be drawn. */
   shadows: boolean;
-  /** Where the tag of each session's robot hangs, by session id: over the robot on its way, at its place once there. */
-  tags: Map<string, Point3>;
+  /**
+   * Where the tag of each session's robot hangs, by session id: over the robot on its way, at its place once there; null
+   * while the robot waits unseen inside the elevator.
+   */
+  tags: Map<string, Point3 | null>;
   /** Loops are on and a robot at its place runs one: the next frame moves it on. */
   ambient: boolean;
 }
@@ -336,7 +339,7 @@ export class FloorScene {
     let moved = false;
     let shadows = false;
     let ambient = false;
-    const tags = new Map<string, Point3>();
+    const tags = new Map<string, Point3 | null>();
     for (const [key, w] of this.walkers) {
       const mover = this.movers.get(key)!;
       if (w.trip) moved = true;
@@ -350,7 +353,7 @@ export class FloorScene {
       if (this.place(mover, next, now)) shadows = true;
       if (next.trip) moving = true;
       else if (this.loops && loopOf(mover.look, mover.robot.kind) !== null) ambient = true;
-      if (mover.tag !== null && !next.leaving) tags.set(mover.tag, this.tagAt(mover.tag, next, now));
+      if (mover.tag !== null && !next.leaving) tags.set(mover.tag, mover.robot.group.visible ? this.tagAt(mover.tag, next, now) : null);
     }
     this.passes = this.passes.filter((pass) => now < pass + DOOR_HOLD_MS + DOOR_MS);
     if (this.shellPart && this.floor) setDoors(this.shellPart.doors, this.floor.core, doorOpen(this.passes, now));
@@ -667,11 +670,14 @@ export class FloorScene {
     return undefined;
   }
 
-  /** Where a session's robot is now, or the chair of its desk when its robot has gone; null when it is not on this floor, or waits for a desk. */
+  /**
+   * Where a session's robot is now, or the chair of its desk when its robot has gone; null when it is not on this floor,
+   * waits for a desk, or its robot waits unseen inside the elevator.
+   */
   private robotPoint(sessionId: string): Point | null {
     const entry = this.entries.get(sessionId);
     if (!entry) return null;
-    if (entry.robot) return { x: entry.robot.group.position.x, z: entry.robot.group.position.z };
+    if (entry.robot) return entry.robot.group.visible ? { x: entry.robot.group.position.x, z: entry.robot.group.position.z } : null;
     if (!entry.desk) return null;
     const chair = seatSpot(entry.desk);
     return { x: chair.x, z: chair.z };

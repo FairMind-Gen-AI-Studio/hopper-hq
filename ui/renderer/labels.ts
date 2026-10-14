@@ -110,6 +110,8 @@ interface Label {
   at: ScreenPoint | null;
   /** Kept by the zoom and, where labels overlap, by its rank. Boards are always kept. */
   kept: boolean;
+  /** Its anchor is out of sight, as a robot inside the elevator is: it is placed as one off the view. */
+  away: boolean;
 }
 
 /** A desk's or a room's tag: a button for a target. */
@@ -214,6 +216,7 @@ export class LabelLayer {
     let moved = this.stale;
     for (const label of labels) {
       const p = projectToScreen(label.anchor, camera, width, height, this.v);
+      if (label.away) p.visible = false;
       const was = label.at;
       if (!was || p.visible !== was.visible || (p.visible && (p.x !== was.x || p.y !== was.y))) moved = true;
       label.at = p;
@@ -236,10 +239,16 @@ export class LabelLayer {
     this.keepStopOnView();
   }
 
-  /** Hangs a session's tag from another point: over its robot while it walks. The next position() moves it there. */
-  moveTag(sessionId: string, anchor: Point3): void {
+  /**
+   * Hangs a session's tag from another point: over its robot while it walks. The next position() moves it there. Null:
+   * its robot is out of sight, inside the elevator, and its tag shows nowhere, selected or not, until it hangs from a
+   * point again.
+   */
+  moveTag(sessionId: string, anchor: Point3 | null): void {
     const tag = this.tags.get(deskKey(sessionId));
-    if (tag) tag.anchor = anchor;
+    if (!tag) return;
+    if (anchor) tag.anchor = anchor;
+    tag.away = anchor === null;
   }
 
   tag(sessionId: string): HTMLElement | undefined {
@@ -484,7 +493,7 @@ export class LabelLayer {
   private add(el: HTMLElement): Label {
     el.style.visibility = 'hidden';
     this.root.append(el);
-    return { el, anchor: { x: 0, y: 0, z: 0 }, shows: '', x: NaN, y: NaN, visible: false, at: null, kept: true };
+    return { el, anchor: { x: 0, y: 0, z: 0 }, shows: '', x: NaN, y: NaN, visible: false, at: null, kept: true, away: false };
   }
 
   private drop<L extends Label>(map: Map<string, L>, key: string, label: L): void {

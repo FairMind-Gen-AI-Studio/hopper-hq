@@ -854,6 +854,26 @@ describe('which tags show', () => {
     expect(shown(root)).toEqual([]);
   });
 
+  it('shows nowhere the tag of a robot out of sight, the selected one too, hiding nothing under it, until it hangs from a point again', () => {
+    sized(80, 20);
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    const camera = corner();
+    labels.setSelected(deskTarget('sw-a1'));
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.moveTag('oa-c3', { x: -20, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-a1']);
+    // sw-a1's robot waits unseen inside the elevator: its tag goes, out of the tab order, and oa-c3 shows.
+    labels.moveTag('sw-a1', null);
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['oa-c3']);
+    expect([labels.tag('sw-a1')!.style.visibility, labels.tag('sw-a1')!.tabIndex]).toEqual(['hidden', -1]);
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-a1']);
+  });
+
   it('takes a hidden tag out of the tab order and the arrow keys, as one off the view, the floor panel listing every session', () => {
     sized(80, 20);
     const { labels } = layer();
