@@ -54,7 +54,7 @@ import {
 import { checkoutOf, checkoutSpecs, makeOccupant } from './fixtures';
 
 const RECT = { x: 3, y: 7, w: 2, h: 2 };
-/** A desk of a pod's south row, chair on its south edge (as every version 2 desk), and one of its north row. */
+/** A desk of a pod's south row, chair on its south edge, and one of its north row, chair on its north edge. */
 const SOUTH: Pick<PodDesk, 'rect' | 'chair'> = { rect: RECT, chair: 'south' };
 const NORTH: Pick<PodDesk, 'rect' | 'chair'> = { rect: RECT, chair: 'north' };
 const QUARTER = Math.PI / 2;

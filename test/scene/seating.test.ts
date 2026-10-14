@@ -168,6 +168,16 @@ describe('desks', () => {
     expect(seat(prev, [view('d2', ORDERS, 'dormant', { start: 1 }), view('d1', ORDERS, 'dormant', { start: 0 }), ...seven]).desks).toEqual([...seven.map((v) => v.id), 'd1']);
   });
 
+  it('S2d then S2e in one read: the dormant session left without a desk sits again at a free desk of the block grown later in that read', () => {
+    const seven = team('w', 7, ORDERS);
+    const prev = seating([...seven.map((v) => v.id), 'd1']);
+    const views = [...seven, view('d1', ORDERS, 'dormant', { since: 60 }), view('x1', ORDERS, 'working', { start: 20 }), view('x2', ORDERS, 'working', { start: 21 })];
+    // x1 takes d1's desk (S2d); x2 finds no desk free and nobody dormant at one, so the plan grows (S2e); then d1, dormant,
+    // takes the first free desk among the pods of its checkout: on the new block, beside x2 (S3).
+    const next = seat(prev, views);
+    expect([next.blocks, next.desks]).toEqual([2, [...seven.map((v) => v.id), 'x1', 'x2', 'd1', _, _, _, _, _, _]]);
+  });
+
   it('seats a floor on first start in the smallest plan that holds its sessions that are not dormant, the dormant ones at the desks left', () => {
     const dormant = ['d0', 'd1', 'd2'].map((id, i) => view(id, ORDERS, 'dormant', { start: i }));
     const working = team('w', 10, ORDERS, 10);

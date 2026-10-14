@@ -234,8 +234,8 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
 /**
  * The fullest floor (design §7.1): four checkouts of BLOCK_DESKS sessions take every desk of four blocks. Each checkout's
  * first session hosts a run at the head of its room's table, with SEATS_MAX agents at it, so that every room slot is open;
- * its next two rest in the lounge, which fills; the others work, need you, are done or lost their signal. INTERNS_MAX
- * interns fly over every desk.
+ * its next two rest in the lounge, which fills; the others work, need you, are done or lost their signal, but for the
+ * very last, dormant, whose desk has its nameplate. INTERNS_MAX interns fly over every other desk.
  */
 export function fullestFloor(): FloorDetail {
   const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
@@ -250,6 +250,7 @@ export function fullestFloor(): FloorDetail {
       const id = `${repo}-${n}`;
       if (n === 0) return { id, state: 'in_meeting', agents: SEATS_MAX, interns: interns(id) };
       if (n <= 2) return { id, state: 'idle', lounge: 2 * r + n - 1, interns: interns(id) };
+      if (r === repos.length - 1 && n === BLOCK_DESKS - 1) return { id, state: 'dormant' };
       return { id, state: busy[n % busy.length]!, interns: interns(id) };
     }),
   }));

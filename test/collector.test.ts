@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { basename } from 'node:path';
+import { mkdtemp } from 'node:fs/promises';
+import type { ServerResponse } from 'node:http';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { demoScript } from '../src/adapters/demo.js';
 import type { WorkspaceResolver } from '../src/adapters/git.js';
 import { Collector } from '../src/collector.js';
@@ -7,6 +10,7 @@ import { newSession } from '../src/core/reducer.js';
 import type { RawEvent, Session } from '../src/core/types.js';
 import { emptySeating, parseSeating } from '../src/scene/seating.js';
 import type { FloorDetail } from '../src/scene/types.js';
+import { SceneHub } from '../src/server/events.js';
 import { Store } from '../src/store/store.js';
 
 const resolver: WorkspaceResolver = async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' });
@@ -670,5 +674,95 @@ describe('seating', () => {
     c.floor(KEY);
     // Dormant, it keeps its desk.
     expect([c.seatingOf(KEY)!.desks, c.seatingOf(KEY)!.lounge]).toEqual([desks('A1', 'A2'), desks()]);
+  });
+});
+
+describe('seating on the live view and over an older database', () => {
+  const ROOT = '/home/dev/alpha';
+  const FLOOR = `repo:${ROOT}`;
+  const DAY = 24 * 60 * 60 * 1000;
+  /** A session id of the redacted kind, numbered. */
+  const sid = (n: number) => `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
+  const on = (e: Record<string, unknown>) => hook({ cwd: ROOT, ...e });
+  /** A live view's response that keeps nothing and never pushes back. */
+  const stream = () =>
+    ({
+      on() { return this; },
+      writeHead() { return this; },
+      write: () => true,
+      writableLength: 0,
+      end() {},
+      destroy() {},
+    }) as unknown as ServerResponse;
+
+  it("moves seating on at the live view's 15 s tick for a change that only time makes, and saves it", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = NOW + 1000;
+      const store = await Store.open(':memory:');
+      const c = collector({ store, now: () => now, saveDelayMs: 500 });
+      await c.ingest(on({ type: 'prompt', text: 'go', sessionId: sid(1) }));
+      await c.ingest(on({ type: 'turn.finished', backgroundTasks: 0, sessionId: sid(1), ts: NOW + 1 }));
+      expect(c.markSeen(sid(1))).toBe(true);
+      await c.ingest(on({ type: 'prompt', text: 'go', sessionId: sid(2), ts: NOW + 2 }));
+      const hub = new SceneHub({ source: c, log: () => {} });
+      expect(hub.attach(stream(), FLOOR)).toBe(true);
+      // Seen, the first session is idle: it rests in the lounge.
+      const resting = c.seatingOf(FLOOR)!;
+      expect([resting.desks.slice(0, 2), resting.lounge[0]]).toEqual([[sid(1), sid(2)], sid(1)]);
+      // Three days on it is dormant, which no event says: the lounge frees at the next tick, and not before.
+      now += 3 * DAY + 1000;
+      vi.advanceTimersByTime(14_999);
+      expect(c.seatingOf(FLOOR)).toBe(resting);
+      vi.advanceTimersByTime(1);
+      const after = c.seatingOf(FLOOR)!;
+      expect([after.desks.slice(0, 2), after.lounge[0]]).toEqual([[sid(1), sid(2)], null]);
+      vi.advanceTimersByTime(500);
+      expect(parseSeating(store.loadFloors().get(FLOOR)!.plan!)).toEqual(after);
+      hub.close();
+      await c.close();
+      store.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('seats the floors of a database made before floors kept their seating at the first read, saves them, and keeps them after a restart', async () => {
+    const path = join(await mkdtemp(join(tmpdir(), 'shq-collector-')), 'scranton.db');
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(path);
+    db.exec(`
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, ts INTEGER NOT NULL, seq INTEGER NOT NULL, source TEXT NOT NULL, type TEXT NOT NULL, json TEXT NOT NULL);
+      CREATE INDEX events_session_ts ON events (session_id, ts);
+      CREATE TABLE floors (key TEXT PRIMARY KEY, first_seen INTEGER NOT NULL);
+    `);
+    const ws = (root: string) => ({ cwd: root, repoRoot: root, repoName: basename(root), worktree: false, branch: 'main' });
+    const live = Array.from({ length: 10 }, (_, i): Session => ({ ...newSession(sid(i), NOW - 5000 + i, ws(ROOT)), state: 'working', stateSince: NOW - 100, lastEventAt: NOW - 100 }));
+    const ended: Session = { ...newSession(sid(99), NOW - 4000, ws('/home/dev/beta')), state: 'ended' };
+    for (const s of [...live, ended]) db.prepare('INSERT INTO sessions (id, json, updated_at) VALUES (?, ?, ?)').run(s.id, JSON.stringify(s), 5);
+    db.prepare('INSERT INTO floors (key, first_seen) VALUES (?, ?)').run(FLOOR, NOW - 6000);
+    db.prepare('INSERT INTO floors (key, first_seen) VALUES (?, ?)').run('repo:/home/dev/beta', NOW - 4000);
+    db.close();
+
+    const store = await Store.open(path);
+    const a = collector({ store, now: () => NOW });
+    expect(a.seatingOf(FLOOR)).toBeNull();
+    a.render([FLOOR]);
+    const seated = a.seatingOf(FLOOR)!;
+    expect([seated.blocks, seated.desks.filter((id) => id !== null)]).toEqual([2, live.map((s) => s.id)]);
+    await a.close();
+    // The floor whose only session ended is gone with its row.
+    expect([...store.loadFloors().keys()]).toEqual([FLOOR]);
+    expect(parseSeating(store.loadFloors().get(FLOOR)!.plan!)).toEqual(seated);
+    store.close();
+
+    const again = await Store.open(path);
+    const b = collector({ store: again, now: () => NOW });
+    expect(b.seatingOf(FLOOR)).toEqual(seated);
+    b.scene();
+    expect(b.seatingOf(FLOOR)).toEqual(seated);
+    await b.close();
+    again.close();
   });
 });

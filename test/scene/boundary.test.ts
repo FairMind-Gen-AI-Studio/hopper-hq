@@ -36,6 +36,7 @@ describe('the browser boundary of src/scene', () => {
 
   it('flags a server-only sibling, a module in a subdirectory, and imports written without spaces', () => {
     expect(violations("import { buildScene } from './build.js';")).toHaveLength(1);
+    expect(violations("import { seatFloor } from './seating.js';")).toHaveLength(1);
     expect(violations("import './sub/x.js';")).toHaveLength(1);
     expect(violations("import{toView}from'../core/view.js';")).toHaveLength(1);
     expect(violations("import {toView}from '../core/view.js';")).toHaveLength(1);
