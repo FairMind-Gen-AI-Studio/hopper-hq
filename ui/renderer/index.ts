@@ -5,7 +5,7 @@
 import { WebGLRenderer } from 'three';
 import type { FloorDetail } from '../../src/scene/types';
 import type { ThemeTokens } from './theme';
-import { createFloorView } from './view';
+import { browserEnv, createFloorView } from './view';
 
 export type { ThemeTokens } from './theme';
 export { readThemeTokens, COLOR_TOKENS, NUMBER_TOKENS } from './theme';
@@ -19,9 +19,14 @@ export class WebGLUnavailableError extends Error {
 
 export type Target = { kind: 'desk'; id: string } | { kind: 'room'; id: string };
 
+export interface ViewOptions {
+  /** False: robots jump to their places and no ambient loop runs (tests, screenshots). Default true. */
+  motion?: boolean;
+}
+
 export interface FloorView {
-  /** Replaces the floor. Robots are diffed by sessionId; the shell rebuilds only when the plan grows (size, core, pods, lounge, room slots). */
-  setFloor(floor: FloorDetail): void;
+  /** Replaces the floor. snap: every robot jumps to its place (first sight after a new stream). */
+  setFloor(floor: FloorDetail, opts?: { snap?: boolean }): void;
   setTheme(theme: ThemeTokens): void;
   /** Highlights a desk or a room (ring + label); pan: true eases the camera to it. Null clears. */
   select(target: Target | null, opts?: { pan?: boolean }): void;
@@ -31,11 +36,13 @@ export interface FloorView {
   /** 'select': click on a desk, robot, room or label (null on empty floor). 'activate': double-click or Enter (the UI focuses the desk's pane, or the room's host's). */
   on(event: 'select', fn: (target: Target | null) => void): () => void;
   on(event: 'activate', fn: (target: Target) => void): () => void;
+  /** 'moving': true while a robot walks or the elevator doors move, false once all is still. */
+  on(event: 'moving', fn: (moving: boolean) => void): () => void;
   dispose(): void;
 }
 
 /** Throws WebGLUnavailableError when a WebGL context cannot be created. */
-export function mountFloorView(host: { canvas: HTMLCanvasElement; labels: HTMLElement }, theme: ThemeTokens): FloorView {
+export function mountFloorView(host: { canvas: HTMLCanvasElement; labels: HTMLElement }, theme: ThemeTokens, opts?: ViewOptions): FloorView {
   let context: WebGL2RenderingContext | null = null;
   try {
     context = host.canvas.getContext('webgl2', { alpha: true, antialias: true, depth: true, stencil: false, powerPreference: 'default' });
@@ -50,5 +57,5 @@ export function mountFloorView(host: { canvas: HTMLCanvasElement; labels: HTMLEl
   } catch (err) {
     throw new WebGLUnavailableError(err instanceof Error ? err.message : String(err));
   }
-  return createFloorView(host, theme, renderer);
+  return createFloorView(host, theme, renderer, browserEnv(), opts);
 }

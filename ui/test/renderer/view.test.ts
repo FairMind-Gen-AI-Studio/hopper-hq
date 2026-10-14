@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
-import type { FloorView, Target } from '../../renderer/index';
+import type { FloorView, Target, ViewOptions } from '../../renderer/index';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, tableCenter } from '../../renderer/world';
@@ -140,7 +140,7 @@ const said = (target: Target | null): string => (target ? `${target.kind} ${targ
 /** happy-dom lays nothing out: the canvas's CSS size is whatever the test sets here. */
 const box = { width: W, height: H };
 
-function setup(theme = dayTheme()) {
+function setup(theme = dayTheme(), opts?: ViewOptions) {
   box.width = W;
   box.height = H;
   const stage = document.body.appendChild(document.createElement('div'));
@@ -151,7 +151,7 @@ function setup(theme = dayTheme()) {
   const labels = stage.appendChild(document.createElement('div'));
   const renderer = new FakeRenderer();
   const env = new FakeEnv();
-  const view = createFloorView({ canvas, labels }, theme, renderer, env);
+  const view = createFloorView({ canvas, labels }, theme, renderer, env, opts);
   const events: string[] = [];
   view.on('select', (target) => events.push(`select ${said(target)}`));
   view.on('activate', (target) => events.push(`activate ${said(target)}`));
@@ -241,6 +241,24 @@ describe('the floor view', () => {
     expect(renderer.renders).toBeGreaterThan(drawn);
     expect(env.queue.size).toBe(0);
     expect(renderer.shadowMap.enabled).toBe(true);
+  });
+
+  it('takes its motion option and a snap with a floor, and tells its moving listeners nothing while nothing moves', () => {
+    for (const opts of [undefined, { motion: true }, { motion: false }]) {
+      const { renderer, env, view } = setup(dayTheme(), opts);
+      const moving: boolean[] = [];
+      const stop = view.on('moving', (m) => moving.push(m));
+      view.setFloor(checkoutFloor());
+      env.flush();
+      view.setFloor(checkoutFloor(), { snap: true });
+      env.flush();
+      view.setFloor(checkoutFloor(), { snap: false });
+      env.flush();
+      expect(env.queue.size).toBe(0);
+      expect(renderer.scene!.getObjectByName('robot oa-c3')).toBeDefined();
+      expect(moving, JSON.stringify(opts)).toEqual([]);
+      stop();
+    }
   });
 
   it('opens a floor from home, framing its centre, with its desks and labels', () => {

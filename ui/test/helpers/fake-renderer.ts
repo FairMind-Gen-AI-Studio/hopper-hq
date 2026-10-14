@@ -1,7 +1,7 @@
 import type { FloorDetail } from '../../../src/scene/types';
 import { occupantsOf } from '../../lib/occupants';
 import type { RendererModule } from '../../lib/renderer';
-import type { FloorView, Target, ThemeTokens } from '../../renderer/index';
+import type { FloorView, Target, ThemeTokens, ViewOptions } from '../../renderer/index';
 import { readThemeTokens } from '../../renderer/theme';
 
 /** A floor view that records what the stage asks of it, and lets a test send its events. */
@@ -10,9 +10,12 @@ export interface FakeView extends FloorView {
   /** The theme it was mounted with: the `data-theme` of <html> when the stage read it ('system' without one). */
   theme: ThemeTokens;
   mountedTheme: string;
-  /** In order: 'floor <key> <sessions>', 'theme <data-theme>', 'select <kind> <id> [pan]' or 'select - [pan]', 'rotate <step>', 'reset', 'dispose'. */
+  /** False when it was mounted with motion: false. */
+  motion: boolean;
+  /** In order: 'floor <key> <sessions> [snap]', 'theme <data-theme>', 'select <kind> <id> [pan]' or 'select - [pan]', 'rotate <step>', 'reset', 'dispose'. */
   calls: string[];
   emit(event: 'select' | 'activate', target: Target | null): void;
+  emit(event: 'moving', moving: boolean): void;
 }
 
 export interface FakeRenderer {
@@ -21,7 +24,7 @@ export interface FakeRenderer {
   views: FakeView[];
 }
 
-type Listener = (target: Target | null) => void;
+type Listener = (arg: never) => void;
 
 const sessionCount = (floor: FloorDetail) => occupantsOf(floor).length;
 
@@ -36,26 +39,27 @@ export function fakeRenderer(opts: { fail?: unknown } = {}): FakeRenderer {
       read.set(tokens, document.documentElement.getAttribute('data-theme') ?? 'system');
       return tokens;
     },
-    mountFloorView(host: { canvas: HTMLCanvasElement; labels: HTMLElement }, theme: ThemeTokens): FloorView {
+    mountFloorView(host: { canvas: HTMLCanvasElement; labels: HTMLElement }, theme: ThemeTokens, options?: ViewOptions): FloorView {
       if (opts.fail !== undefined) throw opts.fail;
-      const listeners = { select: new Set<Listener>(), activate: new Set<Listener>() };
+      const listeners = { select: new Set<Listener>(), activate: new Set<Listener>(), moving: new Set<Listener>() };
       const calls: string[] = [];
       const view = {
         host,
         theme,
         mountedTheme: themeOf(theme),
+        motion: options?.motion !== false,
         calls,
-        setFloor: (floor: FloorDetail) => void calls.push(`floor ${floor.key} ${sessionCount(floor)}`),
+        setFloor: (floor: FloorDetail, o?: { snap?: boolean }) => void calls.push(`floor ${floor.key} ${sessionCount(floor)}${o?.snap ? ' snap' : ''}`),
         setTheme: (next: ThemeTokens) => void calls.push(`theme ${themeOf(next)}`),
         select: (target: Target | null, o?: { pan?: boolean }) => void calls.push(`select ${target ? `${target.kind} ${target.id}` : '-'}${o?.pan ? ' pan' : ''}`),
         rotate: (step: -1 | 1) => void calls.push(`rotate ${step}`),
         resetView: () => void calls.push('reset'),
-        on(event: 'select' | 'activate', fn: Listener) {
+        on(event: 'select' | 'activate' | 'moving', fn: Listener) {
           listeners[event].add(fn);
           return () => void listeners[event].delete(fn);
         },
-        emit(event: 'select' | 'activate', target: Target | null) {
-          for (const fn of [...listeners[event]]) fn(target);
+        emit(event: 'select' | 'activate' | 'moving', arg: Target | null | boolean) {
+          for (const fn of [...listeners[event]]) (fn as (arg: Target | null | boolean) => void)(arg);
         },
         dispose: () => void calls.push('dispose'),
       };

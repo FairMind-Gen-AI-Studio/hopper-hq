@@ -30,7 +30,7 @@ import {
   type KeyMove,
 } from './camera';
 import { FloorScene } from './floor-scene';
-import type { FloorView, Target } from './index';
+import type { FloorView, Target, ViewOptions } from './index';
 import { LabelLayer } from './labels';
 import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
@@ -125,6 +125,7 @@ export function createFloorView(
   theme: ThemeTokens,
   renderer: RendererLike,
   env: ViewEnv = browserEnv(),
+  opts: ViewOptions = {},
 ): FloorView {
   const { canvas } = host;
   const world = new FloorScene(theme);
@@ -143,7 +144,7 @@ export function createFloorView(
   renderer.shadowMap.autoUpdate = false;
   renderer.setClearColor(0x000000, 0);
 
-  const listeners = { select: new Set<Listener>(), activate: new Set<Listener>() };
+  const listeners = { select: new Set<Listener>(), activate: new Set<Listener>(), moving: new Set<(moving: boolean) => void>() };
   const emit = (event: 'select' | 'activate', target: Target | null) => {
     for (const fn of [...listeners[event]]) fn(target);
   };
@@ -500,17 +501,17 @@ export function createFloorView(
 
   function on(event: 'select', fn: (target: Target | null) => void): () => void;
   function on(event: 'activate', fn: (target: Target) => void): () => void;
-  function on(event: 'select' | 'activate', fn: (target: never) => void): () => void {
-    const set = listeners[event];
-    const listener = fn as Listener;
-    set.add(listener);
+  function on(event: 'moving', fn: (moving: boolean) => void): () => void;
+  function on(event: 'select' | 'activate' | 'moving', fn: (arg: never) => void): () => void {
+    const set = listeners[event] as Set<(arg: never) => void>;
+    set.add(fn);
     return () => {
-      set.delete(listener);
+      set.delete(fn);
     };
   }
 
   return {
-    setFloor(floor: FloorDetail) {
+    setFloor(floor: FloorDetail, _opts?: { snap?: boolean }) {
       if (disposed) return;
       if (world.apply(floor)) {
         // A camera at home frames the floor again as it grows. One the user moved stays where it looks, showing as much
@@ -609,6 +610,7 @@ export function createFloorView(
       controls.dispose();
       listeners.select.clear();
       listeners.activate.clear();
+      listeners.moving.clear();
       labels.dispose();
       world.dispose();
       renderer.dispose();
