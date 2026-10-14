@@ -1,4 +1,5 @@
 import type { DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
+import { SHOWCASE_SESSIONS, showcaseScript } from './showcase.js';
 
 interface DemoSession {
   id: string;
@@ -211,10 +212,11 @@ export function demoScript(loop = 0): DemoStep[] {
 /** The line the demo's summarizer writes from a session's notes: the demo session's own, found by its title. */
 export function demoSummaryLine(input: string): string {
   const title = /^Title: (.*)$/m.exec(input)?.[1];
-  return [...DEMO_SESSIONS, ...DEMO_DROP_INS].find((s) => s.title === title)?.summary ?? 'Working through the demo script';
+  return [...DEMO_SESSIONS, ...DEMO_DROP_INS, ...Object.values(SHOWCASE_SESSIONS)].find((s) => s.title === title)?.summary ?? 'Working through the demo script';
 }
 
-export function startDemo(ingest: (e: RawEvent) => void, opts: { loopMs?: number; now?: () => number } = {}): { stop(): void } {
+/** With `showcase`, the demo plays the showcase script once (showcase.ts) instead of looping its own. */
+export function startDemo(ingest: (e: RawEvent) => void, opts: { loopMs?: number; now?: () => number; showcase?: boolean } = {}): { stop(): void } {
   const loopMs = opts.loopMs ?? DEMO_LOOP_MS;
   const now = opts.now ?? Date.now;
   let timers: NodeJS.Timeout[] = [];
@@ -224,12 +226,12 @@ export function startDemo(ingest: (e: RawEvent) => void, opts: { loopMs?: number
     if (stopped) return;
     timers = [];
     const base = now();
-    for (const step of demoScript(loops++)) {
+    for (const step of opts.showcase ? showcaseScript() : demoScript(loops++)) {
       timers.push(setTimeout(() => {
         if (!stopped) for (const e of step.events(base + step.at)) ingest(e);
       }, step.at));
     }
-    timers.push(setTimeout(loop, loopMs));
+    if (!opts.showcase) timers.push(setTimeout(loop, loopMs));
   };
   loop();
   return {
