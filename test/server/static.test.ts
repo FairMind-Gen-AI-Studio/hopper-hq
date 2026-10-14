@@ -9,7 +9,7 @@ import { createApiServer } from '../../src/server/http.js';
 import { loadUiBundle } from '../../src/server/static.js';
 import { call, close, listen } from '../helpers/http.js';
 
-const INDEX = '<!doctype html><title>scranton-hq</title><script type="module" src="/ui/assets/index-abc.js"></script>';
+const INDEX = '<!doctype html><title>hopper-hq</title><script type="module" src="/ui/assets/index-abc.js"></script>';
 const FONT = Buffer.from([0x77, 0x4f, 0x46, 0x32, 0, 1, 2, 3]);
 
 async function fixture(): Promise<string> {
@@ -59,8 +59,8 @@ describe('loadUiBundle', () => {
     expect((await loadUiBundle(dir, { files: 3, bytes: 1000 }, log))!.size).toBe(3);
     expect((await loadUiBundle(dir, { files: 300, bytes: 35 }, log))!.size).toBe(3);
     expect(log.mock.calls).toEqual([
-      ['scranton-hq left 3 UI files out, over its limits of 3 files and 1000 bytes: the browser view may not work.'],
-      ['scranton-hq left 3 UI files out, over its limits of 300 files and 35 bytes: the browser view may not work.'],
+      ['hopper-hq left 3 UI files out, over its limits of 3 files and 1000 bytes: the browser view may not work.'],
+      ['hopper-hq left 3 UI files out, over its limits of 300 files and 35 bytes: the browser view may not work.'],
     ]);
     log.mockClear();
     expect((await loadUiBundle(dir, { files: 6, bytes: 60 }, log))!.size).toBe(6);

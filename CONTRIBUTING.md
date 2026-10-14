@@ -1,10 +1,10 @@
-# Contributing to scranton-hq
+# Contributing to hopper-hq
 
-Thank you for helping. scranton-hq is provided by [FairMind](https://fairmind.ai) and open source under the Apache License 2.0. By sending a contribution you agree that it is licensed under the same terms.
+Thank you for helping. hopper-hq is provided by [FairMind](https://fairmind.ai) and open source under the Apache License 2.0. By sending a contribution you agree that it is licensed under the same terms.
 
 ## Before you start
 
-- For a bug, open an issue with what you did, what you saw, and what you expected. Say which version of Claude Code and of Node you run, and whether it happens in `scranton-hq demo`.
+- For a bug, open an issue with what you did, what you saw, and what you expected. Say which version of Claude Code and of Node you run, and whether it happens in `hopper-hq demo`.
 - For a feature, open an issue first, so that we can agree on the shape before you write it. The [design documents](docs/plans) say why things are as they are.
 - For a security problem, do not open an issue: see [SECURITY.md](SECURITY.md).
 
@@ -18,7 +18,7 @@ npm run build
 npm test
 ```
 
-The [Development section of the README](README.md#development) lists every check, and says how to work on the browser UI with live reload against a demo daemon. `scranton-hq demo` plays synthetic sessions, and `scranton-hq demo --showcase` a longer scenario, so you can try a change without a real session.
+The [Development section of the README](README.md#development) lists every check, and says how to work on the browser UI with live reload against a demo daemon. `hopper-hq demo` plays synthetic sessions, and `hopper-hq demo --showcase` a longer scenario, so you can try a change without a real session.
 
 ## Checks
 

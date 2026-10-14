@@ -34,7 +34,7 @@ describe('focusSession', () => {
     expect(await focusSession('x', async () => answer(401, { error: 'Missing or wrong token' }))).toEqual({
       ok: false,
       status: 401,
-      error: 'Signed out: run scranton-hq ui again',
+      error: 'Signed out: run hopper-hq ui again',
     });
   });
 

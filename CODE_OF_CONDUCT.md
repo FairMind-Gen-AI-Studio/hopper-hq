@@ -1,6 +1,6 @@
 # Code of Conduct
 
-scranton-hq is provided by [FairMind](https://fairmind.ai) and open to everyone who wants to use it or to help. We want taking part to be a good experience for all, whatever their experience, background or identity.
+hopper-hq is provided by [FairMind](https://fairmind.ai) and open to everyone who wants to use it or to help. We want taking part to be a good experience for all, whatever their experience, background or identity.
 
 ## What we expect
 

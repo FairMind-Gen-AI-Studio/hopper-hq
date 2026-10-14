@@ -61,7 +61,7 @@ describe('Collector', () => {
     expect(collector({ store, log }).liveViews().map((v) => v.id)).toEqual(['S1']);
     store.saveSessions([newSession('a b', 1000, ws)], 1);
     collector({ store, log });
-    expect(log.mock.calls).toEqual([['scranton-hq skipped 1 saved session whose id is not valid'], ['scranton-hq skipped 2 saved sessions whose ids are not valid']]);
+    expect(log.mock.calls).toEqual([['hopper-hq skipped 1 saved session whose id is not valid'], ['hopper-hq skipped 2 saved sessions whose ids are not valid']]);
     store.close();
   });
 
@@ -165,7 +165,7 @@ describe('Collector', () => {
       const c = collector({ store, log, saveDelayMs: 10 });
       await c.ingest(hook({ type: 'prompt', text: 'go' }));
       vi.advanceTimersByTime(10);
-      expect(log).toHaveBeenCalledWith('scranton-hq could not save sessions and floors: database is locked');
+      expect(log).toHaveBeenCalledWith('hopper-hq could not save sessions and floors: database is locked');
       expect(saved).toEqual([]);
       await c.ingest(hook({ type: 'prompt', text: 'go', sessionId: 'S2' }));
       vi.advanceTimersByTime(10);
@@ -502,11 +502,11 @@ describe('the collector and the summarizer', () => {
     c.onSessionChange(later);
     await c.ingest(hook({ type: 'prompt', text: 'go' }));
     expect([later.mock.calls.length, c.dropped, c.session('S1')?.lastPrompt]).toEqual([1, 0, 'go']);
-    expect(log).toHaveBeenCalledWith('scranton-hq session listener failed: boom');
+    expect(log).toHaveBeenCalledWith('hopper-hq session listener failed: boom');
   });
 
   it('drops and counts the events of an ignored working directory before they are ordered', async () => {
-    const dir = '/home/dev/.scranton-hq/summarizer';
+    const dir = '/home/dev/.hopper-hq/summarizer';
     const c = collector({ ignoreCwd: (cwd) => cwd === dir || cwd.startsWith(dir + '/') });
     await c.ingest(hook({ type: 'prompt', text: 'Summarize', sessionId: 'X1', cwd: dir }));
     await c.ingest(hook({ type: 'turn.finished', backgroundTasks: 0, sessionId: 'X1', cwd: `${dir}/sub` }));
@@ -728,7 +728,7 @@ describe('seating on the live view and over an older database', () => {
   });
 
   it('seats the floors of a database made before floors kept their seating at the first read, saves them, and keeps them after a restart', async () => {
-    const path = join(await mkdtemp(join(tmpdir(), 'shq-collector-')), 'scranton.db');
+    const path = join(await mkdtemp(join(tmpdir(), 'shq-collector-')), 'hopper.db');
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(path);
     db.exec(`

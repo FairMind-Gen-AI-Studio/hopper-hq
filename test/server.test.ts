@@ -75,7 +75,7 @@ describe('API routes', () => {
 
   it('marks a finished session as seen', async () => {
     expect((await call({ method: 'POST', path: `/api/sessions/${SID}/seen` })).status).toBe(404);
-    const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: '/home/dev/shop/orders-api', _scranton_ts: 1791660009000 });
+    const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: '/home/dev/shop/orders-api', _hopper_ts: 1791660009000 });
     expect((await call({ method: 'POST', path: '/api/hooks', body: stop })).status).toBe(204);
     await collector.idle();
     expect((await call({ path: '/api/attention' })).json.done).toBe(1);

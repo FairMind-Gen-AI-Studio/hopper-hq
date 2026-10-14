@@ -5,9 +5,9 @@ import { DEFAULT_PORT, DEFAULT_THRESHOLDS, resolvePaths } from '../src/config.js
 
 describe('resolvePaths', () => {
   it('prefers explicit options, then environment, then home defaults', () => {
-    expect(resolvePaths({ claudeDir: '/a', dataDir: '/b' }, { CLAUDE_CONFIG_DIR: '/x', SCRANTON_HQ_HOME: '/y' })).toEqual({ claudeDir: '/a', dataDir: '/b' });
-    expect(resolvePaths({}, { CLAUDE_CONFIG_DIR: '/x', SCRANTON_HQ_HOME: '/y' })).toEqual({ claudeDir: '/x', dataDir: '/y' });
-    expect(resolvePaths({}, {})).toEqual({ claudeDir: join(homedir(), '.claude'), dataDir: join(homedir(), '.scranton-hq') });
+    expect(resolvePaths({ claudeDir: '/a', dataDir: '/b' }, { CLAUDE_CONFIG_DIR: '/x', HOPPER_HQ_HOME: '/y' })).toEqual({ claudeDir: '/a', dataDir: '/b' });
+    expect(resolvePaths({}, { CLAUDE_CONFIG_DIR: '/x', HOPPER_HQ_HOME: '/y' })).toEqual({ claudeDir: '/x', dataDir: '/y' });
+    expect(resolvePaths({}, {})).toEqual({ claudeDir: join(homedir(), '.claude'), dataDir: join(homedir(), '.hopper-hq') });
   });
 });
 

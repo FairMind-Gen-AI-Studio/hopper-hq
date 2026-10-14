@@ -4,26 +4,26 @@
 >
 > **Model routing:** implementers run on **Sonnet** (`model: "sonnet"`). Spec and code reviewers, and the final verification, run on **Opus** (`model: "opus"`). Always pass `model` explicitly when dispatching.
 
-**Goal:** A local daemon that watches every Claude Code session on this machine, works out what each one is doing and whether it needs the user, and exposes that through an HTTP API, a `scranton-hq ls` listing, a tmux status counter, and a band above the prompt of every Claude Code session.
+**Goal:** A local daemon that watches every Claude Code session on this machine, works out what each one is doing and whether it needs the user, and exposes that through an HTTP API, a `hopper-hq ls` listing, a tmux status counter, and a band above the prompt of every Claude Code session.
 
-**Architecture:** Two sources feed one collector. The filesystem adapter reads what Claude Code already writes under `~/.claude` and works with nothing installed. The scranton-hq mod, a Claude Code plugin, reports each session's events as they happen and draws the band above the prompt. A pure reducer folds normalized events into per-session state, and pure view functions derive time-based states, feature floors and the attention queue at read time. A single Node process (the daemon) hosts the collector, a SQLite store and a localhost-only HTTP API. A thin CLI and the mod talk to it over HTTP.
+**Architecture:** Two sources feed one collector. The filesystem adapter reads what Claude Code already writes under `~/.claude` and works with nothing installed. The hopper-hq mod, a Claude Code plugin, reports each session's events as they happen and draws the band above the prompt. A pure reducer folds normalized events into per-session state, and pure view functions derive time-based states, feature floors and the attention queue at read time. A single Node process (the daemon) hosts the collector, a SQLite store and a localhost-only HTTP API. A thin CLI and the mod talk to it over HTTP.
 
 **Tech stack:** Node ≥ 22.13 (ESM, built-in `node:sqlite`, `node:http`, `node:util` `parseArgs`), TypeScript 5.8 (`module: NodeNext`), Vitest 3.2. **No runtime dependencies.** The mod uses Claude Code's function-hooks plugin API (early access; this plan's mod code was verified against Claude Code 2.1.296) and is checked with `claude plugin validate` and `claude plugin test`.
 
-**Design reference:** `docs/plans/2026-10-09-scranton-hq-design.md` (§3 principles, §4 architecture and mod transport, §5 domain, §6 feature grouping, §7 states, §8 attention and the band, §12 security). M1 ships no browser UI; the Svelte app and the 3D renderer are M2.
+**Design reference:** `docs/plans/2026-10-09-hopper-hq-design.md` (§3 principles, §4 architecture and mod transport, §5 domain, §6 feature grouping, §7 states, §8 attention and the band, §12 security). M1 ships no browser UI; the Svelte app and the 3D renderer are M2.
 
 ---
 
 ## Ground rules (read before every task)
 
-1. **Never touch the real `~/.claude` or `~/.scranton-hq`.** Every path is injectable (`claudeDir`, `dataDir`). Tests use `mkdtemp` directories and synthetic fixtures only. No test reads the real home directory.
+1. **Never touch the real `~/.claude` or `~/.hopper-hq`.** Every path is injectable (`claudeDir`, `dataDir`). Tests use `mkdtemp` directories and synthetic fixtures only. No test reads the real home directory.
 2. **Never install anything into the user's Claude Code during implementation.** No `/plugin install`, no `claude plugin marketplace add`, no `claude --plugin-dir` sessions, no writes under `~/.claude` (settings, plugins, `dev-mods`). The mod lives in `mod/` in this repository and is checked only with `claude plugin validate`, `claude plugin test` and `tsc`. Installing it is a manual step the user takes at the end (Task 21, last section).
 3. **The mod must never get in the way of a session.** Every hook ends by returning `next(e)`'s result. Every hook at a gating site (`prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`) carries `.catch(($, e, next) => next(e))`. Hooks only append to a queue; network calls happen in timers and at session end.
 4. **Tolerate undocumented formats.** `~/.claude/sessions/*.json`, transcripts and `subagents/*.meta.json` are internal Claude Code formats. Parse defensively: unknown fields are ignored, missing fields degrade, a bad line is skipped. Never throw out of a parser.
 5. **Imports:** in `src/` and `test/`, all relative imports use the `.js` extension (NodeNext), e.g. `import { x } from './types.js'` even though the file is `types.ts`. Vitest resolves these to the `.ts` sources. The mod in `mod/` follows its own rules (Task 19).
 6. **TDD:** write the test, run it and watch it fail, implement, run it and watch it pass, commit. Commit after every task with the commit block given; each block already carries the `Co-Authored-By` trailer as a second `-m`. Keep it.
 7. **Types are the contract.** Task 3 defines every shared type. Later tasks import them by name and never redefine them. If a task seems to need a type change, stop and report it to the coordinator instead of improvising.
-8. Commands run from the repository root: `/path/to/scranton-hq`.
+8. Commands run from the repository root: `/path/to/hopper-hq`.
 
 ## File map
 
@@ -53,7 +53,7 @@ src/
   adapters/claude-code/hooks.ts        hook-shaped payload (as the mod sends it) -> events
   server/http.ts                 localhost API
   store/store.ts                 node:sqlite persistence
-mod/                             the scranton-hq mod (a Claude Code plugin); its own runtime: no Node, no DOM
+mod/                             the hopper-hq mod (a Claude Code plugin); its own runtime: no Node, no DOM
   .claude-plugin/plugin.json
   hooks/hooks.json
   hooks/register.tsx             forwards session events to the daemon; draws the band above the prompt
@@ -82,12 +82,12 @@ test/                            mirrors src/, plus test/fixtures/
 
 ```json
 {
-  "name": "scranton-hq",
+  "name": "hopper-hq",
   "version": "0.1.0",
   "description": "A local office building where you watch your coding-agent sessions work.",
   "license": "Apache-2.0",
   "type": "module",
-  "bin": { "scranton-hq": "dist/bin.js" },
+  "bin": { "hopper-hq": "dist/bin.js" },
   "files": ["dist", "README.md", "LICENSE"],
   "engines": { "node": ">=22.13" },
   "scripts": {
@@ -172,9 +172,9 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 describe('scaffold', () => {
-  it('declares the package as scranton-hq with no runtime dependencies', () => {
+  it('declares the package as hopper-hq with no runtime dependencies', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    expect(pkg.name).toBe('scranton-hq');
+    expect(pkg.name).toBe('hopper-hq');
     expect(pkg.dependencies).toBeUndefined();
     expect(pkg.type).toBe('module');
   });
@@ -197,9 +197,9 @@ git commit -m "Scaffold the TypeScript package, tests and CI" -m "Co-Authored-By
 
 ### Task 2: Payload fixtures
 
-The mod (Task 19) sends each session's events to the daemon as small JSON objects that use the field names of Claude Code's settings hooks (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_use_id`, `agent_id`, ...), plus `_scranton_ts`, the time the mod saw the event. These fixtures pin that format; the mapper (Task 13) and the API (Task 16) are tested against them.
+The mod (Task 19) sends each session's events to the daemon as small JSON objects that use the field names of Claude Code's settings hooks (`hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input`, `tool_use_id`, `agent_id`, ...), plus `_hopper_ts`, the time the mod saw the event. These fixtures pin that format; the mapper (Task 13) and the API (Task 16) are tested against them.
 
-The field sets come from a live check of the mod on Claude Code 2.1.296: one `claude -p` session that ran `ls` sent `UserPromptSubmit{_scranton_ts,cwd,hook_event_name,prompt,session_id}`, `PreToolUse{…,tool_input,tool_name,tool_use_id}`, `PostToolUse{…,tool_name,tool_use_id}`, `Stop{…,background_tasks}` and `SessionEnd{…,reason}`. **No `claude` command runs in this task.**
+The field sets come from a live check of the mod on Claude Code 2.1.296: one `claude -p` session that ran `ls` sent `UserPromptSubmit{_hopper_ts,cwd,hook_event_name,prompt,session_id}`, `PreToolUse{…,tool_input,tool_name,tool_use_id}`, `PostToolUse{…,tool_name,tool_use_id}`, `Stop{…,background_tasks}` and `SessionEnd{…,reason}`. **No `claude` command runs in this task.**
 
 **Files:**
 - Create: `test/fixtures/hooks/*.json` (11 files), `test/fixtures/hooks/README.md`
@@ -210,59 +210,59 @@ Every file below uses `"session_id": "11111111-1111-4111-8111-111111111111"` and
 
 `UserPromptSubmit.json`
 ```json
-{ "_scranton_ts": 1791660000000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "UserPromptSubmit", "prompt": "Run ls with the Bash tool, then reply with the single word ok." }
+{ "_hopper_ts": 1791660000000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "UserPromptSubmit", "prompt": "Run ls with the Bash tool, then reply with the single word ok." }
 ```
 
 `PreToolUse.json`
 ```json
-{ "_scranton_ts": 1791660001000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls", "description": "List files in current directory" }, "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV" }
+{ "_hopper_ts": 1791660001000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": { "command": "ls", "description": "List files in current directory" }, "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV" }
 ```
 
 `PostToolUse.json`
 ```json
-{ "_scranton_ts": 1791660002000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV" }
+{ "_hopper_ts": 1791660002000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV" }
 ```
 
 `PostToolUseFailure.json`
 ```json
-{ "_scranton_ts": 1791660002500, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PostToolUseFailure", "tool_name": "Bash", "tool_use_id": "toolu_02ABCDEFGHIJKLMNOPQRSTUV" }
+{ "_hopper_ts": 1791660002500, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PostToolUseFailure", "tool_name": "Bash", "tool_use_id": "toolu_02ABCDEFGHIJKLMNOPQRSTUV" }
 ```
 
 `PreToolUse.subagent.json`
 ```json
-{ "_scranton_ts": 1791660002700, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Grep", "tool_input": { "pattern": "useCart" }, "tool_use_id": "toolu_03ABCDEFGHIJKLMNOPQRSTUV", "agent_id": "a58cb74ebedcc3070" }
+{ "_hopper_ts": 1791660002700, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "Grep", "tool_input": { "pattern": "useCart" }, "tool_use_id": "toolu_03ABCDEFGHIJKLMNOPQRSTUV", "agent_id": "a58cb74ebedcc3070" }
 ```
 
 `PreToolUse.AskUserQuestion.json`
 ```json
-{ "_scranton_ts": 1791660002800, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion", "tool_input": { "questions": [ { "question": "Should the retry queue use Redis or Postgres?", "header": "Queue", "options": [], "multiSelect": false } ] }, "tool_use_id": "toolu_04ABCDEFGHIJKLMNOPQRSTUV" }
+{ "_hopper_ts": 1791660002800, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion", "tool_input": { "questions": [ { "question": "Should the retry queue use Redis or Postgres?", "header": "Queue", "options": [], "multiSelect": false } ] }, "tool_use_id": "toolu_04ABCDEFGHIJKLMNOPQRSTUV" }
 ```
 
 `PermissionRequest.json`
 ```json
-{ "_scranton_ts": 1791660003000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": "rm -rf dist && npm run build", "description": "Rebuild" } }
+{ "_hopper_ts": 1791660003000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": { "command": "rm -rf dist && npm run build", "description": "Rebuild" } }
 ```
 
 `SubagentStart.json`
 ```json
-{ "_scranton_ts": 1791660004000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "SubagentStart", "agent_id": "a58cb74ebedcc3070", "agent_type": "Explore" }
+{ "_hopper_ts": 1791660004000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "SubagentStart", "agent_id": "a58cb74ebedcc3070", "agent_type": "Explore" }
 ```
 
 `Stop.json`
 ```json
-{ "_scranton_ts": 1791660005000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "Stop", "background_tasks": 0 }
+{ "_hopper_ts": 1791660005000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "Stop", "background_tasks": 0 }
 ```
 
 `SessionEnd.json`
 ```json
-{ "_scranton_ts": 1791660006000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "SessionEnd", "reason": "other" }
+{ "_hopper_ts": 1791660006000, "session_id": "11111111-1111-4111-8111-111111111111", "cwd": "/home/dev/shop/orders-api", "hook_event_name": "SessionEnd", "reason": "other" }
 ```
 
 `batch.json`: one flush as the mod posts it, a JSON array holding, in this order, the exact objects of `UserPromptSubmit.json`, `PreToolUse.json`, `PostToolUse.json` and `Stop.json`.
 
 **Step 2: Write `test/fixtures/hooks/README.md`**
 
-Say, in a few lines: these files are the payloads the scranton-hq mod (`mod/hooks/register.tsx`) posts to `POST /api/hooks`; they use the settings hooks' field names so one mapper reads them; the field sets were checked against Claude Code 2.1.296; and a change to what the mod sends must change these fixtures, the mapper tests and the mod's own tests together.
+Say, in a few lines: these files are the payloads the hopper-hq mod (`mod/hooks/register.tsx`) posts to `POST /api/hooks`; they use the settings hooks' field names so one mapper reads them; the field sets were checked against Claude Code 2.1.296; and a change to what the mod sends must change these fixtures, the mapper tests and the mod's own tests together.
 
 **Step 3: Check the JSON and commit**
 
@@ -417,9 +417,9 @@ import { DEFAULT_PORT, DEFAULT_THRESHOLDS, resolvePaths } from '../src/config.js
 
 describe('resolvePaths', () => {
   it('prefers explicit options, then environment, then home defaults', () => {
-    expect(resolvePaths({ claudeDir: '/a', dataDir: '/b' }, { CLAUDE_CONFIG_DIR: '/x', SCRANTON_HQ_HOME: '/y' })).toEqual({ claudeDir: '/a', dataDir: '/b' });
-    expect(resolvePaths({}, { CLAUDE_CONFIG_DIR: '/x', SCRANTON_HQ_HOME: '/y' })).toEqual({ claudeDir: '/x', dataDir: '/y' });
-    expect(resolvePaths({}, {})).toEqual({ claudeDir: join(homedir(), '.claude'), dataDir: join(homedir(), '.scranton-hq') });
+    expect(resolvePaths({ claudeDir: '/a', dataDir: '/b' }, { CLAUDE_CONFIG_DIR: '/x', HOPPER_HQ_HOME: '/y' })).toEqual({ claudeDir: '/a', dataDir: '/b' });
+    expect(resolvePaths({}, { CLAUDE_CONFIG_DIR: '/x', HOPPER_HQ_HOME: '/y' })).toEqual({ claudeDir: '/x', dataDir: '/y' });
+    expect(resolvePaths({}, {})).toEqual({ claudeDir: join(homedir(), '.claude'), dataDir: join(homedir(), '.hopper-hq') });
   });
 });
 
@@ -450,7 +450,7 @@ import { join } from 'node:path';
 export interface Paths {
   /** Claude Code's config directory (sessions/, projects/, settings.json). */
   claudeDir: string;
-  /** scranton-hq's own data directory (token, daemon.json, database). */
+  /** hopper-hq's own data directory (token, daemon.json, database). */
   dataDir: string;
 }
 
@@ -460,7 +460,7 @@ export function resolvePaths(
 ): Paths {
   return {
     claudeDir: opts.claudeDir ?? env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
-    dataDir: opts.dataDir ?? env.SCRANTON_HQ_HOME ?? join(homedir(), '.scranton-hq'),
+    dataDir: opts.dataDir ?? env.HOPPER_HQ_HOME ?? join(homedir(), '.hopper-hq'),
   };
 }
 
@@ -2791,7 +2791,7 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
   const name = str(p.hook_event_name);
   if (!sessionId || !name) return [];
 
-  const ts = typeof p._scranton_ts === 'number' && Number.isFinite(p._scranton_ts) ? p._scranton_ts : receivedAt;
+  const ts = typeof p._hopper_ts === 'number' && Number.isFinite(p._hopper_ts) ? p._hopper_ts : receivedAt;
   const cwd = str(p.cwd);
   const agentId = str(p.agent_id) || null;
   const toolName = str(p.tool_name);
@@ -3428,7 +3428,7 @@ describe('API routes', () => {
 
   it('marks a finished session as seen', async () => {
     expect((await call({ method: 'POST', path: `/api/sessions/${SID}/seen` })).status).toBe(404);
-    const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: '/home/dev/shop/orders-api', _scranton_ts: 1791660009000 });
+    const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: '/home/dev/shop/orders-api', _hopper_ts: 1791660009000 });
     expect((await call({ method: 'POST', path: '/api/hooks', body: stop })).status).toBe(204);
     await collector.idle();
     expect((await call({ path: '/api/attention' })).json.done).toBe(1);
@@ -3764,7 +3764,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
   await mkdir(paths.dataDir, { recursive: true, mode: 0o700 });
   const token = await loadOrCreateToken(paths.dataDir);
 
-  const store = await Store.open(join(paths.dataDir, 'scranton.db'));
+  const store = await Store.open(join(paths.dataDir, 'hopper.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
   const collector = new Collector({ resolveWorkspace, store, acceptSources: ['hook', 'fs'] });
@@ -3783,7 +3783,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<RunningDaem
     ? null
     : new FsAdapter({ claudeDir: paths.claudeDir, emit: (e) => void collector.ingest(e), resolveWorkspace });
   fsAdapter?.start();
-  log(`scranton-hq is listening on http://127.0.0.1:${port}`);
+  log(`hopper-hq is listening on http://127.0.0.1:${port}`);
 
   return {
     port,
@@ -4116,14 +4116,14 @@ const stdio: Io = {
   err: (line) => void process.stderr.write(line + '\n'),
 };
 
-export const HELP = `scranton-hq: watch your coding-agent sessions work
+export const HELP = `hopper-hq: watch your coding-agent sessions work
 
 Usage:
-  scranton-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch]
-  scranton-hq status [--format text|tmux|json] [--data-dir DIR]
-  scranton-hq ls [--data-dir DIR]
-  scranton-hq ack [SESSION_ID] [--data-dir DIR]
-  scranton-hq --version`;
+  hopper-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch]
+  hopper-hq status [--format text|tmux|json] [--data-dir DIR]
+  hopper-hq ls [--data-dir DIR]
+  hopper-hq ack [SESSION_ID] [--data-dir DIR]
+  hopper-hq --version`;
 
 class UsageError extends Error {}
 
@@ -4185,7 +4185,7 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
     daemon = await startDaemon({ port, claudeDir: values['claude-dir'], dataDir: values['data-dir'], watchFiles: !values['no-watch'], log: io.err });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
-      io.err(`Port ${port ?? 7337} is already in use. Is scranton-hq already running? Check with: scranton-hq status`);
+      io.err(`Port ${port ?? 7337} is already in use. Is hopper-hq already running? Check with: hopper-hq status`);
       return 1;
     }
     throw err;
@@ -4211,7 +4211,7 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
     return 0;
   }
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('hopper-hq is not running. Start it with: hopper-hq start');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -4228,7 +4228,7 @@ async function cmdLs(args: string[], io: Io): Promise<number> {
   const { callDaemon } = await import('./client.js');
   const r = await callDaemon<Snapshot>(dataDir, 'GET', '/api/building');
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('hopper-hq is not running. Start it with: hopper-hq start');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -4248,7 +4248,7 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   if (id) {
     const r = await callDaemon<unknown>(dataDir, 'POST', `/api/sessions/${encodeURIComponent(id)}/seen`);
     if (!r) {
-      io.err('scranton-hq is not running. Start it with: scranton-hq start');
+      io.err('hopper-hq is not running. Start it with: hopper-hq start');
       return 1;
     }
     if (r.status === 404) {
@@ -4260,7 +4260,7 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   }
   const r = await callDaemon<{ marked: number }>(dataDir, 'POST', '/api/seen');
   if (!r || !r.data) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq start');
+    io.err('hopper-hq is not running. Start it with: hopper-hq start');
     return 1;
   }
   const n = r.data.marked;
@@ -4338,10 +4338,10 @@ Subagents that finish are not reported here: the filesystem adapter (Task 12) al
 `mod/.claude-plugin/plugin.json`
 ```json
 {
-  "name": "scranton-hq",
+  "name": "hopper-hq",
   "version": "0.1.0",
-  "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local scranton-hq daemon.",
-  "author": { "name": "scranton-hq contributors" },
+  "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local hopper-hq daemon.",
+  "author": { "name": "hopper-hq contributors" },
   "license": "Apache-2.0",
   "types": "./types/index.d.ts"
 }
@@ -4369,7 +4369,7 @@ export type Attention = { needsYou: number; done: number; items: AttentionItem[]
 
 declare module 'claude-code' {
   interface PluginState {
-    'scranton-hq': { attention: Attention | null }
+    'hopper-hq': { attention: Attention | null }
   }
 }
 ```
@@ -4377,14 +4377,14 @@ declare module 'claude-code' {
 `.claude-plugin/marketplace.json` (repository root)
 ```json
 {
-  "name": "scranton-hq",
-  "description": "scranton-hq for Claude Code: see which of your sessions are waiting for you.",
-  "owner": { "name": "scranton-hq contributors" },
+  "name": "hopper-hq",
+  "description": "hopper-hq for Claude Code: see which of your sessions are waiting for you.",
+  "owner": { "name": "hopper-hq contributors" },
   "plugins": [
     {
-      "name": "scranton-hq",
+      "name": "hopper-hq",
       "source": "./mod",
-      "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local scranton-hq daemon."
+      "description": "Shows above the prompt which other Claude Code sessions are waiting for you, and reports this session to the local hopper-hq daemon."
     }
   ]
 }
@@ -4404,7 +4404,7 @@ function daemon(on: On, posts: Post[]) {
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('session.id', async () => ({ value: 'S-OWN' }))
   on('fs.read', async ($, e, next) =>
-    e.path === '/home/dev/.scranton-hq/daemon.json' ? { value: JSON.stringify({ port: 7337, token: 'tok' }) } : next(e),
+    e.path === '/home/dev/.hopper-hq/daemon.json' ? { value: JSON.stringify({ port: 7337, token: 'tok' }) } : next(e),
   )
   on('http.fetch', async ($, e) => {
     if (e.init?.method === 'POST') posts.push({ url: e.url, body: JSON.parse(e.init.body ?? '[]'), auth: e.init.headers?.authorization })
@@ -4436,7 +4436,7 @@ test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
   expect(batch.map(b => b.hook_event_name)).toEqual(['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'])
   expect(batch[0]).toMatchObject({ session_id: 'S-OWN', cwd: '/home/dev/shop', prompt: 'list the files' })
   expect(batch[1]).toMatchObject({ tool_name: 'Bash', tool_input: { command: 'ls' } })
-  expect(typeof batch[0]?._scranton_ts).toBe('number')
+  expect(typeof batch[0]?._hopper_ts).toBe('number')
 })
 
 test('reports a permission prompt and a failed tool', async ($, on) => {
@@ -4541,7 +4541,7 @@ test('shows who else is waiting and jumps to their tmux pane', async ($, on) => 
   await $.session.start(START)
   await clock.advance(3100)
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'scranton-hq', surface, component: 'AbovePrompt', props: BAND })
+    const ui = await $.ui.mount({ plugin: 'hopper-hq', surface, component: 'AbovePrompt', props: BAND })
     expect((await ui.find({ type: 'Text', text: /waiting/ }))?.text).toBe('◉ 1 waiting · orders-api-c3: Bash ')
     expect((await ui.find({ type: 'Text', text: /done/ }))?.text).toBe(' ✓ 1 done')
     await ui.press({ key: 'go' })
@@ -4559,7 +4559,7 @@ test('offers no jump outside tmux', async ($, on) => {
   const clock = mock.clock(on)
   await $.session.start(START)
   await clock.advance(3100)
-  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const ui = await $.ui.mount({ plugin: 'hopper-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await ui.find({ key: 'go' })).toBeUndefined()
   await ui.unmount()
 })
@@ -4570,7 +4570,7 @@ test('draws nothing when nobody else needs you', async ($, on) => {
   on('ui.render', async () => ({ type: 'Box', children: [] }))
   await $.session.start(START)
   await clock.advance(3100)
-  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const ui = await $.ui.mount({ plugin: 'hopper-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await ui.find({ type: 'Text' })).toBeUndefined()
   await ui.unmount()
 })
@@ -4620,7 +4620,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Attention } from '../types'
 
-// scranton-hq for Claude Code: forwards what the session does to the local scranton-hq daemon,
+// hopper-hq for Claude Code: forwards what the session does to the local hopper-hq daemon,
 // and shows above the prompt who else is waiting for you. Payloads use the field names of
 // Claude Code's settings hooks, so the daemon reads them with one mapper.
 
@@ -4629,7 +4629,7 @@ const MAX_QUEUE = 500
 const FLUSH_MS = 500
 const POLL_MS = 3000
 
-const attention = atom({ plugin: 'scranton-hq', key: 'attention' } as const, null)
+const attention = atom({ plugin: 'hopper-hq', key: 'attention' } as const, null)
 
 type Daemon = { port: number; token: string }
 type Payload = Record<string, unknown>
@@ -4649,14 +4649,14 @@ function slim(value: unknown, depth = 0): unknown {
 }
 
 async function enqueue($: EngineInterface, fields: Payload) {
-  const body: Payload = { _scranton_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
+  const body: Payload = { _hopper_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
   for (const [k, v] of Object.entries(fields)) if (v !== undefined) body[k] = slim(v)
   queue.push(body)
   if (queue.length > MAX_QUEUE) queue.splice(0, queue.length - MAX_QUEUE)
 }
 
 async function locate($: EngineInterface): Promise<Daemon | null> {
-  const dir = (await $.env.get('SCRANTON_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.scranton-hq`
+  const dir = (await $.env.get('HOPPER_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.hopper-hq`
   try {
     const d = JSON.parse(await $.fs.read(`${dir}/daemon.json`)) as Partial<Daemon>
     return typeof d.port === 'number' && typeof d.token === 'string' ? { port: d.port, token: d.token } : null
@@ -5016,7 +5016,7 @@ export function startDemo(ingest: (e: RawEvent) => void, opts: { loopMs?: number
 3. Replace the store, collector, adapter lines with:
 
 ```ts
-  const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
+  const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'hopper.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
   const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'] });
@@ -5036,7 +5036,7 @@ and
 
 **Step 5: Add the `demo` command to `src/cli.ts`**
 
-Add `import { join } from 'node:path';` to the imports at the top, `case 'demo': return await cmdDemo(args, io);` to the switch, the help line `scranton-hq demo [--port N] [--data-dir DIR]` after the `ack` line, and:
+Add `import { join } from 'node:path';` to the imports at the top, `case 'demo': return await cmdDemo(args, io);` to the switch, the help line `hopper-hq demo [--port N] [--data-dir DIR]` after the `ack` line, and:
 
 ```ts
 async function cmdDemo(args: string[], io: Io): Promise<number> {
@@ -5055,7 +5055,7 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
     }
     throw err;
   }
-  io.err(`Demo running. In another terminal: scranton-hq ls --data-dir ${dataDir}`);
+  io.err(`Demo running. In another terminal: hopper-hq ls --data-dir ${dataDir}`);
   await new Promise<void>((resolve) => {
     process.once('SIGINT', () => resolve());
     process.once('SIGTERM', () => resolve());
@@ -5162,13 +5162,13 @@ describe('end to end', () => {
       expect(floor.sessions[0]).toMatchObject({ id: 'E2E', title: 'End-to-end flow', effectiveState: 'working', tmuxPane: '%9' });
 
       const { token, port } = (await readDaemonFile(dataDir))!;
-      expect(await post(port, token, { hook_event_name: 'PermissionRequest', session_id: 'E2E', cwd: repo, tool_name: 'Bash', tool_input: { command: 'npm publish' }, _scranton_ts: Date.now() + 1000 })).toBe(204);
+      expect(await post(port, token, { hook_event_name: 'PermissionRequest', session_id: 'E2E', cwd: repo, tool_name: 'Bash', tool_input: { command: 'npm publish' }, _hopper_ts: Date.now() + 1000 })).toBe(204);
       await d.collector.idle();
       const tmux = capture();
       await main(['status', '--format', 'tmux', '--data-dir', dataDir], tmux.io);
       expect(tmux.out).toEqual(['#[fg=colour203,bold]◉1#[default]']);
 
-      expect(await post(port, token, { hook_event_name: 'Stop', session_id: 'E2E', cwd: repo, _scranton_ts: Date.now() + 2000 })).toBe(204);
+      expect(await post(port, token, { hook_event_name: 'Stop', session_id: 'E2E', cwd: repo, _hopper_ts: Date.now() + 2000 })).toBe(204);
       await d.collector.idle();
       const ls = capture();
       await main(['ls', '--data-dir', dataDir], ls.io);
@@ -5199,19 +5199,19 @@ Keep the existing "A note on the name" and "License" sections word for word. Rep
 1. **Title and one-line description** (as now).
 2. **Status:** "Early. The collector, the CLI and the tmux counter work. The 3D building UI is next." Link the design document.
 3. **What it does:** three bullets, one per problem: which sessions work on the same feature (grouped by branch across repos); which sessions are waiting for you, and why; a record of finished sessions (coming).
-4. **Install:** `npm install -g scranton-hq` (Node 22.13 or later). From a clone: `npm install && npm run build && npm link`.
-5. **Quick start:** `scranton-hq start` in its own tmux window or terminal, then `scranton-hq ls`. Say that this already works from the files Claude Code writes, without the mod.
+4. **Install:** `npm install -g hopper-hq` (Node 22.13 or later). From a clone: `npm install && npm run build && npm link`.
+5. **Quick start:** `hopper-hq start` in its own tmux window or terminal, then `hopper-hq ls`. Say that this already works from the files Claude Code writes, without the mod.
 6. **tmux:**
    ```tmux
-   set -g status-right '#(scranton-hq status --format tmux) %H:%M'
+   set -g status-right '#(hopper-hq status --format tmux) %H:%M'
    set -g status-interval 5
    ```
-   `◉` is sessions waiting for you, `✓` is finished sessions you have not looked at. `scranton-hq ack` clears the `✓`.
-7. **The Claude Code mod (recommended):** it reports each session as things happen, with the exact reason a session waits, and shows above the prompt of every session who else is waiting for you, with a `Go` button that jumps to that tmux pane. Install from a shell: `claude plugin marketplace add <owner>/<repo>`, then `claude plugin install scranton-hq@scranton-hq` (keep `<owner>/<repo>` as a placeholder until the repository is published). Try it from a clone for one session: `claude --plugin-dir /path/to/scranton-hq/mod`. Without the mod, scranton-hq still works from the files Claude Code writes, with up to a second of delay and less detail about why a session waits.
+   `◉` is sessions waiting for you, `✓` is finished sessions you have not looked at. `hopper-hq ack` clears the `✓`.
+7. **The Claude Code mod (recommended):** it reports each session as things happen, with the exact reason a session waits, and shows above the prompt of every session who else is waiting for you, with a `Go` button that jumps to that tmux pane. Install from a shell: `claude plugin marketplace add <owner>/<repo>`, then `claude plugin install hopper-hq@hopper-hq` (keep `<owner>/<repo>` as a placeholder until the repository is published). Try it from a clone for one session: `claude --plugin-dir /path/to/hopper-hq/mod`. Without the mod, hopper-hq still works from the files Claude Code writes, with up to a second of delay and less detail about why a session waits.
 8. **Commands:** a table of `start`, `status`, `ls`, `ack`, `demo`.
-9. **How it works:** two sources (the mod, and Claude Code's own files under `~/.claude`), one collector, a localhost API. The files under `~/.claude` are internal to Claude Code and can change between versions; scranton-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
-10. **Privacy and security:** listens on 127.0.0.1 only; every request needs a token stored in `~/.scranton-hq/token` (mode 600); no telemetry; nothing leaves your machine.
-11. **Development:** `npm test`, `npm run typecheck`, `npm run test:mod` (needs the `claude` CLI; not run in CI), `scranton-hq demo` (or `node dist/bin.js demo`) for synthetic sessions, then `scranton-hq ls --data-dir ~/.scranton-hq/demo`.
+9. **How it works:** two sources (the mod, and Claude Code's own files under `~/.claude`), one collector, a localhost API. The files under `~/.claude` are internal to Claude Code and can change between versions; hopper-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
+10. **Privacy and security:** listens on 127.0.0.1 only; every request needs a token stored in `~/.hopper-hq/token` (mode 600); no telemetry; nothing leaves your machine.
+11. **Development:** `npm test`, `npm run typecheck`, `npm run test:mod` (needs the `claude` CLI; not run in CI), `hopper-hq demo` (or `node dist/bin.js demo`) for synthetic sessions, then `hopper-hq ls --data-dir ~/.hopper-hq/demo`.
 
 **Step 4: Commit**
 
@@ -5240,8 +5240,8 @@ Dispatch an Opus reviewer (`model: "opus"`) over the whole branch with this chec
 
 These touch the user's real setup. The coordinator stops here and asks the user before each one.
 
-1. Build and link: `npm run build && npm link` (puts `scranton-hq` on the PATH).
-2. Start the daemon in its own tmux window: `scranton-hq start`. Check: `scranton-hq ls` lists the running sessions (this already works from Claude Code's own files).
-3. Try the mod in one new session: `claude --plugin-dir /path/to/scranton-hq/mod`. The band shows up there when another session waits or finishes.
-4. To have it in every session: `claude plugin marketplace add /path/to/scranton-hq` (or `<owner>/<repo>` once published), then `claude plugin install scranton-hq@scranton-hq`. `claude plugin uninstall scranton-hq` removes it.
+1. Build and link: `npm run build && npm link` (puts `hopper-hq` on the PATH).
+2. Start the daemon in its own tmux window: `hopper-hq start`. Check: `hopper-hq ls` lists the running sessions (this already works from Claude Code's own files).
+3. Try the mod in one new session: `claude --plugin-dir /path/to/hopper-hq/mod`. The band shows up there when another session waits or finishes.
+4. To have it in every session: `claude plugin marketplace add /path/to/hopper-hq` (or `<owner>/<repo>` once published), then `claude plugin install hopper-hq@hopper-hq`. `claude plugin uninstall hopper-hq` removes it.
 5. Add the tmux lines from the README to `~/.tmux.conf` and reload with `tmux source-file ~/.tmux.conf`.

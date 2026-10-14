@@ -36,7 +36,7 @@ const SESSION_CLAUDE_CODE_ENV = /^CLAUDE_CODE_(ENTRYPOINT|EXECPATH|CHILD_SESSION
  */
 function summarizerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const kept = Object.entries(env).filter(([name]) => !SESSION_ENV.has(name) && !SESSION_CLAUDE_CODE_ENV.test(name));
-  return { ...Object.fromEntries(kept), SCRANTON_HQ_SUMMARIZER: '1' };
+  return { ...Object.fromEntries(kept), HOPPER_HQ_SUMMARIZER: '1' };
 }
 
 /**
@@ -49,7 +49,7 @@ export function claudeCliArgs(model: string | null): string[] {
 
 /**
  * Summarizes through the claude CLI on the user's account: the notes go on stdin, the first non-blank line of stdout is
- * the answer. The child runs in `cwd` with SCRANTON_HQ_SUMMARIZER set, so that the building leaves its session out, and
+ * the answer. The child runs in `cwd` with HOPPER_HQ_SUMMARIZER set, so that the building leaves its session out, and
  * without the variables of the session that started the daemon or the API key. Its output, stdout and stderr together,
  * is capped. A child told to stop that does not is killed.
  */

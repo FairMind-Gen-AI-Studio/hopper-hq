@@ -8,7 +8,7 @@ import { join } from 'node:path';
  * checkout's path, so a run in another checkout never empties or reads it. Nothing is written into the repository.
  */
 export function outputDirFor(checkout: string): string {
-  return join(tmpdir(), `scranton-hq-e2e-${createHash('sha256').update(checkout).digest('hex').slice(0, 12)}`);
+  return join(tmpdir(), `hopper-hq-e2e-${createHash('sha256').update(checkout).digest('hex').slice(0, 12)}`);
 }
 
 /** Whether the content of Playwright's `.last-run.json` says the run passed. Anything else counts as not passed. */

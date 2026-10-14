@@ -1,20 +1,20 @@
 {
-  "name": "@fairmind-ai/scranton-hq",
+  "name": "@fairmind-ai/hopper-hq",
   "version": "0.1.0",
   "description": "A local office building where you watch your coding-agent sessions work.",
   "license": "Apache-2.0",
   "author": "FairMind (https://fairmind.ai)",
-  "homepage": "https://github.com/FairMind-Gen-AI-Studio/scranton-hq#readme",
+  "homepage": "https://github.com/FairMind-Gen-AI-Studio/hopper-hq#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FairMind-Gen-AI-Studio/scranton-hq.git"
+    "url": "git+https://github.com/FairMind-Gen-AI-Studio/hopper-hq.git"
   },
   "bugs": {
-    "url": "https://github.com/FairMind-Gen-AI-Studio/scranton-hq/issues"
+    "url": "https://github.com/FairMind-Gen-AI-Studio/hopper-hq/issues"
   },
   "type": "module",
   "bin": {
-    "scranton-hq": "dist/bin.js"
+    "hopper-hq": "dist/bin.js"
   },
   "files": [
     "dist",

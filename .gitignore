@@ -10,4 +10,4 @@ mod/tsconfig.json
 /blob-report/
 
 # Raw screen recordings; the web-sized demo.mp4 is tracked
-media/scranton-hq-demo.*
+media/hopper-hq-demo.*

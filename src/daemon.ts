@@ -45,7 +45,7 @@ export interface RunningDaemon {
   collector: Collector;
   /** A one-time sign-in link for the browser (default lifetime: one minute, ten in the demo). */
   loginUrl(ttlMs?: number): string;
-  /** Resolves when the CLI asks the daemon to stop (`scranton-hq down`). Whoever started the daemon stops it. */
+  /** Resolves when the CLI asks the daemon to stop (`hopper-hq down`). Whoever started the daemon stops it. */
   stopRequested: Promise<void>;
   stop(): Promise<void>;
 }
@@ -136,7 +136,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const summarizerReal = await realpath(summarizerCwd);
   const ignoreCwd = (cwd: string) => inside(summarizerReal, cwd) || inside(summarizerCwd, cwd);
 
-  const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'scranton.db'));
+  const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'hopper.db'));
   store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const resolveWorkspace = createGitResolver();
   const watchFiles = !opts.demo && opts.watchFiles !== false;
@@ -199,7 +199,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
       });
   fsAdapter?.start();
   const demo = opts.demo ? startDemo((e) => void collector.ingest(e), { showcase: opts.showcase }) : null;
-  log(`scranton-hq is listening on http://127.0.0.1:${port}`);
+  log(`hopper-hq is listening on http://127.0.0.1:${port}`);
 
   return {
     port,

@@ -107,7 +107,7 @@ export class SceneHub {
       for (const key of keys) floors.set(key, JSON.stringify(view.floors.get(key) ?? null));
     } catch (err) {
       // Flushes run from timers, where a throw would take the daemon down. Clients keep what they have; the next change or tick tries again.
-      this.o.log(`scranton-hq could not build the live view: ${err instanceof Error ? err.message : String(err)}`);
+      this.o.log(`hopper-hq could not build the live view: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     for (const c of this.clients) this.send(c, scene, c.floor === null ? null : floors.get(c.floor)!);

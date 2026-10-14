@@ -89,7 +89,7 @@ export class UiAuth {
   }
 
   private sign(issuedAt: string): string {
-    return createHmac('sha256', this.o.token).update(`scranton-hq ui ${issuedAt}`).digest('base64url');
+    return createHmac('sha256', this.o.token).update(`hopper-hq ui ${issuedAt}`).digest('base64url');
   }
 }
 

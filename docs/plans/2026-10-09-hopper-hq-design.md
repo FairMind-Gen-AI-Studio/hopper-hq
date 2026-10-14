@@ -1,4 +1,4 @@
-# Scranton HQ — Design
+# Hopper HQ — Design
 
 Date: 2026-10-09
 Status: validated design, pre-implementation
@@ -31,7 +31,7 @@ Non-goals (v1):
 
 ## 3. Principles
 
-- **Read-only** towards agent sessions. scranton-hq never writes into an agent's own directories. The Claude Code integration is a plugin (a mod) the user installs and removes with Claude Code's own `/plugin` commands.
+- **Read-only** towards agent sessions. hopper-hq never writes into an agent's own directories. The Claude Code integration is a plugin (a mod) the user installs and removes with Claude Code's own `/plugin` commands.
 - **Local-only.** The server binds to `127.0.0.1`. No telemetry. Nothing leaves the machine except opt-in summaries sent through a provider the user configures.
 - **Documented surfaces first.** An agent's own extension API (for Claude Code, its function-hooks plugin API) is the primary live source of state. Undocumented files are used for discovery, backfill, detail and as the fallback when no plugin is installed, and their parsing is confined to adapters.
 - **Tolerant parsing.** Unknown fields are ignored, missing fields degrade the view; a format change never crashes the collector.
@@ -46,7 +46,7 @@ sources ──► adapters ──► normalized events ──► SQLite ──�
                                                    └──► HTTP API ──► CLI / tmux status / Claude Code band
 ```
 
-- One TypeScript (Node) process: collector, store, API, static UI. Distributed via `npx scranton-hq`.
+- One TypeScript (Node) process: collector, store, API, static UI. Distributed via `npx hopper-hq`.
 - Storage: SQLite (events, derived session state, user-side state such as "seen" and manual feature tags, archive with FTS5).
 - Transport: plain HTTP API for the CLI and the Claude Code mod; Server-Sent Events push to the UI (one-way is all the UI needs, and it needs no dependency). `EventSource` cannot send headers, so the served page authenticates the stream with a same-origin `HttpOnly` cookie set by the daemon.
 - Client store and scene model: framework-agnostic TypeScript modules, shared by the UI, the renderer and the CLI.
@@ -61,11 +61,11 @@ v1 adapters:
 
 | Adapter | Source | Documented | Used for |
 |---|---|---|---|
-| `claude-code/mod` | The scranton-hq mod, a Claude Code plugin, posts each session's events to the local API | Yes (function-hooks API, early access) | Real-time state, wait reasons, last action; the band above the prompt |
+| `claude-code/mod` | The hopper-hq mod, a Claude Code plugin, posts each session's events to the local API | Yes (function-hooks API, early access) | Real-time state, wait reasons, last action; the band above the prompt |
 | `claude-code/fs` | `~/.claude/sessions/*.json`, project transcripts (`*.jsonl`), `subagents/*.meta.json`, `workflows/wf_*.json` | No | Discovery, backfill, subagents, workflow runs, fallback state |
 | `claude-code/cloud` | A supported channel for cloud sessions (to be confirmed, see §14) | TBD | Cloud sessions and their state |
 
-Mod transport: the mod hooks Claude Code's native events (`prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`, `turn.complete`, `session.end`) and turns each into a small JSON payload that uses the field names of Claude Code's settings hooks, so one mapper reads them. Hooks only append to an in-memory queue and always continue the session's chain; a timer posts the queue to `127.0.0.1` every half second, and `session.end` posts what is left. A stopped collector costs the session nothing: the queue is bounded and retried. The mod reads the daemon's port and token from `~/.scranton-hq/daemon.json`.
+Mod transport: the mod hooks Claude Code's native events (`prompt.submit`, `tool.call`, `tool.check`, `agent.spawn`, `turn.complete`, `session.end`) and turns each into a small JSON payload that uses the field names of Claude Code's settings hooks, so one mapper reads them. Hooks only append to an in-memory queue and always continue the session's chain; a timer posts the queue to `127.0.0.1` every half second, and `session.end` posts what is left. A stopped collector costs the session nothing: the queue is bounded and retried. The mod reads the daemon's port and token from `~/.hopper-hq/daemon.json`.
 
 The mod's API is early access. It is verified per Claude Code release (first on 2.1.296), and its tests run with `claude plugin test`. Under `claude -p`, the `classic.*` events (the settings hooks' own events) did not reach a `--plugin-dir` mod, so the mod relies on the native events only.
 
@@ -117,7 +117,7 @@ Rules:
 
 - Two sections: **Needs you** (longest wait first), **Done, to review** (oldest first). `no_signal` appears only as a soft marker on its floor.
 - Visible at every navigation level. Clicking an entry navigates to the floor and desk.
-- `scranton-hq status --format tmux` prints a compact counter (e.g. `◉2 ✓3`); the format is configurable for other status bars.
+- `hopper-hq status --format tmux` prints a compact counter (e.g. `◉2 ✓3`); the format is configurable for other status bars.
 - With the mod installed, every Claude Code session shows a band above its prompt while another session waits or has finished: `◉ 1 waiting · orders-api-c3: Bash  [Go]  ✓ 2 done`. `Go` jumps to that session's tmux pane and appears only inside tmux. A session never lists itself. The mod raises no desktop notifications: with ten sessions open there would be ten of each.
 
 ## 9. Task summaries
@@ -189,7 +189,7 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 - **Adapter contract tests**: redacted fixtures per supported Claude Code version → expected normalized events.
 - **Unit tests**: state machine (event sequences → state), feature rule (branch → key).
 - **Scene snapshots**: domain model → layout model.
-- **Demo mode**: `scranton-hq demo` is an adapter that emits scripted normalized events, so synthetic sessions flow through the real pipeline. Used for UI development, README screenshots and contributors without a fleet of live sessions.
+- **Demo mode**: `hopper-hq demo` is an adapter that emits scripted normalized events, so synthetic sessions flow through the real pipeline. Used for UI development, README screenshots and contributors without a fleet of live sessions.
 - **Pure functions first**: pathfinding, state → target (location, pose, gesture), feature rule and layout generation are pure and unit-tested; the render loop stays thin.
 
 ## 14. Milestones
@@ -209,6 +209,6 @@ Reference prototypes (single HTML files, sample data, no build): `prototypes/bui
 
 ## 16. Naming and licensing
 
-- Name: `scranton-hq`, an unofficial fan tribute to the TV series *The Office* (US). The product uses no names, logos, characters or quotes from the show; the tribute is acknowledged in the README.
+- Name: `hopper-hq`, after Grace Hopper; the README says so.
 - Not affiliated with Anthropic; "Claude" is not used in the project name.
 - License: Apache-2.0. All visual assets are generated in code, so there are no third-party asset licenses.

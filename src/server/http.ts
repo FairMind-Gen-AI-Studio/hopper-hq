@@ -25,7 +25,7 @@ export interface ApiOptions {
   hub?: SceneHub;
   /** Switches tmux to a session's pane. Defaults to the simulated driver: nothing reaches tmux unless the daemon wires the real one. */
   focus?: FocusDriver;
-  /** Called when the CLI asks the daemon to stop (`scranton-hq down`), once the answer is sent. Default: nothing stops. */
+  /** Called when the CLI asks the daemon to stop (`hopper-hq down`), once the answer is sent. Default: nothing stops. */
   onShutdown?: () => void;
   /** Reports on summaries at GET /api/summaries. Default: none, and that route answers 503. */
   summarizer?: { status(): Promise<SummaryStatus> } | null;
@@ -271,8 +271,8 @@ function postLoginCode(d: Deps, { res, port }: Ctx): void {
 
 const EXPIRED_PAGE = `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>scranton-hq</title></head>
-<body><p>This sign-in link has expired or was already used. Run <code>scranton-hq ui</code> again.</p></body>
+<head><meta charset="utf-8"><title>hopper-hq</title></head>
+<body><p>This sign-in link has expired or was already used. Run <code>hopper-hq ui</code> again.</p></body>
 </html>
 `;
 

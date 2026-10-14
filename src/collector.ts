@@ -115,7 +115,7 @@ export class Collector {
       if (fromFile) this.unconfirmed.add(s.id);
     }
     // Their rows stay in the store, which keeps every session: say how many, once.
-    if (skipped > 0) this.log(`scranton-hq skipped ${skipped === 1 ? '1 saved session whose id is' : `${skipped} saved sessions whose ids are`} not valid`);
+    if (skipped > 0) this.log(`hopper-hq skipped ${skipped === 1 ? '1 saved session whose id is' : `${skipped} saved sessions whose ids are`} not valid`);
     // Sessions saved before floors were recorded: each floor opened when its earliest live session started.
     const opened = new Map<string, number>();
     for (const s of this.sessions.values()) {
@@ -221,7 +221,7 @@ export class Collector {
           this.sessionChanged(prev, next);
         }
       })
-      .catch((err: unknown) => this.log(`scranton-hq could not settle restored subagents: ${err instanceof Error ? err.message : String(err)}`));
+      .catch((err: unknown) => this.log(`hopper-hq could not settle restored subagents: ${err instanceof Error ? err.message : String(err)}`));
     return this.queue;
   }
 
@@ -263,7 +263,7 @@ export class Collector {
       try {
         fn(prev, next);
       } catch (err) {
-        this.log(`scranton-hq session listener failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.log(`hopper-hq session listener failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -299,7 +299,7 @@ export class Collector {
     try {
       this.flush();
     } catch (err) {
-      this.log(`scranton-hq could not save sessions and floors: ${err instanceof Error ? err.message : String(err)}`);
+      this.log(`hopper-hq could not save sessions and floors: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

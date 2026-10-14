@@ -1,16 +1,16 @@
 <div align="center">
 
-# scranton-hq
+# hopper-hq
 
 **A local dashboard for keeping an eye on your coding-agent sessions while they work.**
 
 An isometric office building where every Claude Code session gets a desk, and a red window means someone is waiting for you.
 
-[![npm version](https://img.shields.io/npm/v/@fairmind-ai/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/scranton-hq)
-[![npm downloads](https://img.shields.io/npm/dm/@fairmind-ai/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/scranton-hq)
-[![CI](https://img.shields.io/github/actions/workflow/status/FairMind-Gen-AI-Studio/scranton-hq/ci.yml?branch=main&logo=github&label=CI)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@fairmind-ai/hopper-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/hopper-hq)
+[![npm downloads](https://img.shields.io/npm/dm/@fairmind-ai/hopper-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/hopper-hq)
+[![CI](https://img.shields.io/github/actions/workflow/status/FairMind-Gen-AI-Studio/hopper-hq/ci.yml?branch=main&logo=github&label=CI)](https://github.com/FairMind-Gen-AI-Studio/hopper-hq/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/node/v/@fairmind-ai/scranton-hq?logo=nodedotjs&logoColor=white&color=5fa04e)](https://nodejs.org)
+[![Node.js](https://img.shields.io/node/v/@fairmind-ai/hopper-hq?logo=nodedotjs&logoColor=white&color=5fa04e)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Svelte](https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white)](https://svelte.dev)
 [![three.js](https://img.shields.io/badge/three.js-WebGL-black?logo=threedotjs&logoColor=white)](https://threejs.org)
@@ -20,14 +20,14 @@ An isometric office building where every Claude Code session gets a desk, and a 
 [![Local first](https://img.shields.io/badge/local--first-127.0.0.1%20only-informational)](#privacy-and-security)
 [![No telemetry](https://img.shields.io/badge/telemetry-none-success)](#privacy-and-security)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/pulls)
-[![GitHub stars](https://img.shields.io/github/stars/FairMind-Gen-AI-Studio/scranton-hq?style=flat&logo=github)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/stargazers)
-[![Last commit](https://img.shields.io/github/last-commit/FairMind-Gen-AI-Studio/scranton-hq?logo=git&logoColor=white)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/commits/main)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/FairMind-Gen-AI-Studio/hopper-hq/pulls)
+[![GitHub stars](https://img.shields.io/github/stars/FairMind-Gen-AI-Studio/hopper-hq?style=flat&logo=github)](https://github.com/FairMind-Gen-AI-Studio/hopper-hq/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/FairMind-Gen-AI-Studio/hopper-hq?logo=git&logoColor=white)](https://github.com/FairMind-Gen-AI-Studio/hopper-hq/commits/main)
 
 [**Quick start**](#quick-start) · [**Demo**](#demo) · [**Install**](#install) · [**The building**](#the-building) · [**Claude Code mod**](#the-claude-code-mod-recommended)
 
 <a href="media/demo.mp4">
-  <img src="media/demo-poster.jpg" alt="scranton-hq: the isometric office building with its sessions, meeting rooms and robots. Click to watch the demo video." width="860">
+  <img src="media/demo-poster.jpg" alt="hopper-hq: the isometric office building with its sessions, meeting rooms and robots. Click to watch the demo video." width="860">
 </a>
 
 </div>
@@ -43,24 +43,24 @@ Built for Claude Code (local and cloud) first, with an adapter interface meant t
 You need Node 22.13 or later and [Claude Code](https://claude.com/claude-code). Install the CLI and the mod:
 
 ```sh
-npm install -g @fairmind-ai/scranton-hq
-claude plugin marketplace add FairMind-Gen-AI-Studio/scranton-hq
-claude plugin install scranton-hq@scranton-hq
+npm install -g @fairmind-ai/hopper-hq
+claude plugin marketplace add FairMind-Gen-AI-Studio/hopper-hq
+claude plugin install hopper-hq@hopper-hq
 ```
 
-Then type `/scranton-hq` in any Claude Code session. It starts the daemon if needed and opens the building in your browser. From a shell, `scranton-hq up` does the same.
+Then type `/hopper-hq` in any Claude Code session. It starts the daemon if needed and opens the building in your browser. From a shell, `hopper-hq up` does the same.
 
-No sessions yet? Run `scranton-hq demo` to watch synthetic ones.
+No sessions yet? Run `hopper-hq demo` to watch synthetic ones.
 
-The mod makes scranton-hq report each session as things happen, with the exact reason it waits. It is optional, but recommended: see [the mod](#the-claude-code-mod-recommended). For tmux, summaries, upgrading and everything else, read on.
+The mod makes hopper-hq report each session as things happen, with the exact reason it waits. It is optional, but recommended: see [the mod](#the-claude-code-mod-recommended). For tmux, summaries, upgrading and everything else, read on.
 
 ## Status
 
-Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-scranton-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), and [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md).
+Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-hopper-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), and [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md).
 
 ## Demo
 
-[Watch the demo video](media/demo.mp4) (one minute): a floor with three repositories on one feature, a session that needs you, a workflow run in its meeting room, and robots walking between desks. To play it yourself, run `scranton-hq demo`.
+[Watch the demo video](media/demo.mp4) (one minute): a floor with three repositories on one feature, a session that needs you, a workflow run in its meeting room, and robots walking between desks. To play it yourself, run `hopper-hq demo`.
 
 ## What it does
 
@@ -72,23 +72,23 @@ Early. The collector, the CLI, the tmux counter and the building in the browser 
 
 ## Install
 
-Node 22.13 or later is required. scranton-hq reads the sessions of [Claude Code](https://claude.com/claude-code); tmux is optional, and only needed for the status line and the `Go` buttons.
+Node 22.13 or later is required. hopper-hq reads the sessions of [Claude Code](https://claude.com/claude-code); tmux is optional, and only needed for the status line and the `Go` buttons.
 
-To see the building before you have any sessions, run `scranton-hq demo` once it is installed: it plays synthetic sessions, and `scranton-hq demo --showcase` plays a longer scenario.
+To see the building before you have any sessions, run `hopper-hq demo` once it is installed: it plays synthetic sessions, and `hopper-hq demo --showcase` plays a longer scenario.
 
 Install it from npm:
 
 ```sh
-npm install -g @fairmind-ai/scranton-hq
+npm install -g @fairmind-ai/hopper-hq
 ```
 
-The command is `scranton-hq`. To work from a clone of this repository instead, run `npm install && npm run build && npm link` in it.
+The command is `hopper-hq`. To work from a clone of this repository instead, run `npm install && npm run build && npm link` in it.
 
 ### Upgrading
 
-Run `npm install -g @fairmind-ai/scranton-hq@latest` (from a clone: pull, then `npm install && npm run build`). Then:
+Run `npm install -g @fairmind-ai/hopper-hq@latest` (from a clone: pull, then `npm install && npm run build`). Then:
 
-1. Restart the daemon: `scranton-hq down`, then `scranton-hq up`. If it runs in the foreground (`scranton-hq start`), stop it with Ctrl-C and start it again.
+1. Restart the daemon: `hopper-hq down`, then `hopper-hq up`. If it runs in the foreground (`hopper-hq start`), stop it with Ctrl-C and start it again.
 2. Update the mod: with `/plugin` in Claude Code, or install it again as in [The Claude Code mod](#the-claude-code-mod-recommended).
 3. Reload every building tab you had open. A tab opened before this upgrade stops following the building without saying so. From now on, a tab that can no longer follow the building says so and asks for the reload.
 
@@ -96,15 +96,15 @@ The first start after an upgrade that brings the [floor plan](#the-floor-plan) s
 
 ## Running the daemon
 
-Run `scranton-hq up`. It starts the daemon in the background if it is not running yet, then opens the building in your browser. The daemon writes its log to `~/.scranton-hq/daemon.log`. `scranton-hq down` stops it.
+Run `hopper-hq up`. It starts the daemon in the background if it is not running yet, then opens the building in your browser. The daemon writes its log to `~/.hopper-hq/daemon.log`. `hopper-hq down` stops it.
 
-To run the daemon in the foreground instead, in its own tmux window or terminal, use `scranton-hq start`. Then run `scranton-hq ls`, or `scranton-hq ui` to open the building in your browser.
+To run the daemon in the foreground instead, in its own tmux window or terminal, use `hopper-hq start`. Then run `hopper-hq ls`, or `hopper-hq ui` to open the building in your browser.
 
 This already works from the files Claude Code writes, without the mod.
 
 ## The building
 
-`scranton-hq ui` signs your browser in and opens the building. The daemon must be running. With `--no-open` it only prints the link.
+`hopper-hq ui` signs your browser in and opens the building. The daemon must be running. With `--no-open` it only prints the link.
 
 The façade has one floor per feature, shared by every repository working on that branch, and one floor per repository for sessions with no feature branch. Floors keep their place, newest on top. Each window is a desk of the floor's [plan](#the-floor-plan), so a floor shows from outside how large it is and how full:
 
@@ -181,8 +181,8 @@ A floor you open, reload or come back to shows everyone already in place: only w
 ### Signing in
 
 - The daemon listens on 127.0.0.1 only.
-- `scranton-hq ui` asks the daemon for a one-time link. It works once, within a minute; the demo's link lasts 10 minutes.
-- Opening the link sets a signed, HttpOnly cookie for that daemon's port. It lasts 30 days and survives daemon restarts. To sign every browser out, delete `~/.scranton-hq/token` and restart the daemon.
+- `hopper-hq ui` asks the daemon for a one-time link. It works once, within a minute; the demo's link lasts 10 minutes.
+- Opening the link sets a signed, HttpOnly cookie for that daemon's port. It lasts 30 days and survives daemon restarts. To sign every browser out, delete `~/.hopper-hq/token` and restart the daemon.
 - A signed-in browser can watch the building, switch tmux panes and mark sessions as seen. It cannot send hook events, ask for sign-in links or stop the daemon. From a browser, changes are accepted only from the daemon's own page.
 - The page loads nothing from the network. Scripts, styles and fonts come from the daemon, under a strict content security policy.
 - Known risk: browsers do not keep cookies apart by port. Any other server on 127.0.0.1 that this browser talks to, such as a dev server an agent started, receives the cookie. It could reuse it for up to 30 days to watch the building, switch your tmux panes and mark sessions as seen. If that matters to you, sign everything out as above.
@@ -193,48 +193,48 @@ A floor you open, reload or come back to shows everyone already in place: only w
 Add this to your `~/.tmux.conf`:
 
 ```tmux
-set -g status-right '#(scranton-hq status --format tmux) %H:%M'
+set -g status-right '#(hopper-hq status --format tmux) %H:%M'
 set -g status-interval 5
 ```
 
-`◉` is the number of sessions waiting for you. `✓` is the number of finished sessions you have not looked at. `scranton-hq ack` clears the `✓`.
+`◉` is the number of sessions waiting for you. `✓` is the number of finished sessions you have not looked at. `hopper-hq ack` clears the `✓`.
 
 ## The Claude Code mod (recommended)
 
 The mod reports each session as things happen, with the exact reason a session waits. It also shows, above the prompt of every session, who else is waiting for you. A `Go` button jumps to that tmux pane.
 
-Type `/scranton-hq` in any session to open the building. It runs `scranton-hq up`, so it also starts the daemon when it is not running, and it takes no turn of the model. The sign-in link stays out of the conversation. The `Open building` button in the band above the prompt does the same; the band shows only while another session waits for you or has finished. Both need `scranton-hq` on your `PATH`: see [Install](#install).
+Type `/hopper-hq` in any session to open the building. It runs `hopper-hq up`, so it also starts the daemon when it is not running, and it takes no turn of the model. The sign-in link stays out of the conversation. The `Open building` button in the band above the prompt does the same; the band shows only while another session waits for you or has finished. Both need `hopper-hq` on your `PATH`: see [Install](#install).
 
 Install it from a shell:
 
 ```sh
-claude plugin marketplace add FairMind-Gen-AI-Studio/scranton-hq
-claude plugin install scranton-hq@scranton-hq
+claude plugin marketplace add FairMind-Gen-AI-Studio/hopper-hq
+claude plugin install hopper-hq@hopper-hq
 ```
 
 To try it from a clone for one session:
 
 ```sh
-claude --plugin-dir /path/to/scranton-hq/mod
+claude --plugin-dir /path/to/hopper-hq/mod
 ```
 
-Without the mod, scranton-hq still works from the files Claude Code writes. It has up to a second of delay and less detail about why a session waits.
+Without the mod, hopper-hq still works from the files Claude Code writes. It has up to a second of delay and less detail about why a session waits.
 
 ## Summaries
 
-scranton-hq can write one line per session that says where it stands: what is done, what is in progress, or what it waits for. A language model writes the line, so summaries are off by default. To turn them on:
+hopper-hq can write one line per session that says where it stands: what is done, what is in progress, or what it waits for. A language model writes the line, so summaries are off by default. To turn them on:
 
 ```sh
-scranton-hq summaries on
+hopper-hq summaries on
 ```
 
-The full form is `scranton-hq summaries on|off|status [--provider claude-cli|anthropic-api] [--model <id>]`:
+The full form is `hopper-hq summaries on|off|status [--provider claude-cli|anthropic-api] [--model <id>]`:
 
 - `on` and `off` turn summaries on and off, and say what is now set. `status`, the default, prints the setting and what the running daemon does: its last summary, its last error, and a pause.
 - `--provider` chooses where the notes go, below. `claude-cli` is the default. A `--provider` without `--model` goes back to that provider's default model.
 - `--model` names another model: 1 to 64 letters, digits, `.`, `_`, `:` or `-`, starting with a letter or a digit. The defaults are `haiku` for `claude-cli` and `claude-haiku-5-5` for `anthropic-api`.
 
-The setting lives in `~/.scranton-hq/config.json`, readable by you only. The daemon reads it again before each summary, so it needs no restart.
+The setting lives in `~/.hopper-hq/config.json`, readable by you only. The daemon reads it again before each summary, so it needs no restart.
 
 The line shows in the desk's panel with its age, under the desk's row in the floor's side panel, and under its entry in the bar at the top. Once you have sent the session a prompt since, its age says "(older than the last prompt)". The line is then dimmed in the panels, and set in italics in the bar.
 
@@ -246,7 +246,7 @@ When a session comes to a stop (it is done, needs you, or waits in a meeting), t
 - At most one summary per session every 3 minutes, and one at a time across the daemon.
 - A failed summary is tried again later, while the session still stands where it did. Each failure makes the session wait longer for its next try: 1 minute, then twice as long each time, up to 30 minutes, and never less than the 3 minutes between two summaries.
 - After 3 failures in a row, every summary pauses for 15 minutes. Changing the provider or the model lifts the pause.
-- `scranton-hq summaries status` shows the last error and the pause. The daemon's log gets one line per failure, with the error.
+- `hopper-hq summaries status` shows the last error and the pause. The daemon's log gets one line per failure, with the error.
 
 ### What is sent, and to whom
 
@@ -258,23 +258,23 @@ Each summary sends a fixed instruction and these notes about one session, each c
 - the labels of its last 10 tool calls, such as `Bash: npm test` or `Edit src/app.ts`;
 - its last reply, up to 2,000 characters.
 
-The notes are cut to about 4,000 characters: the end of the reply goes first, then the oldest actions. scranton-hq sends nothing else.
+The notes are cut to about 4,000 characters: the end of the reply goes first, then the oldest actions. hopper-hq sends nothing else.
 
 Where they go depends on the provider:
 
 - **`claude-cli`**, the default, runs `claude -p --safe-mode` with the notes on its standard input. It runs on your account: wherever your `claude` sends its requests.
   - `--safe-mode` starts it without your plugins, hooks, CLAUDE.md, skills and MCP servers. It gets no tools and saves no session.
-  - It runs in its own directory, `~/.scranton-hq/summarizer`, with `SCRANTON_HQ_SUMMARIZER=1` set. The building leaves its sessions out, and the mod reports nothing from it.
+  - It runs in its own directory, `~/.hopper-hq/summarizer`, with `HOPPER_HQ_SUMMARIZER=1` set. The building leaves its sessions out, and the mod reports nothing from it.
   - Its environment is the daemon's, without `ANTHROPIC_API_KEY`, so it is never billed to a key. It also goes without the variables that tie it to a Claude Code session that may have started the daemon: `CLAUDECODE`, `AI_AGENT`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, `CLAUDE_CODE_SSE_PORT`, and every `CLAUDE_CODE_SESSION_*` and `CLAUDE_CODE_MESSAGING_*`.
   - Every other variable stays, so `claude` signs in, connects and picks its provider as it does for you: `CLAUDE_CODE_OAUTH_TOKEN`, a client certificate, a proxy, `CLAUDE_CODE_USE_BEDROCK` and the like.
   - It needs `claude` on the daemon's `PATH`, and is stopped after 60 seconds.
 - **`anthropic-api`** sends the notes to the Anthropic Messages API, at `api.anthropic.com`, with the key in `ANTHROPIC_API_KEY`.
-  - The daemon reads the key from its own environment, which it takes from where you ran `scranton-hq up` or `scranton-hq start`. Set it there, and restart the daemon to change it.
+  - The daemon reads the key from its own environment, which it takes from where you ran `hopper-hq up` or `hopper-hq start`. Set it there, and restart the daemon to change it.
   - The key is never written to disk. A request gives up after 30 seconds.
 
-`--safe-mode` is a recent option of Claude Code. Once summaries are on, check that a line appears and that `scranton-hq summaries status` shows the last summary, with no new session in the building.
+`--safe-mode` is a recent option of Claude Code. Once summaries are on, check that a line appears and that `hopper-hq summaries status` shows the last summary, with no new session in the building.
 
-The demo (`scranton-hq demo`) writes fixed lines of its own and sends nothing anywhere.
+The demo (`hopper-hq demo`) writes fixed lines of its own and sends nothing anywhere.
 
 ### Cost
 
@@ -284,15 +284,15 @@ Each summary is one call to the model, a small one by default. A session gets at
 
 | Command | What it does |
 | --- | --- |
-| `scranton-hq up` | Starts the daemon in the background unless it is running, then opens the building like `ui`. Use `--no-open` to print the link only. |
-| `scranton-hq down` | Stops the daemon. |
-| `scranton-hq start` | Runs the daemon in the foreground: collector, file watcher and local API. One daemon runs per data directory. |
-| `scranton-hq status` | Prints a summary. Use `--format text`, `tmux` or `json`. |
-| `scranton-hq ls` | Lists floors and their sessions. |
-| `scranton-hq ack` | Marks finished sessions as seen. |
-| `scranton-hq ui` | Opens the building in your browser, signed in through a one-time link. Use `--no-open` to print the link only. |
-| `scranton-hq summaries` | Turns the one-line summaries `on` or `off`, or prints how they stand (`status`). See [Summaries](#summaries). |
-| `scranton-hq demo` | Runs a daemon with synthetic sessions, and prints a sign-in link for its building. With `--showcase`, it plays once a longer scenario of twelve sessions on one floor, for about two minutes after a twenty-second lead. |
+| `hopper-hq up` | Starts the daemon in the background unless it is running, then opens the building like `ui`. Use `--no-open` to print the link only. |
+| `hopper-hq down` | Stops the daemon. |
+| `hopper-hq start` | Runs the daemon in the foreground: collector, file watcher and local API. One daemon runs per data directory. |
+| `hopper-hq status` | Prints a summary. Use `--format text`, `tmux` or `json`. |
+| `hopper-hq ls` | Lists floors and their sessions. |
+| `hopper-hq ack` | Marks finished sessions as seen. |
+| `hopper-hq ui` | Opens the building in your browser, signed in through a one-time link. Use `--no-open` to print the link only. |
+| `hopper-hq summaries` | Turns the one-line summaries `on` or `off`, or prints how they stand (`status`). See [Summaries](#summaries). |
+| `hopper-hq demo` | Runs a daemon with synthetic sessions, and prints a sign-in link for its building. With `--showcase`, it plays once a longer scenario of twelve sessions on one floor, for about two minutes after a twenty-second lead. |
 
 ## How it works
 
@@ -300,12 +300,12 @@ There are two sources of data: the mod, and Claude Code's own files under `~/.cl
 
 Workflow runs come from both: the mod reports their agents as they start and finish, and the files give each run's name, phases and end.
 
-The files under `~/.claude` are internal to Claude Code and can change between versions. scranton-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
+The files under `~/.claude` are internal to Claude Code and can change between versions. hopper-hq reads them defensively and never writes there. The mod uses Claude Code's plugin API, which is in early access.
 
 ## Privacy and security
 
-- scranton-hq listens on 127.0.0.1 only.
-- The CLI and the mod authenticate with a token stored in `~/.scranton-hq/token` (mode 600). Browsers sign in with a one-time link: see [Signing in](#signing-in).
+- hopper-hq listens on 127.0.0.1 only.
+- The CLI and the mod authenticate with a token stored in `~/.hopper-hq/token` (mode 600). Browsers sign in with a one-time link: see [Signing in](#signing-in).
 - There is no telemetry. Nothing leaves your machine unless you turn [summaries](#summaries) on: each summary then sends one session's notes to the provider you chose.
 
 ## Development
@@ -322,7 +322,7 @@ npm run test:e2e
 
 `npm run test:mod` needs the `claude` CLI. It is not run in CI.
 
-To try it with synthetic sessions, run `scranton-hq demo` (or `node dist/bin.js demo`). Then run `scranton-hq ls --data-dir ~/.scranton-hq/demo`. The demo replays a one-minute script. On its checkout floor, two workflow runs take turns, one starting before the other ends, so a meeting room is always open; five more sessions come and go, so the floor holds nine for a while and grows a block in the first minute; one of them rests in the lounge while it is idle. A desk has two interns, and the summary lines are fixed.
+To try it with synthetic sessions, run `hopper-hq demo` (or `node dist/bin.js demo`). Then run `hopper-hq ls --data-dir ~/.hopper-hq/demo`. The demo replays a one-minute script. On its checkout floor, two workflow runs take turns, one starting before the other ends, so a meeting room is always open; five more sessions come and go, so the floor holds nine for a while and grows a block in the first minute; one of them rests in the lounge while it is idle. A desk has two interns, and the summary lines are fixed.
 
 ### The browser UI
 
@@ -344,12 +344,12 @@ It runs on the Google Chrome installed on your machine and never downloads a bro
 
 ## A note on the name
 
-scranton-hq is an unofficial fan tribute to the TV series *The Office* (US). It is not affiliated with, endorsed by, or sponsored by NBCUniversal or any rights holder of the show, and it uses none of the show's names, logos, characters or quotes.
+hopper-hq is named after Grace Hopper, the computer scientist and rear admiral who popularised the word "bug" after a moth was found in a relay of the Harvard Mark II. It is not affiliated with her estate or with any other product called Hopper.
 
-scranton-hq is provided by FairMind and is not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
+hopper-hq is provided by FairMind and is not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
 
 ## License
 
-[Apache-2.0](LICENSE). scranton-hq is provided by [FairMind](https://fairmind.ai); see [NOTICE](NOTICE).
+[Apache-2.0](LICENSE). hopper-hq is provided by [FairMind](https://fairmind.ai); see [NOTICE](NOTICE).
 
 The browser UI bundles the Archivo, IBM Plex Sans and IBM Plex Mono typefaces, under the SIL Open Font License 1.1, and the Svelte, clsx and three.js libraries, under the MIT licence: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

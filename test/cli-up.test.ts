@@ -74,8 +74,8 @@ describe('up', () => {
       expect(await main(['up', '--port', '0', '--data-dir', dataDir, '--claude-dir', claudeDir], { ...first.io, open, spawnDaemon: bg.spawnDaemon })).toBe(0);
       expect(bg.calls).toEqual([{ args: ['--data-dir', dataDir, '--port', '0', '--claude-dir', claudeDir], log }]);
       expect(first.err).toEqual([
-        `Started scranton-hq in the background. Its log is ${log}`,
-        `Stop it with: scranton-hq down --data-dir ${dataDir}`,
+        `Started hopper-hq in the background. Its log is ${log}`,
+        `Stop it with: hopper-hq down --data-dir ${dataDir}`,
         'This link signs your browser in. It works once, within 1 minute:',
       ]);
       expect(first.out).toEqual([expect.stringMatching(LINK)]);
@@ -85,7 +85,7 @@ describe('up', () => {
       const again = capture();
       expect(await main(['up', '--no-open', '--data-dir', dataDir], { ...again.io, open, spawnDaemon: bg.spawnDaemon })).toBe(0);
       expect(bg.calls).toHaveLength(1);
-      expect(again.err[0]).toBe('scranton-hq is already running.');
+      expect(again.err[0]).toBe('hopper-hq is already running.');
       expect(again.out).toEqual([expect.stringMatching(LINK)]);
       expect(opened).toHaveLength(1);
     } finally {
@@ -103,8 +103,8 @@ describe('up', () => {
       const c = capture();
       expect(await main(['up', '--no-open', '--data-dir', dataDir], { ...c.io, spawnDaemon: bg.spawnDaemon })).toBe(1);
       expect(c.err).toEqual([
-        'scranton-hq is already running.',
-        'This scranton-hq daemon (process 4242) is older than the up command. Stop it with Ctrl-C where it runs, then run scranton-hq up again.',
+        'hopper-hq is already running.',
+        'This hopper-hq daemon (process 4242) is older than the up command. Stop it with Ctrl-C where it runs, then run hopper-hq up again.',
       ]);
       expect(c.out).toEqual([]);
       expect(bg.calls).toEqual([]);
@@ -127,14 +127,14 @@ describe('up', () => {
     const log = join(dataDir, 'daemon.log');
     await writeFile(log, 'an earlier run\n');
     const spawnDaemon = async (_args: string[], to: string): Promise<Background> => {
-      await appendFile(to, 'Port 7337 is already in use. Is scranton-hq already running? Check with: scranton-hq status\n\u001b]0;title\u0007\n');
+      await appendFile(to, 'Port 7337 is already in use. Is hopper-hq already running? Check with: hopper-hq status\n\u001b]0;title\u0007\n');
       return { exited: Promise.resolve(), stop: () => {} };
     };
     const c = capture();
     expect(await main(['up', '--data-dir', dataDir], { ...c.io, spawnDaemon })).toBe(1);
     expect(c.err).toEqual([
-      'scranton-hq stopped while starting.',
-      '  Port 7337 is already in use. Is scranton-hq already running? Check with: scranton-hq status',
+      'hopper-hq stopped while starting.',
+      '  Port 7337 is already in use. Is hopper-hq already running? Check with: hopper-hq status',
       '  ]0;title',
       `Its log is ${log}`,
     ]);
@@ -150,7 +150,7 @@ describe('up', () => {
     expect(await main(['up', '--data-dir', dataDir], { ...c.io, spawnDaemon, clock })).toBe(1);
     expect(stopped).toBe(1);
     expect(clock.slept()).toBe(10_000);
-    expect(c.err).toEqual(['scranton-hq did not answer within 10 seconds.', `Its log is ${join(dataDir, 'daemon.log')}`]);
+    expect(c.err).toEqual(['hopper-hq did not answer within 10 seconds.', `Its log is ${join(dataDir, 'daemon.log')}`]);
   });
 
   it('waits for a daemon another up started first, while that one holds the data directory', async () => {
@@ -196,11 +196,11 @@ describe('up', () => {
     for (const cmd of ['status', 'ls', 'ack', 'ui']) {
       const c = capture();
       expect(await main([cmd, '--data-dir', empty], c.io)).toBe(1);
-      expect(c.err).toEqual(['scranton-hq is not running. Start it with: scranton-hq up']);
+      expect(c.err).toEqual(['hopper-hq is not running. Start it with: hopper-hq up']);
     }
     const h = capture();
     await main(['--help'], h.io);
-    expect(h.out[0]).toContain('scranton-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR]');
+    expect(h.out[0]).toContain('hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR]');
   });
 });
 
@@ -226,7 +226,7 @@ describe('up on its own', () => {
     expect(c.unref).toHaveBeenCalledTimes(1);
     expect(c.kill).toHaveBeenCalledTimes(1);
     expect((await stat(log)).mode & 0o077).toBe(0);
-    expect(out.err).toEqual(['scranton-hq did not answer within 10 seconds.', '  listening', `Its log is ${log}`]);
+    expect(out.err).toEqual(['hopper-hq did not answer within 10 seconds.', '  listening', `Its log is ${log}`]);
   });
 
   it('notices a daemon that exits, or never starts', async () => {
@@ -235,7 +235,7 @@ describe('up on its own', () => {
       vi.mocked(spawn).mockImplementationOnce((() => (setImmediate(() => end(c)), c)) as never);
       const out = capture();
       expect(await main(['up', '--data-dir', await tmp('shq-up-')], out.io)).toBe(1);
-      expect(out.err[0]).toBe('scranton-hq stopped while starting.');
+      expect(out.err[0]).toBe('hopper-hq stopped while starting.');
       expect(c.kill).not.toHaveBeenCalled();
     }
   });

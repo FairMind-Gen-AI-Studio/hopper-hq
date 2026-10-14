@@ -6,12 +6,12 @@ Please do not open a public issue for a security problem. Report it privately th
 
 Say what you found, how to reproduce it, and what it lets someone do. We will acknowledge your report, keep you informed while we look into it, and credit you in the fix if you wish.
 
-## What to expect from scranton-hq
+## What to expect from hopper-hq
 
-scranton-hq runs a daemon on your machine. By design:
+hopper-hq runs a daemon on your machine. By design:
 
 - it listens on 127.0.0.1 only;
-- the CLI and the mod authenticate with a token in `~/.scranton-hq/token`, readable by you only;
+- the CLI and the mod authenticate with a token in `~/.hopper-hq/token`, readable by you only;
 - a browser signs in with a one-time link and receives a signed, HttpOnly cookie;
 - the page loads nothing from the network, under a strict content security policy;
 - there is no telemetry. Nothing leaves your machine unless you turn on summaries, which send one session's notes to the provider you chose.
@@ -22,4 +22,4 @@ Problems we want to hear about include a way to reach the daemon from another ma
 
 ## Supported versions
 
-scranton-hq is early. Fixes go into the latest release only.
+hopper-hq is early. Fixes go into the latest release only.

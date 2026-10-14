@@ -8,7 +8,7 @@
 {#if connection === 'signed_out'}
   <div class="notice bad" role="alert">
     <strong>You are signed out.</strong>
-    <span>Run <code>scranton-hq ui</code> in a terminal: it opens a new sign-in link.</span>
+    <span>Run <code>hopper-hq ui</code> in a terminal: it opens a new sign-in link.</span>
   </div>
 {:else if connection === 'outdated'}
   <div class="notice bad" role="alert">
@@ -18,7 +18,7 @@
 {:else if connection === 'retrying'}
   <div class="notice" role="status">
     <strong>Lost contact with the daemon.</strong>
-    <span>Retrying… If it has stopped, start it again with <code>scranton-hq start</code>.</span>
+    <span>Retrying… If it has stopped, start it again with <code>hopper-hq start</code>.</span>
   </div>
 {:else if connection === 'connecting' && !hasScene}
   <div class="notice" role="status"><span>Connecting to the daemon…</span></div>

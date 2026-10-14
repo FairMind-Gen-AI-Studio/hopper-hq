@@ -8,7 +8,7 @@ function daemon(on: On, posts: Post[]) {
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('session.id', async () => ({ value: 'S-OWN' }))
   on('fs.read', async ($, e, next) =>
-    e.path === '/home/dev/.scranton-hq/daemon.json' ? { value: JSON.stringify({ port: 7337, token: 'tok' }) } : next(e),
+    e.path === '/home/dev/.hopper-hq/daemon.json' ? { value: JSON.stringify({ port: 7337, token: 'tok' }) } : next(e),
   )
   on('http.fetch', async ($, e) => {
     if (e.init?.method === 'POST') posts.push({ url: e.url, body: JSON.parse(e.init.body ?? '[]'), auth: e.init.headers?.authorization })
@@ -28,7 +28,7 @@ const SPAWN = {
   fork: false,
 } as const
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {}, title: '', isFocused: false }
-const TYPED = { command: 'scranton-hq', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
+const TYPED = { command: 'hopper-hq', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
 
 test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
   const posts: Post[] = []
@@ -52,13 +52,13 @@ test('forwards a turn to the daemon as one batch, in order', async ($, on) => {
   expect(batch.map(b => b.hook_event_name)).toEqual(['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'])
   expect(batch[0]).toMatchObject({ session_id: 'S-OWN', cwd: '/home/dev/shop', prompt: 'list the files' })
   expect(batch[1]).toMatchObject({ tool_name: 'Bash', tool_input: { command: 'ls' } })
-  expect(typeof batch[0]?._scranton_ts).toBe('number')
+  expect(typeof batch[0]?._hopper_ts).toBe('number')
 })
 
-test("forwards nothing and draws no band in the summarizer's own session, and still answers /scranton-hq", async ($, on) => {
+test("forwards nothing and draws no band in the summarizer's own session, and still answers /hopper-hq", async ($, on) => {
   const fetched: string[] = []
   const ran: string[][] = []
-  mock.env(on, { HOME: '/home/dev', SCRANTON_HQ_SUMMARIZER: '1' })
+  mock.env(on, { HOME: '/home/dev', HOPPER_HQ_SUMMARIZER: '1' })
   const clock = mock.clock(on)
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
   on('session.id', async () => ({ value: 'S-OWN' }))
@@ -83,14 +83,14 @@ test("forwards nothing and draws no band in the summarizer's own session, and st
   await $.tool.call({ tool: 'Bash', command: 'ls' })
   await $.turn.complete({ reason: 'answer', answer: 'Tests pass; ready to merge.', durationMs: 800, isAborted: false, turnId: 't1' })
   await clock.advance(5000)
-  const ui = await $.ui.mount({ plugin: 'scranton-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const ui = await $.ui.mount({ plugin: 'hopper-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await ui.find({ type: 'Text' })).toBeUndefined()
   await ui.unmount()
   expect(await $.command.run(TYPED)).toEqual({ text: 'Opened the building in your browser.' })
   await $.session.end({ reason: 'other', sessionId: 'S-OWN', resume: { id: 'S-OWN' } })
 
   expect(fetched).toEqual([])
-  expect(ran).toEqual([['scranton-hq', 'up']])
+  expect(ran).toEqual([['hopper-hq', 'up']])
 })
 
 test("posts nothing from the summarizer's own session, even what it queued before it knew", async ($, on) => {
@@ -99,8 +99,8 @@ test("posts nothing from the summarizer's own session, even what it queued befor
   const known = new Promise<void>(resolve => (release = resolve))
   // The session starts reading its environment; a prompt comes before the answer does.
   on('env.get', async ($, e) => {
-    if (e.name === 'SCRANTON_HQ_SUMMARIZER') await known
-    return { value: ({ HOME: '/home/dev', SCRANTON_HQ_SUMMARIZER: '1' } as Record<string, string>)[e.name] }
+    if (e.name === 'HOPPER_HQ_SUMMARIZER') await known
+    return { value: ({ HOME: '/home/dev', HOPPER_HQ_SUMMARIZER: '1' } as Record<string, string>)[e.name] }
   })
   mock.clock(on)
   on('session.start', async ($, e) => ({ cwd: e.cwd }))

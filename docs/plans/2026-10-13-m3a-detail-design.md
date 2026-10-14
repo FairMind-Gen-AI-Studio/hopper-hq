@@ -1,8 +1,8 @@
-# Scranton HQ — M3a "Detail" design
+# Hopper HQ — M3a "Detail" design
 
 Date: 2026-10-13
 Status: validated design, pre-implementation
-Builds on: `2026-10-09-scranton-hq-design.md` (§4 adapters, §7 states, §9 summaries, §10 scene)
+Builds on: `2026-10-09-hopper-hq-design.md` (§4 adapters, §7 states, §9 summaries, §10 scene)
 
 ## 1. Scope
 
@@ -142,14 +142,14 @@ The interface is `summarize(input, signal) → Promise<string>`. Two implementat
   - Command: `claude -p --safe-mode --model <model> --no-session-persistence --tools "" --strict-mcp-config`.
   - `--safe-mode` (documented in 2.1.296's `--help`) starts with installed plugins, hooks, CLAUDE.md, skills and MCP servers disabled, while OAuth auth works normally. Without it, every summary call would run all of the user's plugin hooks: other plugins' Stop and SessionStart hooks, such as judges and capture tools. They would cost time against the timeout and leave side effects.
   - Default model: alias `haiku`. Input goes on stdin, timeout 60 s, output capped at 16 KiB.
-  - It runs with cwd `<dataDir>/summarizer`, which the daemon creates when it starts and keeps `0700`, and with `SCRANTON_HQ_SUMMARIZER=1` in its environment.
+  - It runs with cwd `<dataDir>/summarizer`, which the daemon creates when it starts and keeps `0700`, and with `HOPPER_HQ_SUMMARIZER=1` in its environment.
   - Its environment is the daemon's without what ties it to a Claude Code session, since the daemon is often started from one: `CLAUDECODE`, `AI_AGENT`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLUGIN_ROOT`, and the `CLAUDE_CODE_*` names matching `^CLAUDE_CODE_(ENTRYPOINT|EXECPATH|CHILD_SESSION|BRIDGE_SESSION_ID|SESSION_[A-Z_]+|SESSION_ID|MESSAGING_[A-Z_]+|SSE_PORT)$`. It also goes without `ANTHROPIC_API_KEY`, which `-p` would bill: the summary runs on the user's account. Those who want the key use `anthropic-api`. Every other variable stays: `CLAUDE_CONFIG_DIR`, `HOME`, `PATH`, and the `CLAUDE_CODE_*` variables that say how `claude` signs in, connects and picks its provider (`CLAUDE_CODE_OAUTH_*`, `CLAUDE_CODE_CLIENT_*`, `CLAUDE_CODE_CERT_STORE`, `CLAUDE_CODE_USE_*` and the like).
   - A model name starts with a letter or a digit, so that it can never be read as an option.
   - A child still running 5 s after it was told to stop is killed.
   - The summarizer's own sessions are kept out of the building in three ways:
     1. the fs adapter skips session files whose cwd is under that directory;
     2. the collector drops hook events whose cwd is under it;
-    3. the mod forwards nothing when `SCRANTON_HQ_SUMMARIZER` is set. This is a backstop in case `--safe-mode` ever loads it.
+    3. the mod forwards nothing when `HOPPER_HQ_SUMMARIZER` is set. This is a backstop in case `--safe-mode` ever loads it.
 - **`anthropic-api`.**
   - `POST https://api.anthropic.com/v1/messages` through Node's `fetch`, with no SDK, so there are still no runtime dependencies.
   - Default model `claude-haiku-5-5`, `max_tokens` 100, timeout 30 s.
@@ -161,7 +161,7 @@ The interface is `summarize(input, signal) → Promise<string>`. Two implementat
   `{ "summaries": { "enabled": false, "provider": "claude-cli", "model": null } }`.
   - `model: null` means the provider's default.
   - The daemon re-reads the file when its mtime changes, so no restart is needed.
-- **CLI.** `scranton-hq summaries on|off|status [--provider claude-cli|anthropic-api] [--model <id>]` writes the file.
+- **CLI.** `hopper-hq summaries on|off|status [--provider claude-cli|anthropic-api] [--model <id>]` writes the file.
   - `status` also asks a running daemon, over the bearer API, for its state: enabled, provider, last success, last error, paused until.
 - **Off by default.** The README states exactly what is sent and to whom.
 - **Failure.**
@@ -242,7 +242,7 @@ The façade is unchanged: `in_meeting` windows already show the meeting colour.
 
 ### 4.5 Demo
 
-`scranton-hq demo` adds:
+`hopper-hq demo` adds:
 - a scripted workflow run whose phases advance;
 - two interns;
 - a `demo` summary provider that returns fixed lines and never leaves the process.

@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 describe('scaffold', () => {
-  it('declares the package as @fairmind-ai/scranton-hq with no runtime dependencies', () => {
+  it('declares the package as @fairmind-ai/hopper-hq with no runtime dependencies', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    expect(pkg.name).toBe('@fairmind-ai/scranton-hq');
-    expect(pkg.bin).toEqual({ 'scranton-hq': 'dist/bin.js' });
+    expect(pkg.name).toBe('@fairmind-ai/hopper-hq');
+    expect(pkg.bin).toEqual({ 'hopper-hq': 'dist/bin.js' });
     expect(pkg.publishConfig).toEqual({ access: 'public' });
     expect(pkg.dependencies).toBeUndefined();
     expect(pkg.type).toBe('module');

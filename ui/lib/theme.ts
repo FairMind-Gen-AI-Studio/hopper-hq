@@ -4,7 +4,7 @@
  */
 export type ThemePreference = 'system' | 'day' | 'night';
 
-export const THEME_KEY = 'scranton-hq.theme';
+export const THEME_KEY = 'hopper-hq.theme';
 
 const ORDER: readonly ThemePreference[] = ['system', 'day', 'night'];
 

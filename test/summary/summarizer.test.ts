@@ -310,7 +310,7 @@ describe('Summarizer pacing', () => {
     t.turn('S3', 'done');
     await t.clock.by(8000);
     expect(t.source.sessions.get('S3')!.summary).toBeNull();
-    expect(t.log).toEqual(['scranton-hq summary failed: the summary was empty']);
+    expect(t.log).toEqual(['hopper-hq summary failed: the summary was empty']);
   });
 });
 
@@ -411,7 +411,7 @@ describe('Summarizer failures', () => {
     await t.clock.by(1);
     expect(t.provider.calls.map((c) => c.at).at(-1)).toBe(failedAt + 15 * MIN);
     expect(await t.summarizer.status()).toMatchObject({ lastOkAt: failedAt + 15 * MIN, pausedUntil: null, queued: 0 });
-    expect(t.log).toEqual(Array(3).fill('scranton-hq summary failed: Anthropic API answered 529: Overloaded'));
+    expect(t.log).toEqual(Array(3).fill('hopper-hq summary failed: Anthropic API answered 529: Overloaded'));
   });
 
   it('starts counting failures in a row again after a success', async () => {
@@ -431,7 +431,7 @@ describe('Summarizer failures', () => {
     t.provider.answer = () => new Error('claude exited with code 1:\n  boom');
     t.turn('S1', 'done', { title: 'Secret plan' });
     await t.clock.by(8000);
-    expect(t.log).toEqual(['scranton-hq summary failed: claude exited with code 1: boom']);
+    expect(t.log).toEqual(['hopper-hq summary failed: claude exited with code 1: boom']);
     expect((await t.summarizer.status()).lastError).toEqual({ at: T0 + 8000, message: 'claude exited with code 1: boom' });
   });
 });

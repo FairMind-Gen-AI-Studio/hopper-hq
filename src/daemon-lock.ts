@@ -11,7 +11,7 @@ export class DataDirInUseError extends Error {
   readonly withoutLock: boolean;
 
   constructor(dataDir: string, opts: { pid?: number | null; withoutLock?: boolean } = {}) {
-    super(`Another scranton-hq daemon is running on ${dataDir}.`);
+    super(`Another hopper-hq daemon is running on ${dataDir}.`);
     this.dataDir = dataDir;
     this.pid = opts.pid ?? null;
     this.withoutLock = opts.withoutLock ?? false;
