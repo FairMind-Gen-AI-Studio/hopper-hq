@@ -15,6 +15,9 @@
  * as robots set off, with each floor update, and as they come to rest, which frame() reports. While loops are on, a
  * robot at its place runs its loop (robot.ts animateRobot) in every frame, from a phase of its own; the loops never
  * change the shadow map. The scene owns its geometries and materials and frees them all in dispose().
+ *
+ * A dormant session's desk has a nameplate with its name instead of a tag (design §7.3). Nameplates hide while the floor
+ * is seen from far (setCompact), and each goes, with its texture, when its desk frees or its session wakes.
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
@@ -22,7 +25,7 @@ import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot } fro
 import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
-import { Geometries, buildShell, setDoors, updateDesk, updatePod, updateRoom, type PickData, type Shell } from './props';
+import { Geometries, buildNameplate, buildShell, setDoors, updateDesk, updatePod, updateRoom, type Nameplate, type PickData, type Shell } from './props';
 import { KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
 import { keepSeats } from './seats';
 import type { ThemeTokens } from './theme';
@@ -153,6 +156,10 @@ export class FloorScene {
   private readonly roomEntries = new Map<string, RoomEntry>();
   /** The rooms' keys in the floor's order: a run's first room is the first of these that is its. */
   private roomOrder: string[] = [];
+  /** The nameplates on dormant sessions' desks, by desk id. */
+  private readonly plates = new Map<string, Nameplate>();
+  /** Seen from far: the nameplates hide. */
+  private compact = false;
   private selected: Target | null = null;
   private azimuth = HOME_AZIMUTH;
 
@@ -218,12 +225,15 @@ export class FloorScene {
     const shell = this.shellPart!;
     const seen = new Set<string>();
     const wanted: Cast[] = [];
+    const desks = new Set<string>();
     for (const pod of floor.pods) {
       const look = shell.pods.get(pod.id);
       if (look) updatePod(look, pod.color, this.mats);
       for (const desk of pod.desks) {
         const obj = shell.desks.get(desk.id);
         if (obj) updateDesk(obj, desk.occupant, this.mats);
+        desks.add(desk.id);
+        this.updatePlate(desk);
         if (desk.occupant && !seen.has(desk.occupant.sessionId)) {
           seen.add(desk.occupant.sessionId);
           this.track(desk.occupant, desk, wanted);
@@ -236,6 +246,7 @@ export class FloorScene {
       this.track(occupant, null, wanted);
     }
     for (const id of this.entries.keys()) if (!seen.has(id)) this.remove(id);
+    for (const id of this.plates.keys()) if (!desks.has(id)) this.dropPlate(id);
 
     const rooms = new Set<string>();
     this.roomOrder = floor.rooms.map(roomKey);
@@ -279,6 +290,12 @@ export class FloorScene {
     this.hemi.intensity = theme.numbers['hemi-int'];
     this.sun.color.set(theme.colors.sun);
     this.sun.intensity = theme.numbers['sun-int'];
+  }
+
+  /** Seen from far (labels.ts COMPACT_PX), the nameplates hide; closer in, they show. */
+  setCompact(compact: boolean): void {
+    this.compact = compact;
+    for (const plate of this.plates.values()) plate.mesh.visible = !compact;
   }
 
   /** Shows the ring under a session's robot, or the outline of a room; null, or what is not on this floor, hides them. */
@@ -391,6 +408,7 @@ export class FloorScene {
   dispose(): void {
     this.shellPart?.dispose();
     this.shellPart = null;
+    for (const id of [...this.plates.keys()]) this.dropPlate(id);
     for (const id of this.entries.keys()) this.remove(id);
     for (const key of this.roomEntries.keys()) this.removeRoom(key);
     for (const [key, mover] of this.movers) this.drop(key, mover);
@@ -570,6 +588,27 @@ export class FloorScene {
     mover.walking?.disc.removeFromParent();
     mover.robot.group.removeFromParent();
     this.movers.delete(key);
+  }
+
+  /**
+   * Gives the desk of a dormant session a nameplate with its name, drawn once; takes it off a desk that is free or
+   * whose session woke, and draws it anew for another dormant session or a new name.
+   */
+  private updatePlate(desk: PodDesk): void {
+    const occupant = desk.occupant?.state === 'dormant' ? desk.occupant : null;
+    const had = this.plates.get(desk.id);
+    if (had && occupant && had.sessionId === occupant.sessionId && had.name === occupant.name) return;
+    if (had) this.dropPlate(desk.id);
+    if (!occupant) return;
+    const plate = buildNameplate(desk, occupant, this.geo);
+    plate.mesh.visible = !this.compact;
+    this.scene.add(plate.mesh);
+    this.plates.set(desk.id, plate);
+  }
+
+  private dropPlate(deskId: string): void {
+    this.plates.get(deskId)?.dispose();
+    this.plates.delete(deskId);
   }
 
   /** Forgets a session no longer on the floor. Its robot and its interns walk and fly out (cast). */

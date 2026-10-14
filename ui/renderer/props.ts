@@ -2,18 +2,22 @@
  * The floor's furniture from primitives: the shell (slab, walls with windows, the elevator and plants of the core), and
  * on the plan a rug, a lamp and four desks per pod, the lounge and a meeting room per room slot. Proportions follow
  * prototypes/floor-3d-mockup.html. The furniture (furniture.ts) is drawn by instanced meshes: the desks, the rooms'
- * tables and seats, the lounge's couches, coffee table and beanbags, and the plants.
+ * tables and seats, the lounge's couches, coffee table and beanbags, and the plants. A dormant session's desk has a
+ * nameplate of its own, a mesh with its name drawn on a canvas.
  */
 import {
   BoxGeometry,
+  CanvasTexture,
   CircleGeometry,
   Color,
   CylinderGeometry,
   Group,
   Mesh,
+  MeshStandardMaterial,
   PlaneGeometry,
   RingGeometry,
   SphereGeometry,
+  SRGBColorSpace,
   type BufferGeometry,
   type Material,
   type Object3D,
@@ -389,6 +393,80 @@ export function updateDesk(obj: DeskObject, occupant: Occupant | null, mats: Mat
   obj.top.paint(occupant?.state === 'dormant' ? DIMMED : AS_IS);
   const pick: PickData | undefined = occupant ? { kind: 'desk', id: occupant.sessionId } : undefined;
   for (const piece of obj.pickables) piece.pick = pick;
+}
+
+/**
+ * A dormant session's nameplate: a thin card standing on its desk's monitor, in the monitor's plane, `y` up to its
+ * centre and `z` from the desk top's centre toward the monitor, as buildDesk places the monitor (its top at 1.38 m).
+ * Wider than the monitor, so that its name reads with the camera at its closest.
+ */
+export const NAMEPLATE = { w: 1.2, h: 0.225, d: 0.01, y: 1.4925, z: 0.24 } as const;
+/** The canvas a nameplate's name is drawn on, in pixels: as wide for its height as the card, with PAD on either side. */
+export const NAMEPLATE_PX = { w: 512, h: 96, pad: 16, font: 56 } as const;
+/** The most of a name a nameplate shows, in code points: a longer one is cut short with an ellipsis. */
+export const NAMEPLATE_CHARS = 18;
+/** The card and its ink, lit as the desk is: dimmer by night. */
+const PLATE_PAPER = '#ffffff';
+const PLATE_INK = '#20263a';
+
+export interface Nameplate {
+  /** The session whose name it shows, and the name as given. */
+  readonly sessionId: string;
+  readonly name: string;
+  readonly mesh: Mesh;
+  /** Takes it off its desk and frees its texture and material. Its geometry is shared, and stays. */
+  dispose(): void;
+}
+
+/** What a nameplate shows of a name: all of it, or its first NAMEPLATE_CHARS - 1 code points and an ellipsis. */
+export function nameplateText(name: string): string {
+  const chars = [...name];
+  return chars.length > NAMEPLATE_CHARS ? chars.slice(0, NAMEPLATE_CHARS - 1).join('') + '\u2026' : name;
+}
+
+/** Draws a nameplate's card and, centred on it, the name: as text, with fillText only, so that no name is ever markup. */
+export function drawNameplate(ctx: CanvasRenderingContext2D, name: string): void {
+  const { w, h, pad, font } = NAMEPLATE_PX;
+  ctx.fillStyle = PLATE_PAPER;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = PLATE_INK;
+  ctx.font = `600 ${font}px ui-monospace, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(nameplateText(name), w / 2, h / 2, w - 2 * pad);
+}
+
+/**
+ * The nameplate of a dormant session's desk: a card on the monitor's top edge, readable from either side, with the
+ * name drawn on a canvas that never joins the page. It casts no shadow and takes no click: one goes through it to the
+ * desk. A canvas without a 2D context leaves the card blank.
+ */
+export function buildNameplate(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, occupant: Pick<Occupant, 'sessionId' | 'name'>, geo: Geometries): Nameplate {
+  const canvas = document.createElement('canvas');
+  canvas.width = NAMEPLATE_PX.w;
+  canvas.height = NAMEPLATE_PX.h;
+  const ctx = canvas.getContext('2d');
+  if (ctx) drawNameplate(ctx, occupant.name);
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  const material = new MeshStandardMaterial({ map: texture, roughness: 0.85, metalness: 0 });
+  const mesh = new Mesh(geo.box(NAMEPLATE.w, NAMEPLATE.h, NAMEPLATE.d), material);
+  mesh.name = `nameplate ${desk.id}`;
+  const a = deskAnchor(desk);
+  mesh.position.set(a.x, NAMEPLATE.y, desk.chair === 'south' ? a.z - NAMEPLATE.z : a.z + NAMEPLATE.z);
+  mesh.rotation.y = desk.chair === 'north' ? Math.PI : 0;
+  mesh.castShadow = false;
+  mesh.receiveShadow = true;
+  return {
+    sessionId: occupant.sessionId,
+    name: occupant.name,
+    mesh,
+    dispose() {
+      mesh.removeFromParent();
+      material.dispose();
+      texture.dispose();
+    },
+  };
 }
 
 export interface RoomObject {

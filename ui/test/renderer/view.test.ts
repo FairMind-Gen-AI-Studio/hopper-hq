@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { POD_DESKS } from '../../../src/scene/layout';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target, ViewOptions } from '../../renderer/index';
-import { projectToScreen } from '../../renderer/labels';
+import { COMPACT_PX, projectToScreen } from '../../renderer/labels';
 import { AMBIENT_MS, DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
 import { poseOf } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
@@ -497,6 +497,26 @@ describe('the floor view', () => {
     for (let i = 0; i < 6; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -1000, bubbles: true, cancelable: true }));
     env.flush();
     expect(labels.classList.contains('fv-compact')).toBe(false);
+  });
+
+  it('hides the nameplates in every frame drawn while the floor is seen from far, and shows them closer in', () => {
+    const { renderer, env, view, canvas, labels } = setup();
+    const plate = `nameplate ${seatOf(checkoutFloor(), 'ps-f7').desk.id}`;
+    // For each frame: whether the plate is drawn, and whether a metre takes fewer than COMPACT_PX pixels on it.
+    const frames: Array<[shown: boolean, far: boolean]> = [];
+    const render = renderer.render.bind(renderer);
+    renderer.render = (scene, camera) => {
+      const c = camera as OrthographicCamera;
+      frames.push([scene.getObjectByName(plate)!.visible, (H * c.zoom) / (c.top - c.bottom) < COMPACT_PX]);
+      render(scene, camera);
+    };
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(frames.at(-1)).toEqual([false, true]);
+    for (let i = 0; i < 6; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -1000, bubbles: true, cancelable: true }));
+    env.flush();
+    expect([frames.at(-1), labels.classList.contains('fv-compact')]).toEqual([[true, false], false]);
+    expect(frames.filter(([shown, far]) => shown === far)).toEqual([]);
   });
 
   it('stops calling a listener once it unsubscribes', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Color, Matrix4, Mesh, Vector3, type BufferGeometry, type Material } from 'three';
+import { Box3, Color, Matrix4, Mesh, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
 import { CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
 import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
@@ -27,7 +27,7 @@ import {
   tableCenter,
   type Point,
 } from '../../renderer/world';
-import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec, type DeskSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at its desk. */
 function changedCheckouts(): CheckoutSpec[] {
@@ -1088,5 +1088,70 @@ describe('loops at rest', () => {
     const next = fs.frame(1150).tags.get('sw-a1')!;
     expect(next).not.toBe(first);
     expect(next).toEqual(first);
+  });
+});
+
+describe('nameplates', () => {
+  /** The nameplates in the scene. */
+  const plates = (fs: FloorScene) => fs.scene.children.filter((o): o is Mesh => o instanceof Mesh && o.name.startsWith('nameplate '));
+  /** The checkout floor with these sessions changed, or gone (null). */
+  function floorWith(changes: Record<string, Partial<DeskSpec> | null>) {
+    const checkouts = checkoutSpecs();
+    for (const c of checkouts) c.desks = c.desks.flatMap((d) => (changes[d.id] === null ? [] : [{ ...d, ...changes[d.id] }]));
+    return makeFloor(checkouts);
+  }
+  /** The id of the desk a session sits at on the checkout floor. */
+  const deskOf = (sessionId: string) => seatOf(checkoutFloor(), sessionId).desk.id;
+
+  it('puts a nameplate on the desk of each dormant session only, where it neither casts a shadow nor takes a click', () => {
+    const fs = sceneOf(floorWith({ 'sw-b2': { state: 'dormant' } }));
+    expect(plates(fs).map((m) => m.name)).toEqual([`nameplate ${deskOf('sw-b2')}`, `nameplate ${deskOf('ps-f7')}`]);
+    const picks = new Set(fs.pickables());
+    expect(plates(fs).some((m) => picks.has(m) || m.castShadow)).toBe(false);
+    // A click goes through the plate to the desk, which picks the dormant session.
+    expect(fs.shell!.desks.get(deskOf('ps-f7'))!.top.pick).toEqual(deskTarget('ps-f7'));
+    expect(sceneOf(floorWith({ 'ps-f7': { state: 'idle' } })).scene.children.some((o) => o.name.startsWith('nameplate '))).toBe(false);
+  });
+
+  it('keeps a nameplate while its session sleeps on, draws it anew for a new name, and takes it off and frees it as its session wakes or its desk frees', () => {
+    const fs = sceneOf();
+    const freed: string[] = [];
+    const watch = (plate: Mesh, name: string) => {
+      const material = plate.material as MeshStandardMaterial;
+      material.addEventListener('dispose', () => freed.push(`${name} material`));
+      material.map!.addEventListener('dispose', () => freed.push(`${name} texture`));
+      return plate;
+    };
+    const first = watch(plates(fs)[0]!, 'first');
+    fs.apply(checkoutFloor());
+    expect([plates(fs), freed]).toEqual([[first], []]);
+    fs.apply(floorWith({ 'ps-f7': { name: 'payments sleeper' } }));
+    const renamed = watch(plates(fs)[0]!, 'renamed');
+    expect([renamed === first, renamed.name, freed]).toEqual([false, `nameplate ${deskOf('ps-f7')}`, ['first material', 'first texture']]);
+    // Awake again: its robot comes back from the elevator, and its plate goes.
+    fs.apply(floorWith({ 'ps-f7': { state: 'working' } }), 1000);
+    expect([plates(fs), fs.sessions.get('ps-f7')!.robot !== null]).toEqual([[], true]);
+    expect(freed.slice(2)).toEqual(['renamed material', 'renamed texture']);
+    fs.apply(checkoutFloor(), 2000);
+    const again = watch(plates(fs)[0]!, 'again');
+    // It leaves the floor: its desk is free.
+    fs.apply(floorWith({ 'ps-f7': null }), 3000);
+    expect([plates(fs), freed.slice(4)]).toEqual([[], ['again material', 'again texture']]);
+    expect(again.parent).toBeNull();
+    fs.apply(checkoutFloor(), 4000);
+    watch(plates(fs)[0]!, 'last');
+    fs.dispose();
+    expect(freed.slice(6)).toEqual(['last material', 'last texture']);
+  });
+
+  it('hides the nameplates while the floor is seen from far, one put up meanwhile too, and shows them closer in', () => {
+    const fs = sceneOf();
+    expect(plates(fs).map((m) => m.visible)).toEqual([true]);
+    fs.setCompact(true);
+    expect(plates(fs).map((m) => m.visible)).toEqual([false]);
+    fs.apply(floorWith({ 'sw-b2': { state: 'dormant' } }));
+    expect(plates(fs).map((m) => m.visible)).toEqual([false, false]);
+    fs.setCompact(false);
+    expect(plates(fs).map((m) => m.visible)).toEqual([true, true]);
   });
 });

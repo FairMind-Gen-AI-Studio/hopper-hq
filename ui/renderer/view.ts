@@ -41,7 +41,7 @@ import {
 } from './camera';
 import { FloorScene } from './floor-scene';
 import type { FloorView, Target, ViewOptions } from './index';
-import { LabelLayer } from './labels';
+import { COMPACT_PX, LabelLayer } from './labels';
 import { AMBIENT_MS, frameRate } from './motion';
 import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
@@ -339,8 +339,11 @@ export function createFloorView(
     if (step.shadows) renderer.shadowMap.needsUpdate = true;
     for (const [id, anchor] of step.tags) labels.moveTag(id, anchor);
     if (world.setAzimuth(pose().azimuth)) renderer.shadowMap.needsUpdate = true;
+    // How many CSS pixels a metre takes: from far, the nameplates hide before the frame is drawn, as the tags do.
+    const scale = (height * camera.zoom) / (camera.top - camera.bottom);
+    world.setCompact(scale < COMPACT_PX);
     renderer.render(world.scene, camera);
-    labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
+    labels.setScale(scale);
     labels.position(camera, width, height);
     report(step.moving);
     // A frame with nothing moving is the last, but for one asked for when the next ambient frame is due, or when the

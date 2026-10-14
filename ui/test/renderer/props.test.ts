@@ -1,10 +1,29 @@
-import { describe, expect, it } from 'vitest';
-import { Box3, BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Box3, BoxGeometry, CanvasTexture, Color, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, SRGBColorSpace, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
 import { POD_DESKS } from '../../../src/scene/layout';
 import type { PodDesk } from '../../../src/scene/types';
 import { Furniture, type Piece } from '../../renderer/furniture';
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
-import { DOOR_PANEL, DOOR_SLIDE, Geometries, buildDesk, buildRoom, buildShell, setDoors, updateDesk, updatePod, updateRoom, windowSpots, type PickData } from '../../renderer/props';
+import {
+  DOOR_PANEL,
+  DOOR_SLIDE,
+  Geometries,
+  NAMEPLATE,
+  NAMEPLATE_CHARS,
+  NAMEPLATE_PX,
+  buildDesk,
+  buildNameplate,
+  buildRoom,
+  buildShell,
+  drawNameplate,
+  nameplateText,
+  setDoors,
+  updateDesk,
+  updatePod,
+  updateRoom,
+  windowSpots,
+  type PickData,
+} from '../../renderer/props';
 import { dayTheme } from '../../renderer/theme';
 import {
   BEANBAG_R,
@@ -519,5 +538,126 @@ describe('the sizes the walk grid shares', () => {
     expect(beans.map((b) => span(b).toArray())).toEqual([bean.map(near), bean.map(near)]);
     const pots = drawn(shell.group, mats.surface.pot).map((b) => b.getCenter(new Vector3()));
     expect(pots.map((p) => ({ x: p.x, z: p.z }))).toEqual(plantSpots(floor.core).map((p) => ({ x: near(p.x), z: near(p.z) })));
+  });
+});
+
+describe('nameplates', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Markup that must stay text, short enough to be shown whole. */
+  const HOSTILE = '<img src=x>&lt;';
+  const span = (b: Box3) => b.getSize(new Vector3());
+  const near = (v: number) => expect.closeTo(v, 5);
+
+  /** A 2D context that records what is done with it, in order: a call by its name and arguments, a setting as 'set <name>'. */
+  function recorder() {
+    const calls: unknown[][] = [];
+    const ctx = new Proxy(
+      {},
+      {
+        get: (_target, key) => (...args: unknown[]) => void calls.push([key, ...args]),
+        set: (_target, key, value) => {
+          calls.push([`set ${String(key)}`, value]);
+          return true;
+        },
+      },
+    );
+    return { ctx: ctx as CanvasRenderingContext2D, calls };
+  }
+
+  /** Gives every canvas a recording 2D context, and lists the canvases asked for one with what was drawn on each. */
+  function canvases() {
+    const made: Array<{ canvas: HTMLCanvasElement; calls: unknown[][] }> = [];
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      const { ctx, calls } = recorder();
+      made.push({ canvas: this, calls });
+      return ctx;
+    } as unknown as HTMLCanvasElement['getContext']);
+    return made;
+  }
+
+  it('shows a name whole up to NAMEPLATE_CHARS code points, and cuts a longer one short with an ellipsis', () => {
+    const whole = 'n'.repeat(NAMEPLATE_CHARS);
+    expect(nameplateText(whole)).toBe(whole);
+    expect(nameplateText(whole + 'n')).toBe('n'.repeat(NAMEPLATE_CHARS - 1) + '\u2026');
+    // Code points, not UTF-16 units: a character outside the BMP is never cut in two.
+    const octopus = '\u{1F419}';
+    expect(nameplateText(octopus.repeat(NAMEPLATE_CHARS))).toBe(octopus.repeat(NAMEPLATE_CHARS));
+    expect(nameplateText(octopus.repeat(NAMEPLATE_CHARS + 2))).toBe(octopus.repeat(NAMEPLATE_CHARS - 1) + '\u2026');
+    expect(nameplateText('')).toBe('');
+  });
+
+  it('draws a nameplate as a white card with the name centred on it in ink, with fillText only', () => {
+    const { w, h, pad, font } = NAMEPLATE_PX;
+    const { ctx, calls } = recorder();
+    drawNameplate(ctx, 'checkout tests');
+    expect(calls).toEqual([
+      ['set fillStyle', '#ffffff'],
+      ['fillRect', 0, 0, w, h],
+      ['set fillStyle', '#20263a'],
+      ['set font', `600 ${font}px ui-monospace, monospace`],
+      ['set textAlign', 'center'],
+      ['set textBaseline', 'middle'],
+      ['fillText', 'checkout tests', w / 2, h / 2, w - 2 * pad],
+    ]);
+    // A long name is cut short, and fillText narrows what is still wider than the card's inside.
+    const long = recorder();
+    drawNameplate(long.ctx, 'n'.repeat(200));
+    expect(long.calls.at(-1)).toEqual(['fillText', nameplateText('n'.repeat(200)), w / 2, h / 2, w - 2 * pad]);
+  });
+
+  it('writes a hostile name as text: fillText gets it as it is, and the canvas never joins the page', () => {
+    const made = canvases();
+    const desk = checkoutFloor().pods[0]!.desks[0]!;
+    const plate = buildNameplate(desk, { sessionId: 'ps-f7', name: HOSTILE }, new Geometries());
+    expect(made).toHaveLength(1);
+    const { canvas, calls } = made[0]!;
+    expect(calls.filter((c) => c[0] === 'fillText').map((c) => c[1])).toEqual([HOSTILE]);
+    expect(calls.map((c) => String(c[0])).filter((k) => /text|html/i.test(k) && k !== 'fillText' && !k.startsWith('set '))).toEqual([]);
+    const map = (plate.mesh.material as MeshStandardMaterial).map as CanvasTexture;
+    expect([map.image, canvas.width, canvas.height]).toEqual([canvas, NAMEPLATE_PX.w, NAMEPLATE_PX.h]);
+    expect([canvas.isConnected, canvas.childNodes.length, document.querySelector('img')]).toEqual([false, 0, null]);
+  });
+
+  it("stands a nameplate on its desk's monitor, either side of a pod, lit, casting no shadow and blank without a 2D context", () => {
+    const { geo, mats } = kit();
+    const floor = checkoutFloor();
+    const shell = buildShell(floor, geo, mats);
+    shell.group.updateMatrixWorld(true);
+    const monitors = drawn(shell.group, mats.surface.monitor);
+    const desks = floor.pods[0]!.desks;
+    expect(desks.map((d) => d.chair)).toEqual(['north', 'north', 'south', 'south']);
+    for (const desk of desks) {
+      // happy-dom's canvases have no 2D context: the card is left blank.
+      const plate = buildNameplate(desk, { sessionId: 'ps-f7', name: 'ps-f7' }, geo);
+      plate.mesh.updateMatrixWorld(true);
+      const box = new Box3().setFromObject(plate.mesh);
+      const monitor = monitors.find((m) => m.min.x > desk.rect.x && m.max.x < desk.rect.x + desk.rect.w && m.min.z > desk.rect.y && m.max.z < desk.rect.y + desk.rect.h)!;
+      const c = monitor.getCenter(new Vector3());
+      // On the monitor's top edge, centred over it, in its plane.
+      expect([box.min.y, box.getCenter(new Vector3()).x, box.getCenter(new Vector3()).z], desk.id).toEqual([near(monitor.max.y), near(c.x), near(c.z)]);
+      expect(span(box).toArray(), desk.id).toEqual([near(NAMEPLATE.w), near(NAMEPLATE.h), near(NAMEPLATE.d)]);
+      expect([plate.mesh.name, plate.mesh.rotation.y, plate.mesh.castShadow, plate.mesh.receiveShadow]).toEqual([`nameplate ${desk.id}`, desk.chair === 'north' ? Math.PI : 0, false, true]);
+      const material = plate.mesh.material as MeshStandardMaterial;
+      expect([material.isMeshStandardMaterial, material.map instanceof CanvasTexture, material.map!.colorSpace]).toEqual([true, true, SRGBColorSpace]);
+    }
+  });
+
+  it('frees its texture and its material, not the geometry every nameplate shares, as it comes off its desk', () => {
+    const geo = new Geometries();
+    const desk = checkoutFloor().pods[0]!.desks[0]!;
+    const plate = buildNameplate(desk, { sessionId: 'ps-f7', name: 'ps-f7' }, geo);
+    const other = buildNameplate(checkoutFloor().pods[0]!.desks[1]!, { sessionId: 'oa-d5', name: 'oa-d5' }, geo);
+    expect(other.mesh.geometry).toBe(plate.mesh.geometry);
+    expect(other.mesh.material).not.toBe(plate.mesh.material);
+    const parent = new Group().add(plate.mesh);
+    const freed: string[] = [];
+    const material = plate.mesh.material as MeshStandardMaterial;
+    material.addEventListener('dispose', () => freed.push('material'));
+    material.map!.addEventListener('dispose', () => freed.push('texture'));
+    plate.mesh.geometry.addEventListener('dispose', () => freed.push('geometry'));
+    plate.dispose();
+    expect([plate.mesh.parent, parent.children.length, freed]).toEqual([null, 0, ['material', 'texture']]);
+    expect([plate.sessionId, plate.name]).toEqual(['ps-f7', 'ps-f7']);
   });
 });
