@@ -373,8 +373,8 @@ export class FloorScene {
   }
 
   /**
-   * Everything a click can pick: the furniture, whose pieces pick the desks somebody sits at; the robots and interns; and
-   * the open rooms with their agents.
+   * Everything a click can pick: the furniture, whose pieces pick the desks somebody sits at and the open rooms they
+   * stand in; the robots and interns; and the open rooms with their agents.
    */
   pickables(): Object3D[] {
     const out: Object3D[] = [...(this.shellPart?.furniture.meshes ?? [])];

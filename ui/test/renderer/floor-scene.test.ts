@@ -484,18 +484,21 @@ describe('meeting rooms in the floor scene', () => {
     room.group.traverse((o) => {
       if (o instanceof Mesh) meshes.push(o);
     });
-    expect(meshes.length).toBeGreaterThan(30);
+    // Its floor, glass, rails, posts, door, placard and whiteboard; its table and seats are pieces of the furniture.
+    expect([meshes.length, room.pieces.length]).toEqual([21, 21]);
     const through = meshes.filter((m) => m.material === fs.mats.surface.glass || m === room.door);
     expect(through).toHaveLength(6);
     for (const m of meshes) {
       const skip = through.includes(m);
       expect([picks.has(m), m.userData.pick ?? null], m.name).toEqual(skip ? [false, null] : [true, roomTarget('wf_0000aaaa-001')]);
     }
+    expect(room.pieces.every((p) => picks.has(p.mesh!) && p.pick?.id === 'wf_0000aaaa-001')).toBe(true);
     for (const agent of entryOf(fs, 0).agents.values()) expect(agent.pickables.every((m) => picks.has(m) && m.userData.pick?.id === 'wf_0000aaaa-001')).toBe(true);
     // A closed room picks nothing.
     fs.apply(checkoutFloor());
     const closed = new Set(fs.pickables());
     expect(meshes.some((m) => closed.has(m) || m.userData.pick)).toBe(false);
+    expect(room.pieces.some((p) => p.pick)).toBe(false);
   });
 
   it('keeps no robot of a closed room, however often rooms open and close', () => {

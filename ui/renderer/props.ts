@@ -1,8 +1,8 @@
 /**
  * The floor's furniture from primitives: the shell (slab, walls with windows, the elevator and plants of the core), and
  * on the plan a rug, a lamp and four desks per pod, the lounge and a meeting room per room slot. Proportions follow
- * prototypes/floor-3d-mockup.html. The desks are pieces of the floor's furniture (furniture.ts): instanced meshes draw
- * them.
+ * prototypes/floor-3d-mockup.html. The furniture (furniture.ts) is drawn by instanced meshes: the desks, the rooms'
+ * tables and seats, the lounge's couches, coffee table and beanbags, and the plants.
  */
 import {
   BoxGeometry,
@@ -175,7 +175,7 @@ export interface Shell {
   readonly pods: ReadonlyMap<string, PodObject>;
   /** Every desk of every pod, by desk id, in plan order. */
   readonly desks: ReadonlyMap<string, DeskObject>;
-  /** The furniture its instanced meshes draw: the desks. */
+  /** The furniture its instanced meshes draw: the desks, the rooms' tables and seats, the lounge's furniture and the plants. */
   readonly furniture: Furniture;
   /** Every room of the plan, by slot. */
   readonly rooms: readonly RoomObject[];
@@ -242,7 +242,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
   part(north, geo.ball(0.06), s.lamp, core.x, 2.5, 0.16, { cast: false });
   const lobbyD = floor.core.y + floor.core.h;
   part(group, geo.plane(floor.core.w, lobbyD), s.lobby, core.x, 0.004, lobbyD / 2, { rx: -Math.PI / 2, cast: false });
-  for (const spot of plantSpots(floor.core)) plant(group, geo, mats, spot.x, spot.z);
+  for (const spot of plantSpots(floor.core)) plant(furniture, geo, mats, spot.x, spot.z);
 
   // Each pod: a rug, a lamp over it, and its four desks. Rugs and shades start neutral: the floor colours them.
   const pods = new Map<string, PodObject>();
@@ -258,10 +258,10 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     for (const desk of pod.desks) desks.set(desk.id, buildDesk(desk, furniture, geo, mats));
   }
 
-  buildLounge(group, floor.lounge.rect, geo, mats);
+  buildLounge(group, floor.lounge.rect, furniture, geo, mats);
 
   const rooms = floor.roomSlots.map((rect, slot) => {
-    const obj = buildRoom(rect, slot, geo, mats);
+    const obj = buildRoom(rect, slot, furniture, geo, mats);
     group.add(obj.group);
     return obj;
   });
@@ -297,20 +297,25 @@ export function updatePod(obj: PodObject, color: number | null, mats: Materials)
   obj.shade.material = color === null ? mats.surface.base : mats.body(color);
 }
 
-function plant(parent: Object3D, geo: Geometries, mats: Materials, x: number, z: number): void {
-  part(parent, geo.rod(0.22, 0.17, 0.36, 16), mats.surface.pot, x, 0.18, z);
-  part(parent, geo.ball(0.28), mats.surface.plant, x, 0.6, z);
-  part(parent, geo.ball(0.22), mats.surface.plant, x + 0.12, 0.86, z - 0.05);
-  part(parent, geo.ball(0.18), mats.surface.plant, x - 0.1, 1.02, z + 0.06);
+/** Where the floor's own pieces stand: the plants and the lounge's furniture, placed in floor coordinates. */
+const ON_FLOOR = frameAt(0, 0);
+
+/** A plant of the core, as pieces of the floor's furniture: its pot and three balls of leaves. */
+function plant(furniture: Furniture, geo: Geometries, mats: Materials, x: number, z: number): void {
+  furniture.add(ON_FLOOR, geo.rod(0.22, 0.17, 0.36, 16), mats.surface.pot, x, 0.18, z);
+  furniture.add(ON_FLOOR, geo.ball(0.28), mats.surface.plant, x, 0.6, z);
+  furniture.add(ON_FLOOR, geo.ball(0.22), mats.surface.plant, x + 0.12, 0.86, z - 0.05);
+  furniture.add(ON_FLOOR, geo.ball(0.18), mats.surface.plant, x - 0.1, 1.02, z + 0.06);
 }
 
 /**
- * The lounge (world.ts places its seats): a rug, a coffee table, two couches facing each other across it, each with its
- * back away from the table, and a beanbag at each end of the table.
+ * The lounge (world.ts places its seats): a rug, and as pieces of the floor's furniture a coffee table, two couches
+ * facing each other across it, each with its back away from the table, and a beanbag at each end of the table.
  */
-function buildLounge(parent: Group, rect: GridRect, geo: Geometries, mats: Materials): void {
+function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
   const s = mats.surface;
   const c = rectCenter(rect);
+  const add = (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => furniture.add(ON_FLOOR, geometry, material, x, y, z, opts);
   const group = new Group();
   group.name = 'lounge';
   parent.add(group);
@@ -318,16 +323,15 @@ function buildLounge(parent: Group, rect: GridRect, geo: Geometries, mats: Mater
   for (const sign of [-1, 1]) {
     const z = c.z + sign * COUCH_Z;
     const back = z + sign * (COUCH.d / 2 - COUCH_BACK / 2);
-    part(group, geo.rbox(COUCH.w, 0.42, COUCH.d, 0.08), s.couch, c.x, 0.21, z);
-    part(group, geo.rbox(COUCH.w, 0.62, COUCH_BACK, 0.08), s.couch, c.x, 0.6, back);
-    for (const end of [-1, 1]) part(group, geo.rbox(COUCH_ARM, 0.56, COUCH.d, 0.08), s.couch, c.x + end * (COUCH.w / 2), 0.38, z);
+    add(geo.rbox(COUCH.w, 0.42, COUCH.d, 0.08), s.couch, c.x, 0.21, z);
+    add(geo.rbox(COUCH.w, 0.62, COUCH_BACK, 0.08), s.couch, c.x, 0.6, back);
+    for (const end of [-1, 1]) add(geo.rbox(COUCH_ARM, 0.56, COUCH.d, 0.08), s.couch, c.x + end * (COUCH.w / 2), 0.38, z);
   }
-  part(group, geo.rbox(COFFEE_TABLE.w, 0.06, COFFEE_TABLE.d, 0.02), s.wood, c.x, 0.42, c.z);
-  for (const dx of [-0.6, 0.6]) part(group, geo.rod(0.05, 0.05, 0.4, 8), s.leg, c.x + dx, 0.2, c.z, { cast: false });
-  part(group, geo.rod(0.06, 0.07, 0.1, 12), s.paper, c.x + 0.3, 0.5, c.z - 0.1, { cast: false });
-  for (const [side, bean] of [[-1, s.beanA], [1, s.beanB]] as const) {
-    part(group, geo.ball(BEANBAG_R), bean, c.x + side * BEANBAG_X, 0.2, c.z).scale.set(BEANBAG_SCALE.across, BEANBAG_SCALE.up, BEANBAG_SCALE.across);
-  }
+  add(geo.rbox(COFFEE_TABLE.w, 0.06, COFFEE_TABLE.d, 0.02), s.wood, c.x, 0.42, c.z);
+  for (const dx of [-0.6, 0.6]) add(geo.rod(0.05, 0.05, 0.4, 8), s.leg, c.x + dx, 0.2, c.z, { cast: false });
+  add(geo.rod(0.06, 0.07, 0.1, 12), s.paper, c.x + 0.3, 0.5, c.z - 0.1, { cast: false });
+  const squash = [BEANBAG_SCALE.across, BEANBAG_SCALE.up, BEANBAG_SCALE.across] as const;
+  for (const [side, bean] of [[-1, s.beanA], [1, s.beanB]] as const) add(geo.ball(BEANBAG_R), bean, c.x + side * BEANBAG_X, 0.2, c.z, { scale: squash });
 }
 
 export interface DeskObject {
@@ -397,18 +401,20 @@ export interface RoomObject {
   readonly door: Mesh;
   /** A card on the head seat, shown while a run holds the room and its host is not at the head of the table. */
   readonly placard: Mesh;
-  /** Every part of the room but its glass and its door: while a run holds the room, a click on any of them selects it. */
+  /** Every mesh of the room but its glass and its door: while a run holds the room, a click on any of them selects it. */
   readonly pickables: readonly Mesh[];
+  /** Its table and seats, pieces of the floor's furniture: while a run holds the room, a click on any of them selects it too. */
+  readonly pieces: readonly Piece[];
 }
 
 /**
  * One room of the meeting wing, from its north-west corner: a floor, glass partitions with a door in the west one, a
- * table with SEATS_MAX seats and a head seat, a whiteboard on the north partition and a placard. No lamp hangs over the
- * table: seen from above, it would hide the agents. Every geometry is shared: rooms are all the same size. Only the table
- * top and the seats cast shadows. A click goes through the glass, to whatever lies behind it. It starts empty: its floor
- * dim and its door closed.
+ * table with SEATS_MAX seats and a head seat (pieces of the floor's furniture), a whiteboard on the north partition and
+ * a placard. No lamp hangs over the table: seen from above, it would hide the agents. Every geometry is shared: rooms
+ * are all the same size. Only the table top and the seats cast shadows. A click goes through the glass, to whatever
+ * lies behind it. It starts empty: its floor dim and its door closed.
  */
-export function buildRoom(rect: GridRect, slot: number, geo: Geometries, mats: Materials): RoomObject {
+export function buildRoom(rect: GridRect, slot: number, furniture: Furniture, geo: Geometries, mats: Materials): RoomObject {
   const s = mats.surface;
   const thin = { cast: false };
   const { w, h } = rect;
@@ -443,13 +449,15 @@ export function buildRoom(rect: GridRect, slot: number, geo: Geometries, mats: M
   skip.add(panel);
 
   // The table, its two pedestals, and a seat on a post at each place.
+  const frame = frameAt(rect.x, rect.y);
+  const add = (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => furniture.add(frame, geometry, material, x, y, z, opts);
   const c = tableCenter(local);
-  part(group, geo.rbox(TABLE.w, 0.08, TABLE.d, 0.03), s.desk, c.x, 0.74, c.z);
-  for (const dx of [-1.4, 1.4]) part(group, geo.rod(0.12, 0.12, 0.7, 12), s.leg, c.x + dx, 0.35, c.z, thin);
+  const pieces = [add(geo.rbox(TABLE.w, 0.08, TABLE.d, 0.03), s.desk, c.x, 0.74, c.z)];
+  for (const dx of [-1.4, 1.4]) pieces.push(add(geo.rod(0.12, 0.12, 0.7, 12), s.leg, c.x + dx, 0.35, c.z, thin));
   const head = headSpot(local);
   for (const spot of [...seatSpots(local), head]) {
-    part(group, geo.rbox(ROOM_SEAT, 0.07, ROOM_SEAT, 0.03), s.chair, spot.x, 0.44, spot.z);
-    part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, spot.x, 0.2, spot.z, thin);
+    pieces.push(add(geo.rbox(ROOM_SEAT, 0.07, ROOM_SEAT, 0.03), s.chair, spot.x, 0.44, spot.z));
+    pieces.push(add(geo.rod(0.03, 0.03, 0.4, 8), s.leg, spot.x, 0.2, spot.z, thin));
   }
   const placard = part(group, geo.box(0.3, 0.2, 0.02), s.paper, head.x, 0.575, head.z, { ry: Math.PI / 2, cast: false });
 
@@ -461,7 +469,7 @@ export function buildRoom(rect: GridRect, slot: number, geo: Geometries, mats: M
   group.traverse((o) => {
     if ((o as Mesh).isMesh && !skip.has(o as Mesh)) pickables.push(o as Mesh);
   });
-  const obj: RoomObject = { slot, group, floor, door: panel, placard, pickables };
+  const obj: RoomObject = { slot, group, floor, door: panel, placard, pickables, pieces };
   updateRoom(obj, null, false, mats);
   return obj;
 }
@@ -480,4 +488,5 @@ export function updateRoom(obj: RoomObject, room: Pick<MeetingRoom, 'runId'> | n
     if (pick) m.userData.pick = pick;
     else delete m.userData.pick;
   }
+  for (const piece of obj.pieces) piece.pick = pick;
 }

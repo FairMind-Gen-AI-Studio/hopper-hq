@@ -3,7 +3,7 @@ import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, Or
 import { FloorScene } from '../../renderer/floor-scene';
 import { pickTarget, toNdc } from '../../renderer/pick';
 import { dayTheme } from '../../renderer/theme';
-import { deskAnchor, doorGap, tableCenter } from '../../renderer/world';
+import { deskAnchor, doorGap, seatSpots, tableCenter } from '../../renderer/world';
 import { checkoutFloor, checkoutSpecs, isoCamera, makeFloor, roomFloor, seatsOf } from './fixtures';
 
 /** A camera 10 m above the origin looking straight down, 10 m wide and tall: world x is screen x, world z is screen down. */
@@ -124,6 +124,25 @@ describe('picking', () => {
     const host = fs.sessions.get(room.hostSessionId)!.robot!.group.localToWorld(new Vector3(0, 0.8, 0));
     expect(pick(host.x, host.y, host.z)).toEqual(desk(room.hostSessionId));
     expect(pick(floor.rooms[1]!.rect.x + 4, 0.78, floor.rooms[1]!.rect.y + 3.3)).toEqual({ kind: 'room', id: floor.rooms[1]!.runId });
+  });
+
+  it('picks nothing at the table or a seat of a closed room, and the run at a free seat of an open one', () => {
+    const fs = new FloorScene(dayTheme());
+    const floor = checkoutFloor();
+    fs.apply(floor);
+    fs.scene.updateMatrixWorld(true);
+    const camera = isoCamera(floor.size);
+    const pick = (x: number, y: number, z: number) => pickTarget(camera, ndcOf(camera, x, y, z), fs.pickables());
+    const rect = floor.roomSlots[0]!;
+    const t = tableCenter(rect);
+    // The south-east seat, nearest the camera: nobody sits there in either room.
+    const seat = seatSpots(rect)[7]!;
+    expect([pick(t.x, 0.78, t.z), pick(seat.x, 0.475, seat.z)]).toEqual([null, null]);
+    const open = roomFloor();
+    fs.apply(open);
+    fs.scene.updateMatrixWorld(true);
+    expect(open.rooms[0]!.slot).toBe(0);
+    expect(pick(seat.x, 0.475, seat.z)).toEqual({ kind: 'room', id: open.rooms[0]!.runId });
   });
 
   it('goes through the glass of the room in front to the room behind it', () => {

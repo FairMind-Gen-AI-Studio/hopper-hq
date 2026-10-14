@@ -132,13 +132,13 @@ describe('the shell', () => {
     expect(doors).toHaveLength(2);
     const coreX = floor.core.x + floor.core.w / 2;
     expect((doors[0]!.position.x + doors[1]!.position.x) / 2).toBeCloseTo(coreX, 6);
-    const pots = meshes(shell.group).filter((m) => m.material === mats.surface.pot);
+    const pots = drawn(shell.group, mats.surface.pot).map((b) => b.getCenter(new Vector3()));
     expect(pots).toHaveLength(2);
     for (const pot of pots) {
-      expect(pot.position.x).toBeGreaterThan(floor.core.x);
-      expect(pot.position.x).toBeLessThan(floor.core.x + floor.core.w);
-      expect(pot.position.z).toBeGreaterThan(floor.core.y);
-      expect(pot.position.z).toBeLessThan(floor.core.y + floor.core.h);
+      expect(pot.x).toBeGreaterThan(floor.core.x);
+      expect(pot.x).toBeLessThan(floor.core.x + floor.core.w);
+      expect(pot.z).toBeGreaterThan(floor.core.y);
+      expect(pot.z).toBeLessThan(floor.core.y + floor.core.h);
     }
   });
 
@@ -198,13 +198,23 @@ describe('the shell', () => {
     }
   });
 
-  it('draws the desks with instanced meshes, one per geometry and material, each piece of a desk an instance of one', () => {
+  it('draws the furniture with instanced meshes, one per geometry and material, each piece an instance of one', () => {
     const { geo, mats } = kit();
     const floor = checkoutFloor();
     const shell = buildShell(floor, geo, mats);
     const n = floor.pods.length * POD_DESKS;
-    // Top, four legs, monitor stand and neck, monitor, screen, keyboard, seat, back, post and base.
-    expect(shell.furniture.meshes.map((m) => m.count)).toEqual([n, 4 * n, n, n, n, n, n, n, n, n, n]);
+    const r = floor.roomSlots.length;
+    expect(shell.furniture.meshes.map((m) => m.count)).toEqual([
+      // The plants: their pots and three sizes of leaves.
+      ...[2, 2, 2, 2],
+      // The desks: top, four legs, monitor stand and neck, monitor, screen, keyboard, seat, back, post (a room seat's
+      // too) and base.
+      ...[n, 4 * n, n, n, n, n, n, n, n, n + 9 * r, n],
+      // The lounge: the couches' seats, backs and arms, the coffee table's top, legs and cup, and the two beanbags.
+      ...[2, 2, 4, 1, 2, 1, 1, 1],
+      // The rooms: each table, its two pedestals, and its nine seats.
+      ...[r, 2 * r, 9 * r],
+    ]);
     expect(shell.furniture.meshes.every((m) => m.parent === shell.group)).toBe(true);
     expect(shell.group.getObjectByName(`desk ${floor.pods[0]!.desks[0]!.id}`)).toBeUndefined();
   });
@@ -213,27 +223,28 @@ describe('the shell', () => {
     const { geo, mats } = kit();
     const floor = checkoutFloor();
     const shell = buildShell(floor, geo, mats);
-    const lounge = shell.group.getObjectByName('lounge')!;
-    const of = (m: Material) => meshes(lounge).filter((x) => x.material === m);
+    const s = mats.surface;
+    const of = (m: Material) => drawn(shell.group, m);
+    const centre = (b: Box3) => b.getCenter(new Vector3());
     // Each couch: a seat, a back and two arms.
-    expect([of(mats.surface.couch).length, of(mats.surface.wood).length, of(mats.surface.beanA).length, of(mats.surface.beanB).length, of(mats.surface.loungeRug).length]).toEqual([8, 1, 1, 1, 1]);
+    expect([of(s.couch).length, of(s.wood).length, of(s.beanA).length, of(s.beanB).length, of(s.loungeRug).length]).toEqual([8, 1, 1, 1, 1]);
     const rect = floor.lounge.rect;
-    for (const m of meshes(lounge)) {
-      const box = new Box3().setFromObject(m);
+    for (const box of [s.couch, s.wood, s.beanA, s.beanB, s.loungeRug].flatMap(of)) {
       expect(box.min.x).toBeGreaterThan(rect.x);
       expect(box.max.x).toBeLessThan(rect.x + rect.w);
       expect(box.min.z).toBeGreaterThan(rect.y);
       expect(box.max.z).toBeLessThan(rect.y + rect.h);
     }
     // Every lounge seat is over a couch's seat or a beanbag, and the backs stand away from the table.
-    const seats = [...of(mats.surface.couch).filter((m) => m.position.y === 0.21), ...of(mats.surface.beanA), ...of(mats.surface.beanB)].map((m) => new Box3().setFromObject(m));
+    const at = (y: number) => of(s.couch).filter((b) => Math.abs(centre(b).y - y) < 1e-5);
+    const seats = [...at(0.21), ...of(s.beanA), ...of(s.beanB)];
     for (const spot of loungeSpots(rect)) {
       expect(seats.some((b) => spot.x > b.min.x && spot.x < b.max.x && spot.z > b.min.z && spot.z < b.max.z), `${spot.x} ${spot.z}`).toBe(true);
     }
-    const table = of(mats.surface.wood)[0]!.position;
-    for (const back of of(mats.surface.couch).filter((m) => m.position.y === 0.6)) {
-      const seat = of(mats.surface.couch).find((m) => m.position.y === 0.21 && Math.sign(m.position.z - table.z) === Math.sign(back.position.z - table.z))!;
-      expect(Math.abs(back.position.z - table.z)).toBeGreaterThan(Math.abs(seat.position.z - table.z));
+    const table = centre(of(s.wood)[0]!);
+    for (const back of at(0.6).map(centre)) {
+      const seat = at(0.21).map(centre).find((c) => Math.sign(c.z - table.z) === Math.sign(back.z - table.z))!;
+      expect(Math.abs(back.z - table.z)).toBeGreaterThan(Math.abs(seat.z - table.z));
     }
   });
 
@@ -340,23 +351,28 @@ describe('desks', () => {
 });
 
 describe('meeting rooms', () => {
-  /** The checkout floor's first room, ps-d4's, in the first slot; its host sits at the head. */
+  /** The checkout floor's first room, ps-d4's, in the first slot, as the only furniture there is; its host sits at the head. */
   function firstRoom() {
     const { geo, mats } = kit();
     const room = roomFloor().rooms[0]!;
-    const obj = buildRoom(room.rect, room.slot, geo, mats);
-    obj.group.updateMatrixWorld(true);
+    const furniture = new Furniture();
+    const obj = buildRoom(room.rect, room.slot, furniture, geo, mats);
+    const floor = new Group();
+    floor.add(obj.group);
+    furniture.build(floor);
+    floor.updateMatrixWorld(true);
     return { geo, mats, room, obj };
   }
   const worldBox = (m: Object3D) => new Box3().setFromObject(m);
   const at = (m: Object3D) => m.getWorldPosition(new Vector3());
+  const pieceBox = (p: Piece) => instanceBox(p.mesh!, p.index);
+  const pieceAt = (p: Piece) => new Vector3().setFromMatrixPosition(instanceMatrix(p.mesh!, p.index));
 
   it('stands the room at its north-west corner and keeps what is in it inside its cells', () => {
     const { room, obj } = firstRoom();
     expect(obj.group.position.toArray()).toEqual([room.rect.x, 0, room.rect.y]);
     expect([obj.slot, obj.group.name]).toEqual([0, 'room 0']);
-    for (const m of meshes(obj.group)) {
-      const box = worldBox(m);
+    for (const box of [...meshes(obj.group).map(worldBox), ...obj.pieces.map(pieceBox)]) {
       expect(box.min.x).toBeGreaterThanOrEqual(room.rect.x - 1e-6);
       expect(box.max.x).toBeLessThanOrEqual(room.rect.x + room.rect.w + 1e-6);
       expect(box.min.z).toBeGreaterThanOrEqual(room.rect.y - 1e-6);
@@ -389,14 +405,15 @@ describe('meeting rooms', () => {
   it('lays a floor, and puts the table in the middle with eight seats along it and the head seat at its west end', () => {
     const { mats, room, obj } = firstRoom();
     expect(obj.floor.material).toBe(mats.surface.roomDim);
-    const table = meshes(obj.group).filter((m) => m.material === mats.surface.desk);
+    // The table and the seats are pieces of the floor's furniture.
+    const table = obj.pieces.filter((p) => p.mesh!.material === mats.surface.desk).map(pieceAt);
     expect(table).toHaveLength(1);
     const t = tableCenter(room.rect);
-    expect([at(table[0]!).x, at(table[0]!).z]).toEqual([expect.closeTo(t.x, 9), expect.closeTo(t.z, 9)]);
-    const seats = meshes(obj.group).filter((m) => m.material === mats.surface.chair).map((m) => ({ x: at(m).x, z: at(m).z }));
+    expect([table[0]!.x, table[0]!.z]).toEqual([expect.closeTo(t.x, 6), expect.closeTo(t.z, 6)]);
+    const seats = obj.pieces.filter((p) => p.mesh!.material === mats.surface.chair).map(pieceAt);
     const spots = [...seatSpots(room.rect), headSpot(room.rect)];
     expect(seats).toHaveLength(9);
-    for (const spot of spots) expect(seats.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 1e-9)).toBe(true);
+    for (const spot of spots) expect(seats.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 1e-6)).toBe(true);
   });
 
   it('hangs the whiteboard inside the north partition, under the anchor of its overlay', () => {
@@ -414,17 +431,24 @@ describe('meeting rooms', () => {
   it('opens for a run, with its floor tinted for meetings, its door open and the placard on the head seat while the host is away, and closes again', () => {
     const { mats, room, obj } = firstRoom();
     expect([obj.floor.material, obj.door.visible, obj.placard.visible]).toEqual([mats.surface.roomDim, true, false]);
-    expect(obj.pickables.some((m) => m.userData.pick)).toBe(false);
+    expect([obj.pickables.some((m) => m.userData.pick), obj.pieces.some((p) => p.pick)]).toEqual([false, false]);
     updateRoom(obj, room, true, mats);
     expect([obj.floor.material, obj.door.visible, obj.placard.visible]).toEqual([mats.surface.roomFloor, false, false]);
     for (const m of obj.pickables) expect(m.userData.pick as PickData).toEqual({ kind: 'room', id: room.runId });
+    for (const p of obj.pieces) expect(p.pick).toEqual({ kind: 'room', id: room.runId });
     updateRoom(obj, room, false, mats);
     expect(obj.placard.visible).toBe(true);
     expect(obj.placard.material).toBe(mats.surface.paper);
     const head = headSpot(room.rect);
     expect([at(obj.placard).x, at(obj.placard).z]).toEqual([expect.closeTo(head.x, 9), expect.closeTo(head.z, 9)]);
     updateRoom(obj, null, false, mats);
-    expect([obj.floor.material, obj.door.visible, obj.placard.visible, obj.pickables.some((m) => m.userData.pick)]).toEqual([mats.surface.roomDim, true, false, false]);
+    expect([obj.floor.material, obj.door.visible, obj.placard.visible, obj.pickables.some((m) => m.userData.pick), obj.pieces.some((p) => p.pick)]).toEqual([
+      mats.surface.roomDim,
+      true,
+      false,
+      false,
+      false,
+    ]);
     // Glass and the door are never picked.
     const skipped = meshes(obj.group).filter((m) => !obj.pickables.includes(m));
     expect(skipped.every((m) => m.material === mats.surface.glass || m === obj.door)).toBe(true);
@@ -433,18 +457,23 @@ describe('meeting rooms', () => {
 
   it('lets only the table top and the seats cast shadows', () => {
     const { mats, obj } = firstRoom();
-    const casters = meshes(obj.group).filter((m) => m.castShadow);
+    expect(meshes(obj.group).filter((m) => m.castShadow)).toEqual([]);
+    const casters = obj.pieces.filter((p) => p.mesh!.castShadow);
     expect(casters).toHaveLength(10);
-    for (const m of casters) expect([mats.surface.desk, mats.surface.chair]).toContain(m.material);
+    for (const p of casters) expect([mats.surface.desk, mats.surface.chair]).toContain(p.mesh!.material);
   });
 
-  it('shares every geometry between rooms', () => {
+  it('shares every geometry between rooms, and the instanced meshes that draw their tables and seats', () => {
     const { geo, mats } = kit();
     const [a, b] = roomFloor().rooms;
-    buildRoom(a!.rect, a!.slot, geo, mats);
+    const furniture = new Furniture();
+    buildRoom(a!.rect, a!.slot, furniture, geo, mats);
     const size = geo.size;
-    buildRoom(b!.rect, b!.slot, geo, mats);
+    buildRoom(b!.rect, b!.slot, furniture, geo, mats);
     expect(geo.size).toBe(size);
+    // The tables, their pedestals, the seats and the seats' posts.
+    furniture.build(new Group());
+    expect(furniture.meshes.map((m) => m.count)).toEqual([2, 4, 18, 18]);
   });
 });
 

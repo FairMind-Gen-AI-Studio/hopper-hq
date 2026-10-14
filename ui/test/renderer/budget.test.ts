@@ -7,10 +7,10 @@ import { fullestFloor } from './fixtures';
 
 /**
  * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
- * rounded down. It shows 3,044 meshes and 11 instanced meshes, which draw 448 instances, in 3,055 draw calls, and 490 of
+ * rounded down. It shows 2,938 meshes and 26 instanced meshes, which draw 554 instances, in 2,964 draw calls, and 443 of
  * them cast a shadow.
  */
-const BUDGET = { meshes: 3348, draws: 3360, casters: 539 };
+const BUDGET = { meshes: 3231, draws: 3260, casters: 487 };
 
 /** Shown, and so are all its parents. */
 function shown(o: Object3D | null): boolean {
