@@ -1,7 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /**
@@ -10,8 +11,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * and drives the UI in headless Chrome. It never connects to another daemon and never reads ~/.scranton-hq.
  *
  * The demo replays a one-minute script, so who needs you changes as it runs: the test reads what is on screen
- * instead of assuming a session or a floor. Its workflow run holds a meeting room for 52 s of each minute, and the
- * next minute's run opens a room of its own: the test waits for a room with time left.
+ * instead of assuming a session or a floor. Its two workflow runs take turns, one starting before the other ends, so
+ * a meeting room is always open: the test waits for a room with time left. Sessions come to its busiest floor and leave
+ * it during the minute.
+ *
+ * The walk through the building loads the page with ?motion=off, so that every robot stands in its place. Another case
+ * loads it with walking on, and waits for a robot that has just come to the floor to reach its desk.
  */
 
 interface Demo {
@@ -26,11 +31,16 @@ const BIN = join(import.meta.dirname, '..', 'dist', 'bin.js');
 const UI = join(import.meta.dirname, '..', 'dist', 'ui');
 const LOGIN = /http:\/\/127\.0\.0\.1:\d+\/ui\/login\?code=[0-9a-f]{48}/;
 
+/** The environment the demo's commands run in: whatever they resolve on their own stays inside its directory. */
+function demoEnv(dir: string): NodeJS.ProcessEnv {
+  return { ...process.env, SCRANTON_HQ_HOME: dir, CLAUDE_CONFIG_DIR: join(dir, 'claude') };
+}
+
 /** Runs `node dist/bin.js demo` until it prints its sign-in link. Null when the port was taken. */
 function runDemo(port: number, dir: string): Promise<{ child: ChildProcess; login: string } | null> {
   const child = spawn(process.execPath, [BIN, 'demo', '--port', String(port), '--data-dir', dir], {
     // Belt and braces: whatever the daemon resolves on its own stays inside the temporary directory.
-    env: { ...process.env, SCRANTON_HQ_HOME: dir, CLAUDE_CONFIG_DIR: join(dir, 'claude') },
+    env: demoEnv(dir),
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   return new Promise((resolve, reject) => {
@@ -67,6 +77,14 @@ async function startDemo(): Promise<Demo> {
     await rm(dir, { recursive: true, force: true });
   }
   throw new Error('Found no free port for the demo daemon in 17000-17999.');
+}
+
+/** Another one-time sign-in link to the demo's building, from `scranton-hq ui --no-open`: the demo's own is spent. */
+async function signInLink(demo: Demo): Promise<string> {
+  const { stdout } = await promisify(execFile)(process.execPath, [BIN, 'ui', '--no-open', '--data-dir', demo.dir], { env: demoEnv(demo.dir) });
+  const login = LOGIN.exec(stdout)?.[0];
+  expect(login, stdout).toBeDefined();
+  return login!;
 }
 
 /** Stops the demo this test started (its own PID only) and removes its data directory. */
@@ -159,7 +177,7 @@ async function labelsShown(page: Page): Promise<{ signs: number; desks: number; 
 
 /** What the smoke test reads of GET /api/scene. */
 interface Scene {
-  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string | null; state: string | null }> }>;
+  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string | null; state: string | null }>; counts: Record<string, number> }>;
   attention: Record<'needsYou' | 'done', Array<{ sessionId: string; name: string; floorKey: string }>>;
 }
 
@@ -233,6 +251,10 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     const cookie = (await page.context().cookies()).find((c) => c.name === `shq_${demo.port}`);
     expect(cookie?.httpOnly).toBe(true);
     expect(cookie?.sameSite).toBe('Strict');
+    // Every robot stands in its place from here on, with no walk and no loop at rest: the building loads again with
+    // motion off, which the page reads from its address as each floor opens.
+    seen.scripts.length = 0;
+    await page.goto(new URL('/ui/?motion=off', page.url()).href);
     await expect(page.locator('.stage svg.facade g.floor')).toHaveCount(3);
     await expect(page.locator('.notice')).toHaveCount(0);
     expect(seen.scripts).toHaveLength(1);
@@ -266,6 +288,7 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     await expect(chip).toBeVisible();
     await chip.click();
     await expect(page).toHaveURL(/#\/floor\/[^/]+\/desk\/[^/]+$/);
+    expect(new URL(page.url()).search).toBe('?motion=off');
     const r = route(page);
     first = { floor: r.floor!, desk: r.desk! };
     await expect(canvas).toBeVisible();
@@ -393,8 +416,8 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
 
   let run = { floor: '', host: '' };
   await test.step('a meeting room\'s tag opens its workflow run, with its phases', async () => {
-    // The demo's room closes 52 s into each minute, and the next minute's opens at its start. Wait for a room whose last
-    // phase has not begun, so that it stays open a while: 20 s at most, from the last phase of one run to the next run.
+    // Wait for a room whose last phase has not begun, so that it stays open a while: the demo's two runs take turns, so
+    // one comes within 4 s.
     const { floors } = await sceneOf(page);
     let found: { floor: Scene['floors'][number]; room: Floor['rooms'][number] } | undefined;
     await expect
@@ -477,4 +500,71 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     });
     await expect.poll(() => seen.violations.length).toBe(1);
   });
+});
+
+test('with walking on, the robot of a session that comes to the floor walks to its desk, and its tag comes to hang over it', async ({ page }) => {
+  test.setTimeout(120_000);
+  const seen = await watch(page);
+  // Walking on, even where the system asks for reduced motion.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(await signInLink(demo));
+  expect(new URL(page.url()).search).toBe('');
+  // The busiest floor, where the demo's sessions come and go.
+  const { floors } = await sceneOf(page);
+  const total = (f: Scene['floors'][number]) => Object.values(f.counts).reduce((a, b) => a + b, 0);
+  const floor = [...floors].sort((a, b) => total(b) - total(a))[0]!;
+  await page.locator(`.stage svg.facade g.floor[aria-label^="Floor ${floor.number}, "]`).focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => route(page)).toEqual({ floor: floor.key, desk: null, run: null });
+  const tags = page.locator('button.fv-tag[data-session]');
+  await expect(tags.first()).toBeAttached();
+  const ids = () => tags.evaluateAll((els) => els.map((el) => el.getAttribute('data-session')!));
+  // Those there at first sight stand in their places already.
+  const there = new Set(await ids());
+
+  // A session comes to the floor: its tag appears as its robot steps out of the elevator.
+  let id = '';
+  await expect
+    .poll(
+      async () => {
+        id = (await ids()).find((s) => !there.has(s)) ?? '';
+        return id;
+      },
+      { timeout: 60_000, intervals: [100] },
+    )
+    .not.toBe('');
+  const tag = page.locator(`button.fv-tag[data-session="${id}"]`);
+  const transform = () => tag.evaluate((el) => (el as HTMLElement).style.transform);
+  let from = '';
+  await expect.poll(async () => (from = await transform())).not.toBe('');
+  await expect(page.locator('.stage .floor-stage')).toHaveAttribute('data-moving', 'true');
+
+  // Where its tag hangs once it sits at its desk: where a first sight puts it, on a page of its own with motion off,
+  // the same size and seen from the same place.
+  const still = await page.context().newPage();
+  await still.goto(new URL(`/ui/?motion=off${new URL(page.url()).hash}`, page.url()).href);
+  const placed = still.locator(`button.fv-tag[data-session="${id}"]`);
+  await expect(placed).toBeAttached();
+  let desk = '';
+  await expect
+    .poll(
+      async () => {
+        const now = await placed.evaluate((el) => (el as HTMLElement).style.transform);
+        const same = now !== '' && now === desk;
+        desk = now;
+        return same;
+      },
+      { intervals: [250] },
+    )
+    .toBe(true);
+  await still.close();
+
+  // It walks there: its tag leaves where it first hung and comes to hang over its desk, while the rest of the floor may
+  // still move.
+  expect(from).not.toBe(desk);
+  await expect.poll(transform, { timeout: 20_000, intervals: [100] }).toBe(desk);
+
+  expect(seen.errors).toEqual([]);
+  expect(seen.violations).toEqual([]);
+  expect(seen.failed).toEqual([]);
 });
