@@ -5,10 +5,15 @@
  * with createElement and textContent only: names, repos, branches, run names and phases come from transcripts and stay
  * text. A label hangs from a point of the scene, projected each frame. One tag at a time is in the tab order, the desks'
  * first and the rooms' after them; the arrow keys, Home and End move between the tags on the view.
+ *
+ * Free desks and dormant sessions' desks have no tag. Seen from far (compact), every tag shows at least its dot and the
+ * placards hide; closer, every tag and placard shows whole. At every zoom, where two overlap on the canvas the one that
+ * ranks lower hides (design §7.3). A tag hidden so is like one off the view: out of the tab order, and passed by the
+ * arrow keys. The floor panel lists every session and room, whatever the view shows.
  */
 import { Vector3, type Camera } from 'three';
 import { STATE_LABEL } from '../../src/scene/text';
-import type { FloorDetail, MeetingRoom, Occupant, PhaseState, Pod, PodDesk } from '../../src/scene/types';
+import type { FloorDetail, MeetingRoom, Occupant, PhaseState, Pod, PodDesk, ShownState } from '../../src/scene/types';
 import type { Target } from './index';
 import { boardAnchor, labelAnchor, placardAnchor, roomKey, roomTagAnchor, sameTarget, type Point3 } from './world';
 import './labels.css';
@@ -31,10 +36,57 @@ export function projectToScreen(p: Point3, camera: Camera, width: number, height
 }
 
 /**
- * Below this many CSS pixels to the metre, tags show only their dot (labels.css): desks side by side are 2 m apart,
- * and a tag with a short name is about 70 px wide. Room tags keep their name, and the boards go.
+ * Below this many CSS pixels to the metre, the floor is seen from far (compact): desks side by side are 2 m apart, and
+ * a tag with a short name is about 70 px wide. A tag shows only its dot, and its name as well when it is selected, its
+ * desk needs you or is done, or it names a room (labels.css); the placards and the boards go.
  */
 export const COMPACT_PX = 40;
+
+/** How labels rank where they overlap: the lower shows (design §7.3). */
+export const RANK = { selected: 0, needs_you: 1, done: 2, room: 3, working: 4, other: 5, placard: 6 } as const;
+
+/** What a label shows, for its rank: a desk's tag in its occupant's state, a room's tag, or a pod's placard. */
+export type TagKind = { kind: 'desk'; state: ShownState } | { kind: 'room' } | { kind: 'placard' };
+
+/** A label's rank: the selected tag's first; then a desk's tag by its state, with room tags after done; placards last. */
+export function tagRank(tag: TagKind, selected: boolean): number {
+  if (selected) return RANK.selected;
+  if (tag.kind !== 'desk') return RANK[tag.kind];
+  return tag.state === 'needs_you' || tag.state === 'done' || tag.state === 'working' ? RANK[tag.state] : RANK.other;
+}
+
+/** A label's box on the canvas, in CSS pixels, and its rank. */
+export interface LabelBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rank: number;
+}
+
+/**
+ * Which labels show where their boxes overlap, by index. Taken by rank, then in the order given, each label shows unless
+ * its box overlaps the box of one that shows already: a label that hides hides nothing. Boxes that only touch do not
+ * overlap, and an empty box overlaps none. Pure; it compares each label with those that show, which stays cheap for the
+ * few dozen labels of a floor.
+ */
+export function declutter(boxes: readonly LabelBox[]): boolean[] {
+  const order = boxes.map((_, i) => i).sort((a, b) => boxes[a]!.rank - boxes[b]!.rank || a - b);
+  const shown = boxes.map(() => false);
+  const kept: LabelBox[] = [];
+  for (const i of order) {
+    const box = boxes[i]!;
+    if (kept.some((k) => overlap(k, box))) continue;
+    shown[i] = true;
+    kept.push(box);
+  }
+  return shown;
+}
+
+function overlap(a: LabelBox, b: LabelBox): boolean {
+  if (a.w <= 0 || a.h <= 0 || b.w <= 0 || b.h <= 0) return false;
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
 
 export interface LabelEvents {
   /** `clicks` is the click's place in a series: 2 for the second click of a double-click, 0 from the keyboard. */
@@ -49,13 +101,25 @@ interface Label {
   anchor: Point3;
   /** What the element shows, to skip rewriting it when nothing changed. */
   shows: string;
+  /** Where its element was last put, in CSS pixels: where its anchor was last on the view. */
   x: number;
   y: number;
+  /** Shown on the page: on the view, and kept. */
   visible: boolean;
+  /** Where its anchor was on the canvas when last placed; null until then. */
+  at: ScreenPoint | null;
+  /** Kept by the zoom and, where labels overlap, by its rank. Boards are always kept. */
+  kept: boolean;
 }
 
-/** A desk's or a room's tag, or a room's board: a label for a target. */
+/** A desk's or a room's tag: a button for a target. */
 interface Tag extends Label {
+  readonly target: Target;
+  kind: TagKind;
+}
+
+/** A room's board, over its whiteboard. */
+interface Board extends Label {
   readonly target: Target;
 }
 
@@ -72,12 +136,16 @@ export class LabelLayer {
   /** Pod placards by pod id. */
   private readonly signs = new Map<string, Label>();
   /** Room boards by room key. */
-  private readonly boards = new Map<string, Tag>();
+  private readonly boards = new Map<string, Board>();
   private selected: Target | null = null;
   /** The tags in floor order, the desks' first and the rooms' after them, and the one in the tab order. */
   private order: string[] = [];
+  /** The placards' pods in floor order. */
+  private signOrder: string[] = [];
   private stop: string | null = null;
   private compact = false;
+  /** Which labels are kept must be worked out again at the next placing: labels, ranks or the zoom changed. */
+  private stale = true;
   private readonly v = new Vector3();
 
   constructor(
@@ -97,7 +165,7 @@ export class LabelLayer {
         signs.add(pod.id);
         this.syncSign(pod, pod.placard);
       }
-      for (const desk of pod.desks) if (desk.occupant) tags.add(this.syncTag(floor, desk, desk.occupant));
+      for (const desk of pod.desks) if (desk.occupant && desk.occupant.state !== 'dormant') tags.add(this.syncTag(floor, desk, desk.occupant));
     }
     for (const room of floor.rooms) {
       boards.add(this.syncBoard(room));
@@ -107,6 +175,8 @@ export class LabelLayer {
     for (const [key, label] of this.signs) if (!signs.has(key)) this.drop(this.signs, key, label);
     for (const [key, label] of this.boards) if (!boards.has(key)) this.drop(this.boards, key, label);
     this.order = [...tags];
+    this.signOrder = [...signs];
+    this.stale = true;
     this.markSelected();
     this.rove(this.stop);
   }
@@ -115,16 +185,18 @@ export class LabelLayer {
   setSelected(target: Target | null): void {
     const changed = !sameTarget(target, this.selected);
     this.selected = target;
+    this.stale = true;
     this.markSelected();
     // The tab stop follows a new selection; the same one marked again, as on each floor update, leaves it be.
     if (changed) this.rove(this.selectedKey());
   }
 
-  /** How many CSS pixels a metre takes on screen. Below COMPACT_PX, tags show only their dot. */
+  /** How many CSS pixels a metre takes on screen. Below COMPACT_PX, the floor is seen from far. */
   setScale(pxPerMetre: number): void {
     const compact = pxPerMetre < COMPACT_PX;
     if (compact === this.compact) return;
     this.compact = compact;
+    this.stale = true;
     this.root.classList.toggle('fv-compact', compact);
   }
 
@@ -133,14 +205,28 @@ export class LabelLayer {
     this.root.classList.toggle('fv-still', !on);
   }
 
-  /** Moves every label to its anchor's place on the canvas, hiding those off the view. */
+  /**
+   * Moves every label to its anchor's place on the canvas, hiding those off the view. When a label moved, came or went,
+   * or ranks or the zoom changed, it works out again which tags and placards are kept where they overlap.
+   */
   position(camera: Camera, width: number, height: number): void {
-    for (const label of [...this.signs.values(), ...this.boards.values(), ...this.tags.values()]) {
+    const labels = [...this.signs.values(), ...this.boards.values(), ...this.tags.values()];
+    let moved = this.stale;
+    for (const label of labels) {
       const p = projectToScreen(label.anchor, camera, width, height, this.v);
-      if (p.visible !== label.visible) {
-        label.el.style.visibility = p.visible ? '' : 'hidden';
-        label.visible = p.visible;
+      const was = label.at;
+      if (!was || p.visible !== was.visible || (p.visible && (p.x !== was.x || p.y !== was.y))) moved = true;
+      label.at = p;
+    }
+    if (moved) this.keep();
+    for (const label of labels) {
+      const p = label.at!;
+      const visible = p.visible && label.kept;
+      if (visible !== label.visible) {
+        label.el.style.visibility = visible ? '' : 'hidden';
+        label.visible = visible;
       }
+      // A hidden label on the view moves too, so that it shows in its place once it is kept again.
       if (p.visible && (p.x !== label.x || p.y !== label.y)) {
         label.el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
         label.x = p.x;
@@ -182,10 +268,13 @@ export class LabelLayer {
     this.root.classList.remove('fv-labels', 'fv-compact', 'fv-still');
   }
 
-  /** The tag of a desk or a room: made once, as a button that selects and activates its target. */
-  private button(key: string, target: Target): Tag {
+  /** The tag of a desk or a room: made once, as a button that selects and activates its target. It ranks as `kind`. */
+  private button(key: string, target: Target, kind: TagKind): Tag {
     const had = this.tags.get(key);
-    if (had) return had;
+    if (had) {
+      had.kind = kind;
+      return had;
+    }
     const el = document.createElement('button');
     el.type = 'button';
     el.tabIndex = -1;
@@ -203,7 +292,7 @@ export class LabelLayer {
         this.focusFrom(key, e.key);
       }
     });
-    const tag: Tag = { ...this.add(el), target };
+    const tag: Tag = { ...this.add(el), target, kind };
     this.tags.set(key, tag);
     return tag;
   }
@@ -211,7 +300,7 @@ export class LabelLayer {
   /** The tag of the session at a desk, over its robot. Returns the tag's key. */
   private syncTag(floor: FloorDetail, desk: PodDesk, occupant: Occupant): string {
     const key = deskKey(occupant.sessionId);
-    const tag = this.button(key, { kind: 'desk', id: occupant.sessionId });
+    const tag = this.button(key, { kind: 'desk', id: occupant.sessionId }, { kind: 'desk', state: occupant.state });
     tag.anchor = labelAnchor(floor, desk, occupant);
     const shows = JSON.stringify([occupant.name, occupant.state, occupant.robot?.badge ?? null, occupant.agentsRunning, occupant.location]);
     if (shows === tag.shows) return key;
@@ -231,7 +320,7 @@ export class LabelLayer {
   /** The room's tag over its door: its name (its run id without one), its current phase and its counts. Returns its key. */
   private syncRoomTag(room: MeetingRoom): string {
     const key = `room ${roomKey(room)}`;
-    const tag = this.button(key, { kind: 'room', id: room.runId });
+    const tag = this.button(key, { kind: 'room', id: room.runId }, { kind: 'room' });
     tag.anchor = roomTagAnchor(room.rect);
     const phase = currentPhase(room);
     const shows = JSON.stringify([room.name, phase, room.counts, room.summary]);
@@ -308,6 +397,35 @@ export class LabelLayer {
     label.el.replaceChildren(...parts);
   }
 
+  /**
+   * Works out which tags and placards are kept, among those on the view, but no placard at compact zoom: all but those
+   * that overlap one that ranks higher, or one as high earlier in floor order (desk tags, room tags, then placards). Sizes
+   * are read from the page, as the zoom draws them: a compact tag is a dot, or a dot and a name.
+   */
+  private keep(): void {
+    this.stale = false;
+    const selected = this.selectedKey();
+    const ranked: Array<[Label, number]> = [
+      ...this.order.map((key): [Label, number] => {
+        const tag = this.tags.get(key)!;
+        return [tag, tagRank(tag.kind, key === selected)];
+      }),
+      ...this.signOrder.map((id): [Label, number] => [this.signs.get(id)!, RANK.placard]),
+    ];
+    const seen = ranked.filter(([label, rank]) => {
+      label.kept = false;
+      return label.at!.visible && !(this.compact && rank === RANK.placard);
+    });
+    const kept = declutter(
+      seen.map(([label, rank]) => {
+        const w = label.el.offsetWidth;
+        const h = label.el.offsetHeight;
+        return { x: label.at!.x - w / 2, y: label.at!.y - h, w, h, rank };
+      }),
+    );
+    seen.forEach(([label], i) => (label.kept = kept[i]!));
+  }
+
   /** Marks the tag of the selected key only: one room of a run is outlined, and one tag says so. */
   private markSelected(): void {
     const key = this.selectedKey();
@@ -366,7 +484,7 @@ export class LabelLayer {
   private add(el: HTMLElement): Label {
     el.style.visibility = 'hidden';
     this.root.append(el);
-    return { el, anchor: { x: 0, y: 0, z: 0 }, shows: '', x: NaN, y: NaN, visible: false };
+    return { el, anchor: { x: 0, y: 0, z: 0 }, shows: '', x: NaN, y: NaN, visible: false, at: null, kept: true };
   }
 
   private drop<L extends Label>(map: Map<string, L>, key: string, label: L): void {

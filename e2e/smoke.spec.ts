@@ -138,9 +138,28 @@ async function centre(tag: Locator): Promise<{ x: number; y: number }> {
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
+/**
+ * What the floor's labels show now, read in one go: the placards and the desks' tags shown, the names shown on desks'
+ * tags that are neither selected nor of a desk that needs you or is done, and the shown labels that overlap a later one
+ * by more than a pixel of rounding.
+ */
+async function labelsShown(page: Page): Promise<{ signs: number; desks: number; otherNames: number; overlaps: number }> {
+  return page.evaluate(() => {
+    const shown = [...document.querySelectorAll('.fv-tag, .fv-sign')].filter((el) => getComputedStyle(el).visibility === 'visible');
+    const desks = shown.filter((el) => el.matches('.fv-tag[data-session]'));
+    const boxes = shown.map((el) => el.getBoundingClientRect());
+    return {
+      signs: shown.filter((el) => el.matches('.fv-sign')).length,
+      desks: desks.length,
+      otherNames: desks.filter((el) => !el.matches('.fv-sel, .fv-st-needs_you, .fv-st-done') && getComputedStyle(el.querySelector('.fv-name')!).clipPath === 'none').length,
+      overlaps: boxes.filter((a, i) => boxes.some((b, j) => j > i && a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1)).length,
+    };
+  });
+}
+
 /** What the smoke test reads of GET /api/scene. */
 interface Scene {
-  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string | null }> }>;
+  floors: Array<{ key: string; number: number; windows: Array<{ sessionId: string | null; state: string | null }> }>;
   attention: Record<'needsYou' | 'done', Array<{ sessionId: string; name: string; floorKey: string }>>;
 }
 
@@ -255,17 +274,35 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     expect(box.height).toBeGreaterThan(200);
     // Desk tags exist only once the WebGL view has mounted and projected the floor.
     await expect(page.locator(`button.fv-tag[data-session="${first.desk}"]`)).toBeVisible();
-    await expect(page.locator('.fv-sign').first()).toBeVisible();
     await expect(page.locator('.no-webgl')).toHaveCount(0);
+    // Even zoomed in on the desk, the floor is seen from far: every desk's tag shows its dot, with its name only when it
+    // is selected or its desk needs you or is done; no placard shows, and no shown label overlaps another. Read again
+    // until no floor update is half drawn.
+    await expect(page.locator('.fv-labels')).toHaveClass(/\bfv-compact\b/);
+    await expect.poll(() => labelsShown(page)).toMatchObject({ signs: 0, otherNames: 0, overlaps: 0 });
+    expect((await labelsShown(page)).desks).toBeGreaterThan(0);
+    // Closer in, tags show whole and placards come back, and still none that shows overlaps another.
+    const middle = (await canvas.boundingBox())!;
+    await page.mouse.move(middle.x + middle.width / 2, middle.y + middle.height / 2);
+    await expect
+      .poll(async () => {
+        await page.mouse.wheel(0, -200);
+        return page.locator('.fv-labels.fv-compact').count();
+      })
+      .toBe(0);
+    await expect(page.locator('.fv-sign').first()).toBeAttached();
+    await expect.poll(async () => (await labelsShown(page)).overlaps).toBe(0);
     // The renderer and three.js arrive with the first floor, not with the building.
     expect(seen.scripts.length).toBeGreaterThan(1);
     await page.screenshot({ path: info.outputPath('floor.png') });
   });
 
+  let picked = '';
   await test.step('a double-click on another desk, at a person\'s pace, selects it and goes to its pane (simulated)', async () => {
     // A desk's tag: a room's tag is a button.fv-tag too, with a data-run instead.
     const other = page.locator(`button.fv-tag[data-session]:not([data-session="${first.desk}"])`).filter({ visible: true }).first();
     const id = (await other.getAttribute('data-session'))!;
+    picked = id;
     const name = (await other.locator('.fv-name').textContent())!;
     const { x, y } = await centre(other);
     // The point hits that desk's own tag, not a neighbour's laid over it.
@@ -301,7 +338,8 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
   });
 
   await test.step('Q, E and R turn the floor and reset it', async () => {
-    const tag = page.locator(`button.fv-tag[data-session="${first.desk}"]`);
+    // The selected desk's tag always shows.
+    const tag = page.locator(`button.fv-tag[data-session="${picked}"]`);
     const before = await spot(tag);
     await page.keyboard.press('e');
     await expect.poll(() => spot(tag)).not.toBe(before);
@@ -317,7 +355,7 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await theme.click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-    await expect(page.locator(`button.fv-tag[data-session="${first.desk}"]`)).toBeVisible();
+    await expect(page.locator(`button.fv-tag[data-session="${picked}"]`)).toBeVisible();
   });
 
   let second = '';
@@ -347,8 +385,9 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     await page.keyboard.press('Enter');
     await expect.poll(() => route(page).floor).toBe(next!.key);
     await expect(canvas).toBeVisible();
-    const seated = next!.windows.find((w) => w.sessionId !== null);
-    await expect(page.locator(`button.fv-tag[data-session="${seated!.sessionId}"]`)).toBeVisible();
+    // Its desks' tags are on the page once the view has drawn the floor; one may be hidden under a tag that ranks higher.
+    const seated = next!.windows.find((w) => w.sessionId !== null && w.state !== 'dormant');
+    await expect(page.locator(`button.fv-tag[data-session="${seated!.sessionId}"]`)).toBeAttached();
     await expect(page.locator('.no-webgl, .load-failed')).toHaveCount(0);
   });
 

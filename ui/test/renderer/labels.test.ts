@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrthographicCamera } from 'three';
+import type { ShownState } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
-import { COMPACT_PX, LabelLayer, projectToScreen, roomTitle, tagTitle, type LabelEvents } from '../../renderer/labels';
+import { COMPACT_PX, LabelLayer, RANK, declutter, projectToScreen, roomTitle, tagRank, tagTitle, type LabelBox, type LabelEvents } from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
 import { LABEL_Y, boardAnchor, headSpot, labelAnchor, loungeSpots, roomTagAnchor } from '../../renderer/world';
-import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec } from './fixtures';
 
 /** A camera looking straight down at a 10 m square around the origin. */
 function topDown(): OrthographicCamera {
@@ -62,13 +63,13 @@ describe('projection', () => {
 });
 
 describe('the label layer', () => {
-  it('shows a tag per session at a desk with its state, name, note, agents and remote mark, and a placard per pod that has one', () => {
+  it('shows a tag per session at a desk but a dormant one, with its state, name, note, agents and remote mark, and a placard per pod that has one', () => {
     const { root, labels } = layer();
     const checkouts = checkoutSpecs();
     checkouts[2]!.desks[0]!.cloud = true;
     labels.sync(makeFloor(checkouts));
     expect(root.classList.contains('fv-labels')).toBe(true);
-    expect(root.querySelectorAll('.fv-tag')).toHaveLength(7);
+    expect(root.querySelectorAll('.fv-tag')).toHaveLength(6);
     expect(root.querySelectorAll('.fv-sign')).toHaveLength(3);
     const needs = labels.tag('oa-c3')!;
     expect(needs.tagName).toBe('BUTTON');
@@ -82,7 +83,7 @@ describe('the label layer', () => {
     const meeting = labels.tag('ps-d4')!;
     expect([...meeting.children].map((c) => c.textContent)).toEqual(['', 'ps-d4', '+2', 'remote']);
     expect(meeting.title).toBe('ps-d4 · in meeting · 2 agents running · remote');
-    expect([...labels.tag('ps-f7')!.classList]).toEqual(['fv-tag', 'fv-st-dormant']);
+    expect(labels.tag('ps-f7')).toBeUndefined();
     const sign = labels.sign('p1')!;
     expect(sign.firstChild!.textContent).toBe('orders-api');
     expect(sign.querySelector('small')!.textContent).toBe('feat/checkout-v2 · worktree');
@@ -186,7 +187,7 @@ describe('the label layer', () => {
     const stops = () => ids.filter((id) => labels.tag(id)?.tabIndex === 0);
     labels.sync(checkoutFloor());
     expect(stops()).toEqual(['sw-a1']);
-    expect(ids.filter((id) => labels.tag(id)!.tabIndex === -1)).toHaveLength(6);
+    expect(ids.filter((id) => labels.tag(id)?.tabIndex === -1)).toHaveLength(5);
     labels.setSelected(deskTarget('oa-c3'));
     expect(stops()).toEqual(['oa-c3']);
     labels.tag('ps-d4')!.focus();
@@ -227,8 +228,8 @@ describe('the label layer', () => {
     expect(focused()).toBe('sw-c3');
     press('End');
     press('ArrowDown');
-    expect(focused()).toBe('ps-f7');
-    expect(labels.tag('ps-f7')!.tabIndex).toBe(0);
+    expect(focused()).toBe('ps-d4');
+    expect(labels.tag('ps-d4')!.tabIndex).toBe(0);
     press('Home');
     expect(focused()).toBe('sw-a1');
     expect(press('x')).toBe(false);
@@ -293,7 +294,7 @@ describe('the label layer', () => {
       camera.lookAt((a.x + b.x) / 2, 0, a.z);
       camera.updateMatrixWorld();
       labels.position(camera, 800, 500);
-      const shown = desks.filter((d) => labels.tag(d.sessionId)!.style.visibility === '').map((d) => d.sessionId);
+      const shown = desks.filter((d) => labels.tag(d.sessionId)?.style.visibility === '').map((d) => d.sessionId);
       expect(shown).toContain(desks[1]!.sessionId);
       expect(shown).toContain(desks[3]!.sessionId);
       expect(shown).not.toContain(desks[2]!.sessionId);
@@ -429,15 +430,16 @@ describe('the label layer', () => {
     expect(root.classList.contains('fv-still')).toBe(false);
   });
 
-  it('styles compact tags so that hidden text still names them, and lets drags on a tag reach the camera', () => {
+  it('styles compact tags so that hidden text still names them, keeps the names of desks that need you or are done, and lets drags on a tag reach the camera', () => {
     expect(rule('.fv-tag')).toContain('touch-action: none;');
     expect(rule('.fv-tag')).toContain('user-select: none;');
     const hidden = rule(
       '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
-        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) > .fv-name',
+        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name',
     );
     expect(hidden).toContain('clip-path: inset(50%);');
     expect(hidden).not.toContain('display');
+    expect(rule('.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room)')).toContain('padding: 3px;');
     expect(rule('.fv-tag:hover,\n.fv-tag:focus-visible,\n.fv-tag.fv-sel')).toContain('z-index: 1;');
   });
 
@@ -596,11 +598,11 @@ describe('room labels', () => {
     labels.position(isoCamera(floor.size), 1600, 1000);
     const focused = () => document.activeElement as HTMLElement;
     const press = (key: string) => focused().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-    labels.tag('ps-f7')!.focus();
+    labels.tag('ps-d4')!.focus();
     press('ArrowRight');
     expect(focused().dataset.run).toBe(FIRST);
     expect(labels.roomTag(FIRST)!.tabIndex).toBe(0);
-    expect(labels.tag('ps-f7')!.tabIndex).toBe(-1);
+    expect(labels.tag('ps-d4')!.tabIndex).toBe(-1);
     press('End');
     expect(focused().dataset.run).toBe(SECOND);
     press('Home');
@@ -627,11 +629,247 @@ describe('room labels', () => {
   it('keeps only the run names at low zoom: room tags keep their name, and the boards go, letting clicks through', () => {
     const name = rule(
       '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
-        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) > .fv-name',
+        '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name',
     );
     expect(name).toContain('clip-path: inset(50%);');
     expect(rule('.fv-compact .fv-board')).toContain('display: none;');
     expect(rule('.fv-board')).toContain('pointer-events: none;');
     expect(rule('.fv-sr')).toContain('clip-path: inset(50%);');
+  });
+});
+
+describe('which tags show', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Every label element takes this many CSS pixels on the page, as happy-dom lays nothing out. */
+  function sized(w: number, h: number) {
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(w);
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(h);
+    return width;
+  }
+
+  /** The tags and placards shown, in page order: a desk's tag by its session, a room's as 'room <run id>', a placard by its repository. */
+  function shown(root: HTMLElement): string[] {
+    return [...root.querySelectorAll<HTMLElement>('.fv-tag, .fv-sign')]
+      .filter((el) => el.style.visibility === '')
+      .map((el) => el.dataset.session ?? (el.dataset.run ? `room ${el.dataset.run}` : `placard ${el.firstChild!.textContent}`));
+  }
+
+  /** The checkout floor with these sessions in other states. */
+  function floorWith(states: Record<string, ShownState>, rooms = checkoutRooms()) {
+    const checkouts: CheckoutSpec[] = checkoutSpecs();
+    for (const c of checkouts) for (const d of c.desks) d.state = states[d.id] ?? d.state;
+    return makeFloor(checkouts, undefined, rooms);
+  }
+
+  const FIRST = 'wf_0000aaaa-001';
+
+  it('ranks the selected tag first, then a desk that needs you, one that is done, a room, a working desk, the other states, and placards last', () => {
+    const desk = (state: ShownState) => ({ kind: 'desk' as const, state });
+    expect([
+      tagRank(desk('working'), true),
+      tagRank(desk('needs_you'), false),
+      tagRank(desk('done'), false),
+      tagRank({ kind: 'room' }, false),
+      tagRank(desk('working'), false),
+      tagRank(desk('in_meeting'), false),
+      tagRank(desk('no_signal'), false),
+      tagRank(desk('idle'), false),
+      tagRank({ kind: 'placard' }, false),
+    ]).toEqual([RANK.selected, RANK.needs_you, RANK.done, RANK.room, RANK.working, RANK.other, RANK.other, RANK.other, RANK.placard]);
+    expect(Object.values(RANK)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
+  it('hides the lower ranked of two overlapping boxes, and of two that rank alike the later', () => {
+    const box = (x: number, rank: number): LabelBox => ({ x, y: 0, w: 60, h: 20, rank });
+    expect(declutter([box(0, RANK.working), box(30, RANK.needs_you)])).toEqual([false, true]);
+    expect(declutter([box(0, RANK.working), box(30, RANK.working)])).toEqual([true, false]);
+    expect(declutter([box(30, RANK.placard), box(0, RANK.other)])).toEqual([false, true]);
+    expect(declutter([])).toEqual([]);
+  });
+
+  it('lets a box that hides hide nothing: of three in a row, each overlapping the next, the first and the third show', () => {
+    const row = [0, 50, 100].map((x): LabelBox => ({ x, y: 0, w: 60, h: 20, rank: RANK.working }));
+    expect(declutter(row)).toEqual([true, false, true]);
+    // The middle one ranking first hides both of its neighbours.
+    expect(declutter([row[0]!, { ...row[1]!, rank: RANK.done }, row[2]!])).toEqual([false, true, false]);
+  });
+
+  it('shows boxes that only touch, and empty ones', () => {
+    expect(declutter([{ x: 0, y: 0, w: 60, h: 20, rank: RANK.working }, { x: 60, y: 0, w: 60, h: 20, rank: RANK.working }, { x: 0, y: 20, w: 60, h: 20, rank: RANK.working }])).toEqual([true, true, true]);
+    expect(declutter([{ x: 0, y: 0, w: 60, h: 20, rank: RANK.working }, { x: 10, y: 5, w: 0, h: 0, rank: RANK.working }, { x: 10, y: 5, w: 30, h: 0, rank: RANK.working }])).toEqual([true, true, true]);
+  });
+
+  it('gives no tag to a free desk, takes a session\'s tag away while it is dormant and gives it back when it wakes', () => {
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    expect(seatsOf(checkoutFloor()).filter((s) => labels.tag(s.occupant.sessionId)).map((s) => s.occupant.sessionId)).toEqual(['sw-a1', 'sw-b2', 'sw-c3', 'oa-c3', 'oa-d5', 'ps-d4']);
+    // Each pod has free desks: 3, 2 and 2 of their 4 are taken.
+    expect(root.querySelectorAll('.fv-tag')).toHaveLength(6);
+    const tag = labels.tag('sw-a1')!;
+    labels.sync(floorWith({ 'sw-a1': 'dormant' }, []));
+    expect(labels.tag('sw-a1')).toBeUndefined();
+    expect(tag.isConnected).toBe(false);
+    labels.sync(floorWith({ 'ps-f7': 'working' }, []));
+    expect([labels.tag('sw-a1')?.dataset.session, labels.tag('ps-f7')?.dataset.session]).toEqual(['sw-a1', 'ps-f7']);
+    // No style is left for a dormant session's tag.
+    expect(css).not.toContain('.fv-st-dormant');
+  });
+
+  it('shows every tag from far, the placards not, and all of them closer in', () => {
+    const { root, labels } = layer();
+    const floor = roomFloor();
+    const camera = isoCamera(floor.size);
+    labels.sync(floor);
+    labels.position(camera, 1600, 1000);
+    const all = shown(root);
+    expect(all).toHaveLength(6 + 2 + 3);
+    labels.setScale(COMPACT_PX - 1);
+    labels.position(camera, 1600, 1000);
+    // Each desk's tag as its dot, or its dot and its name (labels.css), and each room's tag.
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2', 'sw-c3', 'oa-c3', 'oa-d5', 'ps-d4', `room ${FIRST}`, 'room wf_0000aaaa-002']);
+    // The boards go too, by their style (labels.css), but stay in place.
+    expect(labels.board(FIRST)!.style.visibility).toBe('');
+    labels.setScale(COMPACT_PX);
+    labels.position(camera, 1600, 1000);
+    expect(shown(root)).toEqual(all);
+  });
+
+  it('shows, of tags and placards that all overlap, only the one that ranks first, the earliest in floor order of those that rank alike', () => {
+    sized(5000, 5000);
+    const { root, labels } = layer();
+    const camera = isoCamera(roomFloor().size);
+    const show = (floor = roomFloor()) => {
+      labels.sync(floor);
+      labels.position(camera, 1600, 1000);
+      return shown(root);
+    };
+    expect(show()).toEqual(['oa-c3']);
+    labels.setSelected(deskTarget('oa-d5'));
+    expect(show()).toEqual(['oa-d5']);
+    labels.setSelected(null);
+    expect(show(floorWith({ 'oa-c3': 'working' }))).toEqual(['sw-b2']);
+    expect(show(floorWith({ 'oa-c3': 'working', 'sw-b2': 'working' }))).toEqual([`room ${FIRST}`]);
+    expect(show(floorWith({ 'oa-c3': 'working', 'sw-b2': 'working' }, []))).toEqual(['sw-a1']);
+    expect(show(floorWith({ 'sw-a1': 'idle', 'oa-c3': 'no_signal', 'sw-b2': 'in_meeting' }, []))).toEqual(['sw-a1']);
+    const asleep = Object.fromEntries(seatsOf(checkoutFloor()).map((s): [string, ShownState] => [s.occupant.sessionId, 'dormant']));
+    expect(show(floorWith(asleep, []))).toEqual(['placard storefront-web']);
+    // The rooms' boards take no part: each shows over its whiteboard.
+    show();
+    expect([labels.board(FIRST)!.style.visibility, labels.board('wf_0000aaaa-002')!.style.visibility]).toEqual(['', '']);
+  });
+
+  /** A camera looking down at the floor's north-west corner, where nothing stands: tags moved there are alone on the view. */
+  function corner(): OrthographicCamera {
+    const camera = new OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
+    camera.position.set(-20, 10, -20);
+    camera.up.set(0, 0, -1);
+    camera.lookAt(-20, 0, -20);
+    camera.updateMatrixWorld();
+    return camera;
+  }
+
+  it('hides a tag under one that ranks higher where they overlap, shows the selected one over any, and both once they part', () => {
+    sized(80, 20);
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    const camera = corner();
+    // 80 px to the metre across: sw-a1 (working) and oa-c3 (needs you) at one point; sw-b2 (done) a metre east, touching.
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.moveTag('oa-c3', { x: -20, y: 1, z: -20 });
+    labels.moveTag('sw-b2', { x: -19, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-b2', 'oa-c3']);
+    labels.setSelected(deskTarget('sw-a1'));
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2']);
+    labels.setSelected(null);
+    // Hidden, it still follows its anchor on the view: it shows in its place as soon as it is kept again.
+    const hidden = labels.tag('sw-a1')!;
+    labels.moveTag('sw-a1', { x: -20.5, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect([hidden.style.visibility, hidden.style.transform]).toEqual(['hidden', 'translate(360px, 200px) translate(-50%, -100%)']);
+    labels.moveTag('sw-a1', { x: -21, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2', 'oa-c3']);
+    expect(hidden.style.transform).toBe('translate(320px, 200px) translate(-50%, -100%)');
+  });
+
+  it('hides the lower ranked of two overlapping tags from far too, on the boxes the tags have there', () => {
+    // A tag takes 80 px close up, and a dot's 14 px from far.
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.closest('.fv-compact') ? 14 : 80;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(20);
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    const camera = corner();
+    // sw-a1 (working) and oa-c3 (needs you) at one point; sw-b2 (done) half a metre east, 40 px.
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.moveTag('oa-c3', { x: -20, y: 1, z: -20 });
+    labels.moveTag('sw-b2', { x: -19.5, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['oa-c3']);
+    labels.setScale(COMPACT_PX - 1);
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-b2', 'oa-c3']);
+  });
+
+  it('works out which tags show again only when a label moved, came or went, or the selection or the zoom changed', () => {
+    const width = sized(80, 20);
+    const { root, labels } = layer();
+    labels.sync(checkoutFloor());
+    const camera = corner();
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.moveTag('oa-c3', { x: -20, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['oa-c3']);
+    width.mockClear();
+    labels.position(camera, 800, 400);
+    expect(width).not.toHaveBeenCalled();
+    // Narrower now, the two would no longer overlap; but nothing moved, so the tag stays hidden.
+    width.mockReturnValue(1);
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['oa-c3']);
+    labels.moveTag('sw-a1', { x: -19.99, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(width).toHaveBeenCalled();
+    expect(shown(root)).toEqual(['sw-a1', 'oa-c3']);
+    // Tags take other sizes from far: they are worked out again as the zoom crosses COMPACT_PX, either way.
+    for (const scale of [COMPACT_PX - 1, COMPACT_PX]) {
+      width.mockClear();
+      labels.setScale(scale);
+      labels.position(camera, 800, 400);
+      expect(width).toHaveBeenCalled();
+      expect(shown(root)).toEqual(['sw-a1', 'oa-c3']);
+    }
+    // Wider again, with nothing moved: a new selection has it worked out again.
+    width.mockReturnValue(80);
+    labels.setSelected(deskTarget('sw-a1'));
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-a1']);
+    // So does a floor update, which hangs the tags over their desks again, away from this corner.
+    labels.sync(checkoutFloor());
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual([]);
+  });
+
+  it('takes a hidden tag out of the tab order and the arrow keys, as one off the view, the floor panel listing every session', () => {
+    sized(80, 20);
+    const { labels } = layer();
+    labels.sync(checkoutFloor());
+    const camera = corner();
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.moveTag('sw-b2', { x: -20, y: 1, z: -20 });
+    labels.moveTag('oa-c3', { x: -18, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    // sw-a1, first in floor order, held the tab stop: hidden under sw-b2 (done), it hands it on to sw-b2.
+    expect([labels.tag('sw-a1')!.style.visibility, labels.tag('sw-a1')!.tabIndex, labels.tag('sw-b2')!.tabIndex]).toEqual(['hidden', -1, 0]);
+    labels.tag('sw-b2')!.focus();
+    const press = (key: string) => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    press('Home');
+    expect((document.activeElement as HTMLElement).dataset.session).toBe('sw-b2');
+    press('ArrowRight');
+    expect((document.activeElement as HTMLElement).dataset.session).toBe('oa-c3');
   });
 });

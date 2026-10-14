@@ -283,7 +283,8 @@ describe('the floor view', () => {
     expect(pose.target.z).toBeCloseTo(c.z, 6);
     expect(pose.azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
     expect(pose.zoom).toBe(1);
-    expect(labels.querySelectorAll('.fv-tag')).toHaveLength(7);
+    // A tag for every session at a desk but the dormant one.
+    expect(labels.querySelectorAll('.fv-tag')).toHaveLength(6);
     // The desks are drawn by instanced meshes: one of them draws a top for every desk of the plan.
     const instanced = renderer.scene!.getObjectsByProperty('isInstancedMesh', true) as InstancedMesh[];
     expect(instanced.some((m) => m.count === floor.pods.length * POD_DESKS)).toBe(true);

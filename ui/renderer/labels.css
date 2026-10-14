@@ -73,7 +73,6 @@
 .fv-st-done { --fv-state: var(--s-done, #1c9a6a); }
 .fv-st-in_meeting { --fv-state: var(--s-meeting, #6857db); }
 .fv-st-no_signal { --fv-state: var(--s-nosignal, #c88a35); }
-.fv-st-dormant { opacity: 0.7; }
 
 .fv-st-needs_you {
   --fv-state: var(--s-needs, #d63a3a);
@@ -93,17 +92,17 @@
 .fv-room { --fv-state: var(--s-meeting, #6857db); }
 
 /*
- * Many desks, or a camera far out (.fv-compact): a tag shows only its dot, and its name as well when its desk needs
- * you or it names a room. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it
- * still names the button. The rooms' boards go: only the run names stay.
+ * A camera far out (.fv-compact): a tag shows only its dot, and its name as well when its desk needs you or is done or
+ * it names a room. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it still
+ * names the button. The pods' placards hide (labels.ts) and the rooms' boards go: only the run names stay.
  */
-.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) {
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) {
   gap: 0;
   padding: 3px;
 }
 
 .fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),
-.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-room) > .fv-name {
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name {
   position: absolute;
   width: 1px;
   height: 1px;
