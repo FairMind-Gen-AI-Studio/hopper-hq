@@ -24,7 +24,7 @@ An isometric office building where every Claude Code session gets a desk, and a 
 [![GitHub stars](https://img.shields.io/github/stars/FairMind-Gen-AI-Studio/scranton-hq?style=flat&logo=github)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/FairMind-Gen-AI-Studio/scranton-hq?logo=git&logoColor=white)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/commits/main)
 
-[**Demo**](#demo) · [**Install**](#install) · [**Quick start**](#quick-start) · [**The building**](#the-building) · [**Claude Code mod**](#the-claude-code-mod-recommended)
+[**Quick start**](#quick-start) · [**Demo**](#demo) · [**Install**](#install) · [**The building**](#the-building) · [**Claude Code mod**](#the-claude-code-mod-recommended)
 
 <a href="media/demo.mp4">
   <img src="media/demo-poster.jpg" alt="scranton-hq: the isometric office building with its sessions, meeting rooms and robots. Click to watch the demo video." width="860">
@@ -37,6 +37,22 @@ Provided by [FairMind](https://fairmind.ai), and open source under the Apache Li
 Every session gets a desk in an isometric office building: one floor per feature, pods of desks for each checkout, interns for subagents, meeting rooms for workflows, a lounge for idle sessions, and a basement archive for finished work. Robots walk between them as sessions change state. A red window on the façade means someone is waiting for you.
 
 Built for Claude Code (local and cloud) first, with an adapter interface meant to welcome other coding agents.
+
+## Quick start
+
+You need Node 22.13 or later and [Claude Code](https://claude.com/claude-code). Install the CLI and the mod:
+
+```sh
+npm install -g @fairmind/scranton-hq
+claude plugin marketplace add FairMind-Gen-AI-Studio/scranton-hq
+claude plugin install scranton-hq@scranton-hq
+```
+
+Then type `/scranton-hq` in any Claude Code session. It starts the daemon if needed and opens the building in your browser. From a shell, `scranton-hq up` does the same.
+
+No sessions yet? Run `scranton-hq demo` to watch synthetic ones.
+
+The mod makes scranton-hq report each session as things happen, with the exact reason it waits. It is optional, but recommended: see [the mod](#the-claude-code-mod-recommended). For tmux, summaries, upgrading and everything else, read on.
 
 ## Status
 
@@ -78,7 +94,7 @@ Run `npm install -g @fairmind/scranton-hq@latest` (from a clone: pull, then `npm
 
 The first start after an upgrade that brings the [floor plan](#the-floor-plan) seats every session afresh, once: each takes a desk on its floor's plan, and keeps it from then on, across restarts.
 
-## Quick start
+## Running the daemon
 
 Run `scranton-hq up`. It starts the daemon in the background if it is not running yet, then opens the building in your browser. The daemon writes its log to `~/.scranton-hq/daemon.log`. `scranton-hq down` stops it.
 
