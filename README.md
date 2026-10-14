@@ -26,17 +26,17 @@ Node 22.13 or later is required. scranton-hq reads the sessions of [Claude Code]
 
 To see the building before you have any sessions, run `scranton-hq demo` once it is installed: it plays synthetic sessions, and `scranton-hq demo --showcase` plays a longer scenario.
 
-scranton-hq is not on npm yet. Install it from a clone of this repository:
+Install it from npm:
 
 ```sh
-npm install && npm run build && npm link
+npm install -g @fairmind/scranton-hq
 ```
 
-Once it is published, `npm install -g scranton-hq` will do the same.
+The command is `scranton-hq`. To work from a clone of this repository instead, run `npm install && npm run build && npm link` in it.
 
 ### Upgrading
 
-In your clone, pull the new version and run `npm install && npm run build` again. Then:
+Run `npm install -g @fairmind/scranton-hq@latest` (from a clone: pull, then `npm install && npm run build`). Then:
 
 1. Restart the daemon: `scranton-hq down`, then `scranton-hq up`. If it runs in the foreground (`scranton-hq start`), stop it with Ctrl-C and start it again.
 2. Update the mod: with `/plugin` in Claude Code, or install it again as in [The Claude Code mod](#the-claude-code-mod-recommended).
