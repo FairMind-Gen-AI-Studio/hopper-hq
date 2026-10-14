@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import Facade from '../../components/Facade.svelte';
+import source from '../../components/Facade.svelte?raw';
 import { CHECKOUT, DOCS, ORDERS, makeScene } from '../helpers/fixtures';
 import { cleanup, render, text } from '../helpers/render';
 
@@ -44,8 +45,18 @@ describe('Facade', () => {
     expect(win('oa-j0').classList.contains('lit')).toBe(false);
     expect(text(win('oa-c3').querySelector('title'))).toBe('Needs you');
     expect(floor(0).classList.contains('shut')).toBe(true);
-    expect(floor(0).querySelectorAll('line.slat')).toHaveLength(48);
+    expect(floor(0).querySelectorAll('line.slat')).toHaveLength(24);
     expect(floor(1).classList.contains('shut')).toBe(false);
+  });
+
+  it("frames a free desk's window, and draws nothing past a floor's plan but its wall", () => {
+    const { floor } = facade();
+    // The orders floor has 8 desks on a building 16 windows wide: 8 windows and its side strip, no more.
+    expect(floor(1).querySelectorAll('polygon.sfill')).toHaveLength(8 + 1);
+    expect(floor(1).querySelectorAll('polygon.st-empty')).toHaveLength(1);
+    expect(floor(1).querySelectorAll('polygon.st-free')).toHaveLength(3);
+    const free = source.slice(source.indexOf('\n  .sfill.st-free {'), source.indexOf('}', source.indexOf('\n  .sfill.st-free {')));
+    expect(free).toMatch(/stroke: var\(--win-frame\);/);
   });
 
   it('labels each floor with its number, name and counts', () => {

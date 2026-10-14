@@ -24,6 +24,7 @@
   --roof: #D3D9E0;
   --plinth: #AEB8C3;
   --win-off: #A9B8C8;
+  --win-frame: #66768A;
   --win-back: #CFE0EF;
   --shutter: #B7BEC7;
   --win-filter: none;
@@ -70,7 +71,7 @@
     color-scheme: dark;
     --bg: #0D1320; --sky: #18223A; --fg: #E6EAF2; --muted: #9AA5B9; --panel: #141B2A; --line: #27314A; --hover: #1B2436; --halo: #141C2E;
     --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --roof: #283146; --plinth: #1B2232;
-    --win-off: #18202F; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
+    --win-off: #18202F; --win-frame: #8491A9; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
     --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
 
     --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
@@ -91,7 +92,7 @@
   color-scheme: dark;
   --bg: #0D1320; --sky: #18223A; --fg: #E6EAF2; --muted: #9AA5B9; --panel: #141B2A; --line: #27314A; --hover: #1B2436; --halo: #141C2E;
   --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --roof: #283146; --plinth: #1B2232;
-  --win-off: #18202F; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
+  --win-off: #18202F; --win-frame: #8491A9; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
   --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
 
   --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;

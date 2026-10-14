@@ -53,7 +53,7 @@ describe('façade geometry', () => {
     expect(m.lobby.label.circle[1]).toBeGreaterThan(m.floors[0]!.label.circle[1]);
   });
 
-  it('gives each desk of a floor\'s plan a window, in desk order, dark where it is free, and fills the row with blanks', () => {
+  it('gives each desk of a floor\'s plan a window, in desk order, dark where it is free, and leaves the row past its plan to the wall', () => {
     const m = facadeOf(makeScene().floors);
     expect(m.width).toBe(16);
     const checkout = m.floors[3]!;
@@ -67,10 +67,9 @@ describe('façade geometry', () => {
       'sw-b2:done:true',
       ...free(6),
     ]);
-    expect(checkout.blanks).toHaveLength(0);
     const orders = m.floors[1]!;
     expect(orders.windows.map((w) => w.lit)).toEqual([true, true, true, false, true, false, false, false]);
-    expect(orders.blanks).toHaveLength(8);
+    expect(orders).not.toHaveProperty('blanks');
     const xs = checkout.windows.map((w) => Number(w.points.split(' ')[0]!.split(',')[0]));
     expect(xs).toEqual([...xs].sort((a, b) => a - b));
   });
@@ -81,10 +80,11 @@ describe('façade geometry', () => {
     expect(facadeOf([]).width).toBe(6);
   });
 
-  it('lowers the shutters with three slats per window on a dormant floor only', () => {
+  it('lowers the shutters with three slats per window of its plan on a dormant floor only', () => {
     const m = facadeOf(makeScene().floors);
     expect(m.floors.map((f) => f.shutters)).toEqual([true, false, false, false]);
-    expect(m.floors[0]!.slats).toHaveLength(16 * 3);
+    expect([m.width, m.floors[0]!.windows.length]).toEqual([16, 8]);
+    expect(m.floors[0]!.slats).toHaveLength(8 * 3);
     expect(m.floors[1]!.slats).toHaveLength(0);
   });
 

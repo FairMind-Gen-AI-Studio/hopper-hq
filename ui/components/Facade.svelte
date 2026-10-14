@@ -6,9 +6,10 @@
 
   /**
    * The building from outside: one window per desk of each floor's plan, coloured by the state of whoever sits there and
-   * dark where the desk is free, floors stacked on a lobby, newest on top. A floor is a button that goes inside; a window
-   * with somebody at its desk goes straight to that desk. A building too big for the stage at MIN_SCALE is drawn at that
-   * scale, and the stage scrolls.
+   * dark in its frame where the desk is free, and plain wall past the plan, so that a floor shows its size and how full it
+   * is; floors stacked on a lobby, newest on top. A floor is a button that goes inside; a window with somebody at its desk
+   * goes straight to that desk. A building too big for the stage at MIN_SCALE is drawn at that scale, and the stage
+   * scrolls.
    */
   interface Props {
     /** Top to bottom, as the scene lists them. */
@@ -94,7 +95,6 @@
           <polygon class="sfill st-free" points={w.points} />
         {/if}
       {/each}
-      {#each floor.blanks as quad, i (i)}<polygon class="sfill st-empty" points={quad} />{/each}
       {#each floor.slats as s, i (i)}<line class="slat" x1={s[0]} y1={s[1]} x2={s[2]} y2={s[3]} />{/each}
       <polygon class="sfill st-empty" points={floor.side} />
       {@render label(floor.label, String(floor.number), cleanText(summary.name, NAME_MAX), floorMeta(summary))}
@@ -122,6 +122,7 @@
   .ground-shadow { fill: var(--shadow); }
 
   .sfill { fill: var(--win-off); color: var(--win-off); stroke: var(--edge); stroke-width: .5; }
+  .sfill.st-free { stroke: var(--win-frame); stroke-width: 1.2; }
   .sfill.st-working { fill: var(--s-working); color: var(--s-working); }
   .sfill.st-needs_you { fill: var(--s-needs); color: var(--s-needs); animation: pulse 1.6s ease-in-out infinite; }
   .sfill.st-done { fill: var(--s-done); color: var(--s-done); }

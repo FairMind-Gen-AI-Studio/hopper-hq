@@ -15,7 +15,7 @@ const RENDERER_NUMBERS = ['visor-int', 'window-int', 'lamp-int', 'screen-int', '
 /** Outline §2.11: what the CSS and the SVG use, plus the label halo and the placard colours. */
 const UI_TOKENS = [
   'bg', 'sky', 'fg', 'muted', 'panel', 'line', 'hover', 'halo', 'shade', 'edge', 'shadow', 'wall', 'slab', 'roof', 'plinth',
-  'win-off', 'win-back', 'shutter', 'win-filter', 'needs-ink', 'done-ink', 'working-ink', 'meeting-ink', 'nosignal-ink',
+  'win-off', 'win-frame', 'win-back', 'shutter', 'win-filter', 'needs-ink', 'done-ink', 'working-ink', 'meeting-ink', 'nosignal-ink',
   'badge-fg', 'tmux-bg', 'tmux-fg', 'tmux-needs', 'tmux-done', 'sign-bg', 'sign-fg', 'font-display', 'font-body', 'font-mono',
 ];
 
@@ -102,6 +102,10 @@ describe('theme tokens', () => {
       expect(new Set(repos).size).toBe(8);
       expect(new Set(ties).size).toBe(9);
     }
+  });
+
+  it("frames a free desk's window on the façade, day and night, where it shows against the wall", () => {
+    for (const theme of [day, systemNight, forcedNight]) expect(contrast(theme.get('win-frame')!, theme.get('wall')!)).toBeGreaterThanOrEqual(3);
   });
 
   it('tells the browser which scheme each theme is', () => {

@@ -1,7 +1,8 @@
 /**
  * The building's façade as isometric SVG geometry: plain data, no DOM. Facade.svelte draws it.
  * Cells: x runs along the front (one window per desk), y is the depth, z is height in pixels.
- * Floors stack bottom-up on a lobby: floor number 1 sits on the lobby, and the scene lists floors top to bottom.
+ * Floors stack bottom-up on a lobby: floor number 1 sits on the lobby, and the scene lists floors top to bottom. Every
+ * floor is as wide as the building; past the windows of its plan, it is plain wall, so that a floor shows its size.
  * Same projection and proportions as prototypes/building-mockup.html.
  */
 import type { FloorSummary, ShownState } from '../../src/scene/types';
@@ -85,13 +86,11 @@ export interface FacadeFloor {
   number: number;
   plate: Box;
   wall: Box;
-  /** One per desk of the floor's plan, in desk index order, left to right. */
+  /** One per desk of the floor's plan, in desk index order, left to right. Past them, the floor is plain wall. */
   windows: WindowShape[];
-  /** The rest of the row, past the floor's plan. */
-  blanks: string[];
   side: string;
   shutters: boolean;
-  /** Slats across every window when the shutters are down. */
+  /** Slats across every window of the floor's plan when the shutters are down. */
   slats: Line[];
   /** The floor's silhouette, for hover, focus and selection. */
   outline: string;
@@ -174,13 +173,10 @@ export function facadeOf(floors: readonly FloorSummary[]): FacadeModel {
     const f = floors[floors.length - 1 - j]!;
     const z0 = LOBBY_H + j * FLOOR_H;
     const windows: WindowShape[] = [];
-    const blanks: string[] = [];
     const slats: Line[] = [];
-    for (let i = 0; i < W; i++) {
-      const quad = points(onFront(D, i + 0.18, i + 0.82, z0 + 13, z0 + FLOOR_H - 6));
-      const w = f.windows[i];
-      if (w) windows.push({ sessionId: w.sessionId, state: w.state, points: quad, lit: w.state !== null && LIT.has(w.state) });
-      else blanks.push(quad);
+    for (let i = 0; i < f.windows.length; i++) {
+      const w = f.windows[i]!;
+      windows.push({ sessionId: w.sessionId, state: w.state, points: points(onFront(D, i + 0.18, i + 0.82, z0 + 13, z0 + FLOOR_H - 6)), lit: w.state !== null && LIT.has(w.state) });
       if (f.shutters) {
         for (let k = 1; k < 4; k++) {
           const z = z0 + 13 + (k * (FLOOR_H - 19)) / 4;
@@ -196,7 +192,6 @@ export function facadeOf(floors: readonly FloorSummary[]): FacadeModel {
       plate: b.box(-0.08, -0.08, W + 0.08, D + 0.08, z0, z0 + 4),
       wall: b.box(0, 0, W, D, z0 + 4, z0 + FLOOR_H),
       windows,
-      blanks,
       side: points(onSide(W, 0.35, D - 0.35, z0 + 13, z0 + FLOOR_H - 6)),
       shutters: f.shutters,
       slats,
