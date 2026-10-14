@@ -248,6 +248,8 @@ export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   lounge: Lounge;
   /** Every room of the plan, by slot, open or not. */
   roomSlots: GridRect[];
-  /** Sessions on the floor without a desk, in start order: dormant ones whose desk another session took, and those waiting at the cap. */
+  /** Sessions on the floor without a desk, in start order, at most UNSEATED_MAX: dormant ones whose desk another session took, and those waiting at the cap. */
   unseated: Occupant[];
+  /** Unseated sessions beyond `unseated` (at most UNSEATED_MAX are listed). */
+  unseatedMore: number;
 }

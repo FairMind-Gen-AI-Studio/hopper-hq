@@ -5,7 +5,7 @@
 import type { WorkflowRun } from '../core/types.js';
 import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
-import { INTERNS_MAX, layoutPlan, LOUNGE_SEATS, MEETING_AGENTS_MAX, POD_DESKS, RUNS_SHOWN } from './layout.js';
+import { INTERNS_MAX, layoutPlan, LOUNGE_SEATS, MEETING_AGENTS_MAX, POD_DESKS, RUNS_SHOWN, UNSEATED_MAX } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
 import { roomRunsOf, seatFloor, type RoomRun, type Seating } from './seating.js';
 import { capKey, cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
@@ -205,12 +205,16 @@ function robotOf(state: ShownState, root: string, feature: string | null): Robot
 /**
  * A floor as the façade and the directory show it: one window per desk of its plan, in desk index order, carrying the
  * state of whoever sits there (dark for a free desk), and the count of its sessions by state, those without a desk too.
+ * A session listed at two desks sits at its first only, as on the floor.
  */
 function summaryOf(floor: Floor, number: number, seating: Seating): FloorSummary {
   const on = new Map(floor.sessions.map((v) => [v.id, v]));
+  const lit = new Set<string>();
   const windows = seating.desks.map((id): FacadeWindow => {
-    const v = id === null ? undefined : on.get(id);
-    return v ? { sessionId: idOf(v), state: v.effectiveState as ShownState } : { sessionId: null, state: null };
+    const v = id === null || lit.has(id) ? undefined : on.get(id);
+    if (!v) return { sessionId: null, state: null };
+    lit.add(v.id);
+    return { sessionId: idOf(v), state: v.effectiveState as ShownState };
   });
   const counts: Partial<Record<ShownState, number>> = {};
   for (const state of SHOWN_STATES) {
@@ -230,10 +234,13 @@ function summaryOf(floor: Floor, number: number, seating: Seating): FloorSummary
   };
 }
 
-/** The checkout a session works in: its repository's label, branch, worktree flag and root (cwd outside git). */
+/**
+ * The checkout a session works in: its repository's label, branch, worktree flag and root (cwd outside git), the root as
+ * a key (capKey), so that two checkouts have two paths however long their roots, as they have two pods.
+ */
 function checkoutOf(v: SessionView, label: (v: SessionView) => string): Checkout {
   const ws = v.workspace;
-  return { repo: cleanText(label(v)), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: cleanText(ws.root ?? ws.cwd) };
+  return { repo: cleanText(label(v)), branch: cleanOrNull(ws.branch), worktree: ws.worktree, path: capKey(ws.root ?? ws.cwd) };
 }
 
 /** A session on the floor, its robot at `at`, in its own repository's and feature's colours. */
@@ -292,7 +299,8 @@ function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect): MeetingRo
 
 /**
  * One floor on its plan, filled from its seating: every desk of every pod with its occupant, the lounge, every room slot,
- * a room for each live run that holds a slot (in slot order), and the sessions without a desk. Each occupant's `at` is,
+ * a room for each live run that holds a slot (in slot order), and the sessions without a desk, the first UNSEATED_MAX
+ * of them in start order, counting the rest. Each occupant's `at` is,
  * first match: gone when it has no desk or is dormant; the head of its first room run that holds a slot while it is
  * in_meeting; its lounge seat; its desk. The floor counts the live runs without a room, every host's: a run two hosts
  * name counts twice.
@@ -336,7 +344,8 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
       }),
     };
   });
-  const unseated = floor.sessions.filter((v) => !seated.has(v.id)).sort(bySessionStart).map((v) => occupantOf(v, label, { kind: 'gone' }));
+  const waiting = floor.sessions.filter((v) => !seated.has(v.id)).sort(bySessionStart);
+  const unseated = waiting.slice(0, UNSEATED_MAX).map((v) => occupantOf(v, label, { kind: 'gone' }));
   const rooms = runs
     .map((r) => ({ r, slot: slotOfKey(r.key) }))
     .filter(({ slot }) => slot !== -1)
@@ -356,6 +365,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     rooms,
     roomsMore: liveRuns - rooms.length,
     unseated,
+    unseatedMore: waiting.length - unseated.length,
   };
 }
 

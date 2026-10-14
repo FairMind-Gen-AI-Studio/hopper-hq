@@ -390,6 +390,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         "w": 28,
       },
       "unseated": [],
+      "unseatedMore": 0,
       "version": 3,
     },
     {
@@ -597,6 +598,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         "w": 28,
       },
       "unseated": [],
+      "unseatedMore": 0,
       "version": 3,
     },
     {
@@ -841,6 +843,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         "w": 28,
       },
       "unseated": [],
+      "unseatedMore": 0,
       "version": 3,
     },
   ],

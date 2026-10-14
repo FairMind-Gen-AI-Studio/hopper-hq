@@ -334,5 +334,6 @@ export function makeFloor(key: string): FloorDetail | null {
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
     unseated: [],
+    unseatedMore: 0,
   };
 }

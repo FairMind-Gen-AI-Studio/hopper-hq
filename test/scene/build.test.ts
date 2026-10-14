@@ -3,9 +3,10 @@ import { newSession } from '../../src/core/reducer.js';
 import type { ChildAgent, RunAgent, Session, SessionState, WorkflowRun, Workspace } from '../../src/core/types.js';
 import { toView, type SessionView } from '../../src/core/view.js';
 import { buildFloorDetail, buildScene } from '../../src/scene/build.js';
-import { layoutPlan, LOUNGE_SEATS } from '../../src/scene/layout.js';
+import { BLOCK_DESKS, BLOCKS_MAX, layoutPlan, LOUNGE_SEATS, UNSEATED_MAX } from '../../src/scene/layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../src/scene/palette.js';
 import { emptySeating, type Seating } from '../../src/scene/seating.js';
+import { capKey } from '../../src/scene/text.js';
 import { SCENE_VERSION, type FloorDetail, type MeetingRoom, type Occupant } from '../../src/scene/types.js';
 import { demoViews } from '../helpers/demo-views.js';
 
@@ -372,6 +373,38 @@ describe('the plan', () => {
     expect([floor.counts, floor.unseated.map((o) => o.sessionId)]).toEqual([summary.counts, ['w']]);
     // With no seating given, the floor is seated from scratch.
     expect(buildScene(views).floors[0]!.windows.slice(0, 4).map((w) => w.sessionId)).toEqual(['s', 'w', 'd', null]);
+  });
+
+  /** A session id of the redacted kind, numbered. */
+  const sid = (n: number) => `11111111-1111-4111-8111-${String(n).padStart(12, '0')}`;
+
+  it('lists at most UNSEATED_MAX sessions without a desk, the first in start order, and counts the rest', () => {
+    const desks = BLOCKS_MAX * BLOCK_DESKS;
+    const views = Array.from({ length: desks + UNSEATED_MAX + 6 }, (_, i) => view(sid(i), ws('/home/dev/api', 'main'), 'working', { startedAt: NOW - DAY + i }));
+    const floor = buildFloorDetail(views, 'repo:/home/dev/api')!;
+    const waiting = views.slice(desks).map((v) => v.id);
+    expect([floor.unseated.map((o) => o.sessionId), floor.unseatedMore, floor.counts]).toEqual([waiting.slice(0, UNSEATED_MAX), 6, { working: views.length }]);
+    const few = buildFloorDetail(views.slice(0, desks + 2), 'repo:/home/dev/api')!;
+    expect([few.unseated.map((o) => o.sessionId), few.unseatedMore]).toEqual([waiting.slice(0, 2), 0]);
+  });
+
+  it('tells two checkouts apart by their whole roots, however long, as their pods do', () => {
+    const deep = '/home/dev/' + 'a-long-directory-name/'.repeat(9);
+    const tree = (tail: string) => ws(`${deep}${tail}`, 'feat/x', { repoRoot: '/home/dev/api', repoName: 'api', worktree: true });
+    const views = [view(sid(1), tree('one'), 'working'), view(sid(2), tree('two'), 'working', { startedAt: NOW - DAY + 1 })];
+    const floor = buildFloorDetail(views, 'feature:x')!;
+    const paths = occupants(floor).map((o) => o.checkout.path);
+    expect(paths).toEqual([capKey(`${deep}one`), capKey(`${deep}two`)]);
+    expect(paths.map((p) => Array.from(p).length)).toEqual([211, 211]);
+    expect(floor.pods.flatMap((p) => (p.placard ? [p.placard.path] : []))).toEqual(paths);
+  });
+
+  it('lights one window for a session that a seating lists at two desks: that of its first desk', () => {
+    const views = [view(sid(1), ws('/home/dev/api', 'main'), 'working')];
+    const seating = new Map([['repo:/home/dev/api', seated([sid(1), null, sid(1)])]]);
+    const free = { sessionId: null, state: null };
+    expect(buildScene(views, undefined, seating).floors[0]!.windows).toEqual([{ sessionId: sid(1), state: 'working' }, ...Array(7).fill(free)]);
+    expect(occupants(buildFloorDetail(views, 'repo:/home/dev/api', undefined, seating)!).map((o) => o.sessionId)).toEqual([sid(1)]);
   });
 });
 
