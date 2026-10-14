@@ -8,3 +8,6 @@ mod/tsconfig.json
 /test-results/
 /playwright-report/
 /blob-report/
+
+# Raw screen recordings; the web-sized demo.mp4 is tracked
+media/scranton-hq-demo.*
