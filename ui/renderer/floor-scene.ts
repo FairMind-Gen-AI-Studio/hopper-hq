@@ -9,8 +9,11 @@
  *
  * Given the time of an update, robots walk (walkers.ts): one whose place changed goes there from where it is, a new one
  * comes out of the elevator, and one no longer on the floor walks to the elevator and leaves; interns fly. The elevator
- * doors open for each of them. frame() moves them on. Without the time, every robot is put in its place at once. The
- * scene owns its geometries and materials and frees them all in dispose().
+ * doors open for each of them. frame() moves them on. Without the time, every robot is put in its place at once.
+ *
+ * A robot on its way casts no shadow and has a soft disc under it instead (design §6.3): the shadow map then changes only
+ * as robots set off, with each floor update, and as they come to rest, which frame() reports. The scene owns its
+ * geometries and materials and frees them all in dispose().
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
@@ -19,17 +22,19 @@ import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
 import { Geometries, buildShell, setDoors, updateDesk, updatePod, updateRoom, type PickData, type Shell } from './props';
-import { buildRobot, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
+import { KIND_SCALE, buildRobot, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
 import { keepSeats } from './seats';
 import type { ThemeTokens } from './theme';
 import { walkGrid } from './walk';
 import { advance, doorsMoving, doorsNext, moveAll, settled, walkerAt, type Walker, type Wanted, type Ways } from './walkers';
 import {
   HOME_AZIMUTH,
+  LABEL_Y,
   elevatorSpot,
   floorCenter,
   internSpots,
   isStanding,
+  labelAnchor,
   placeSpot,
   roomKey,
   seatSpot,
@@ -38,6 +43,7 @@ import {
   tableCenter,
   visibleWalls,
   type Point,
+  type Point3,
 } from './world';
 
 /** What the shell depends on: the footprint, the core, each pod's id and rug, the lounge and every room slot. */
@@ -67,7 +73,15 @@ export interface FrameStep {
   moving: boolean;
   /** When something starts to move again while nothing moves now: the doors, held open, start to close. Null: never. */
   wake: number | null;
+  /** A robot came to rest and casts its shadow again: the shadow map must be drawn. */
+  shadows: boolean;
+  /** Where the tag of each session's robot hangs, by session id: over the robot on its way, at its place once there. */
+  tags: Map<string, Point3>;
 }
+
+/** The disc under a robot on its way: its radius at a session robot's size, and its height over the floor. */
+export const CONTACT_R = 0.3;
+export const CONTACT_Y = 0.015;
 
 /** A robot the floor wants: its walker's place, and what it is built as. */
 interface Cast extends Wanted {
@@ -87,6 +101,10 @@ interface Cast extends Wanted {
 interface Mover {
   robot: RobotObject;
   look: Pick<Robot, 'pose' | 'badge'>;
+  /** The session whose tag hangs over it: its own robot's. */
+  tag: string | null;
+  /** On its way: the meshes that cast its shadow at rest, and the disc under it. */
+  walking: { casters: Mesh[]; disc: Mesh } | null;
 }
 
 /** The keys walkers go by: a session's robot, a room's agent, a session's intern. */
@@ -115,6 +133,8 @@ export class FloorScene {
   private readonly movers = new Map<string, Mover>();
   /** When robots pass the elevator doors, until the doors have shut after them. */
   private passes: number[] = [];
+  /** The time of the last update or frame. */
+  private clock = 0;
   /** Each room's seats by agent id, by room key; each session's intern spots by agent id, by session id. */
   private readonly roomSeats = new Map<string, Map<string, number>>();
   private readonly internSeats = new Map<string, Map<string, number>>();
@@ -162,12 +182,18 @@ export class FloorScene {
     return this.roomEntries;
   }
 
+  /** A robot is under way, or the elevator doors open or close, as of the last update or frame. */
+  get moving(): boolean {
+    return [...this.walkers.values()].some((w) => w.trip !== null) || doorsMoving(this.passes, this.clock);
+  }
+
   /**
    * Brings the scene in step with the floor. With `now`, robots walk from there on to their new places; without it,
    * each is put in its place at once (first sight, reduced motion). Returns true when the shell was rebuilt.
    */
   apply(floor: FloorDetail, now?: number): boolean {
     this.floor = floor;
+    if (now !== undefined) this.clock = now;
     const signature = layoutSignature(floor);
     const rebuild = signature !== this.signature;
     if (rebuild) {
@@ -261,10 +287,13 @@ export class FloorScene {
 
   /**
    * Moves every robot on to `now`: along its trip, or at its place once it is there; one that has walked out of the
-   * elevator goes. Every robot takes its part of the frame, at rest too.
+   * elevator goes. Every robot takes its part of the frame, at rest too. The doors and the selection ring follow.
    */
   frame(now: number): FrameStep {
+    this.clock = now;
     let moving = false;
+    let shadows = false;
+    const tags = new Map<string, Point3>();
     for (const [key, w] of this.walkers) {
       const mover = this.movers.get(key)!;
       const next = advance(w, now);
@@ -274,14 +303,15 @@ export class FloorScene {
         continue;
       }
       if (next !== w) this.walkers.set(key, next);
-      this.place(mover, next, now);
+      if (this.place(mover, next, now)) shadows = true;
       if (next.trip) moving = true;
+      if (mover.tag !== null && !next.leaving) tags.set(mover.tag, this.tagAt(mover.tag, next, now));
     }
     this.passes = this.passes.filter((pass) => now < pass + DOOR_HOLD_MS + DOOR_MS);
     if (this.shellPart && this.floor) setDoors(this.shellPart.doors, this.floor.core, doorOpen(this.passes, now));
     this.placeRing();
     const still = !moving && !doorsMoving(this.passes, now);
-    return { moving: !still, wake: still ? doorsNext(this.passes, now) : null };
+    return { moving: !still, wake: still ? doorsNext(this.passes, now) : null, shadows, tags };
   }
 
   /** Puts every robot at its place at once: those under way are there, those leaving are gone, the doors are shut. Returns whether anything moved. */
@@ -445,7 +475,7 @@ export class FloorScene {
         robot.group.name = c.name;
         if (c.run !== null) pickRoom(robot, c.run);
         this.scene.add(robot.group);
-        mover = { robot, look: c.look };
+        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null };
         this.movers.set(c.id, mover);
       }
       mover.look = { pose: c.look.pose, badge: c.look.badge };
@@ -457,16 +487,56 @@ export class FloorScene {
   /**
    * Puts a robot where its walker is at `now`: striding along its trip, its legs keeping pace with its speed, inside the
    * elevator out of sight until it sets off, or in its pose at its place. One that waits to set off from where it stands
-   * stays as it is.
+   * stays as it is. Under way, it casts no shadow and the disc under it follows it. Returns true when it has come to rest
+   * and casts its shadow again.
    */
-  private place(mover: Mover, w: Walker, now: number): void {
+  private place(mover: Mover, w: Walker, now: number): boolean {
     const at = walkerAt(w, now);
-    mover.robot.group.visible = at.shown;
-    if (w.trip && (at.walking || !at.shown)) strideRobot(mover.robot, at, ((Math.max(0, now - w.trip.start) / 1000) * w.trip.speed) / WALK_SPEED);
-    else if (!w.trip || now >= tripEnd(w.trip)) poseRobot(mover.robot, mover.look, w.to);
+    const robot = mover.robot;
+    robot.group.visible = at.shown;
+    if (w.trip && now < tripEnd(w.trip)) {
+      if (at.walking || !at.shown) strideRobot(robot, at, ((Math.max(0, now - w.trip.start) / 1000) * w.trip.speed) / WALK_SPEED);
+      mover.walking ??= this.lift(robot);
+      mover.walking.disc.visible = at.shown;
+      mover.walking.disc.position.set(at.x, CONTACT_Y, at.z);
+      return false;
+    }
+    poseRobot(robot, mover.look, w.to);
+    return this.land(mover);
+  }
+
+  /** A robot sets off: it stops casting its shadow, and a disc lies on the floor under it instead. */
+  private lift(robot: RobotObject): { casters: Mesh[]; disc: Mesh } {
+    const casters = robot.pickables.filter((m) => m.castShadow);
+    for (const m of casters) m.castShadow = false;
+    const disc = new Mesh(this.geo.circle(CONTACT_R), this.mats.contact);
+    disc.name = 'contact';
+    disc.rotation.x = -Math.PI / 2;
+    disc.scale.setScalar(KIND_SCALE[robot.kind]);
+    this.scene.add(disc);
+    return { casters, disc };
+  }
+
+  /** A robot comes to rest: it casts its shadow again, and its disc goes. Returns true when it casts any. */
+  private land(mover: Mover): boolean {
+    const walking = mover.walking;
+    if (!walking) return false;
+    mover.walking = null;
+    for (const m of walking.casters) m.castShadow = true;
+    walking.disc.removeFromParent();
+    return walking.casters.length > 0;
+  }
+
+  /** Where a session's tag hangs: over its robot, standing, on its way; where the floor puts it once at its place. */
+  private tagAt(sessionId: string, w: Walker, now: number): Point3 {
+    const entry = this.entries.get(sessionId)!;
+    if (!w.trip) return labelAnchor(this.floor!, entry.desk!, entry.occupant);
+    const at = walkerAt(w, now);
+    return { x: at.x, y: LABEL_Y.standing, z: at.z };
   }
 
   private drop(key: string, mover: Mover): void {
+    mover.walking?.disc.removeFromParent();
     mover.robot.group.removeFromParent();
     this.movers.delete(key);
   }

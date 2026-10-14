@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Color, type MeshStandardMaterial } from 'three';
-import { GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_DIM, ROOM_MIX, RUG_MIX } from '../../renderer/materials';
+import { CONTACT_OPACITY, GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_DIM, ROOM_MIX, RUG_MIX } from '../../renderer/materials';
 import { dayTheme, type ThemeTokens } from '../../renderer/theme';
 
 const hex = (c: Color) => '#' + c.getHexString();
@@ -150,6 +150,17 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    expect(m.all().length).toBe(31 + 3 * 8 + 8 + 1 + 6 + 1);
+    // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
+    expect(m.all().length).toBe(31 + 3 * 8 + 8 + 1 + 6 + 1 + 1);
+  });
+
+  it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {
+    const m = new Materials(dayTheme());
+    const disc = m.contact;
+    expect([hex(disc.color), disc.transparent, disc.opacity, disc.depthWrite]).toEqual(['#000000', true, CONTACT_OPACITY, false]);
+    expect(CONTACT_OPACITY).toBeLessThan(0.5);
+    m.applyTheme(nightTheme());
+    expect(hex(m.contact.color)).toBe('#000000');
+    expect(m.contact).toBe(disc);
   });
 });

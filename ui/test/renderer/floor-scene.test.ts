@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Mesh, type BufferGeometry, type Material } from 'three';
-import { FloorScene, layoutSignature } from '../../renderer/floor-scene';
+import { CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
 import { DOOR_PANEL, DOOR_SLIDE } from '../../renderer/props';
 import { HOVER_Y, KIND_SCALE, POSES, STRIDE, rootHeight } from '../../renderer/robot';
@@ -10,10 +10,12 @@ import type { Intern } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
 import {
   HOME_AZIMUTH,
+  LABEL_Y,
   deskAnchor,
   elevatorSpot,
   headSpot,
   internSpots,
+  labelAnchor,
   loungeSpots,
   roomKey,
   seatSpot,
@@ -614,6 +616,21 @@ describe('interns', () => {
     expect(robot.group.parent).toBeNull();
   });
 
+  it('lets a flying intern cast no shadow, and lays a small disc on the floor under it instead, unseen while it waits inside the elevator', () => {
+    const fs = sceneOf(withInterns([]));
+    fs.apply(withInterns([intern('i1')]), 1000);
+    const robot = fs.sessions.get('sw-a1')!.interns.get('i1')!;
+    const disc = fs.scene.children.find((o) => o.name === 'contact')!;
+    expect(disc.visible).toBe(false);
+    const step = fs.frame(1000 + DOOR_MS + 500);
+    expect([disc.visible, disc.position.x, disc.position.y, disc.position.z, disc.scale.x]).toEqual([true, robot.group.position.x, CONTACT_Y, robot.group.position.z, KIND_SCALE.intern]);
+    expect(step.shadows).toBe(false);
+    // At its spot it casts no shadow either: the shadow map need not be drawn for it.
+    expect(fs.frame(20_000).shadows).toBe(false);
+    expect(robot.pickables.some((m) => m.castShadow)).toBe(false);
+    expect(fs.scene.children.some((o) => o.name === 'contact')).toBe(false);
+  });
+
   it('keeps the interns over the desk while their session rests in the lounge, and flies none for a dormant one', () => {
     const fs = sceneOf(withInterns([intern('i1')], 'idle', 0));
     const entry = fs.sessions.get('sw-a1')!;
@@ -892,6 +909,51 @@ describe('walking', () => {
     expect(gap()).toBeCloseTo(half, 10);
     expect(fs.frame(last + DOOR_HOLD_MS + DOOR_MS)).toMatchObject({ moving: false, wake: null });
     expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+  });
+
+  it('lets a robot on its way cast no shadow, with a soft disc under it instead, until it is at its place and casts again', () => {
+    const fs = sceneOf();
+    const robot = fs.sessions.get('sw-c3')!.robot!;
+    const casters = robot.pickables.filter((m) => m.castShadow);
+    expect(casters).toHaveLength(7);
+    const discs = () => fs.scene.children.filter((o) => o.name === 'contact') as Mesh[];
+    expect(discs()).toEqual([]);
+    const lounge = loungeFloor();
+    const there = walk(lounge, seatSpot(fs.sessions.get('sw-c3')!.desk!), loungeSpots(lounge.lounge.rect)[2]!, 1000);
+    fs.apply(lounge, 1000);
+    expect(robot.pickables.filter((m) => m.castShadow)).toEqual([]);
+    expect(discs()).toHaveLength(1);
+    const disc = discs()[0]!;
+    expect([disc.material, disc.position.y, disc.scale.x, disc.visible]).toEqual([fs.mats.contact, CONTACT_Y, KIND_SCALE.session, true]);
+    expect(fs.frame(2000).shadows).toBe(false);
+    expect([disc.position.x, disc.position.z]).toEqual(along(there, 2000));
+    // It sits down: it casts again, the same parts as before, and the shadow map must be drawn once more.
+    expect(fs.frame(tripEnd(there)).shadows).toBe(true);
+    expect(robot.pickables.filter((m) => m.castShadow)).toEqual(casters);
+    expect(discs()).toEqual([]);
+    expect(fs.frame(tripEnd(there) + 16).shadows).toBe(false);
+  });
+
+  it("tells where each session's tag hangs: over its robot on its way, at its place once there, and none for one leaving; the ring follows the robot", () => {
+    const fs = sceneOf();
+    fs.setSelected(deskTarget('sw-c3'));
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[2] = { ...checkouts[0]!.desks[2]!, lounge: 2 };
+    checkouts[1]!.desks.pop();
+    const floor = makeFloor(checkouts, undefined, checkoutRooms());
+    const there = walk(floor, seatSpot(fs.sessions.get('sw-c3')!.desk!), loungeSpots(floor.lounge.rect)[2]!, 1000);
+    fs.apply(floor, 1000);
+    const step = fs.frame(2000);
+    // oa-d5 walks out and ps-f7 is dormant: neither has a tag to move. Agents and interns have none.
+    expect([...step.tags.keys()].sort()).toEqual(['oa-c3', 'ps-d4', 'sw-a1', 'sw-b2', 'sw-c3']);
+    const [x, z] = along(there, 2000);
+    expect(step.tags.get('sw-c3')).toEqual({ x, y: LABEL_Y.standing, z });
+    expect([fs.ring.position.x, fs.ring.position.z]).toEqual([x, z]);
+    expect(fs.focusPoint(deskTarget('sw-c3'))).toEqual({ x: loungeSpots(floor.lounge.rect)[2]!.x, z: loungeSpots(floor.lounge.rect)[2]!.z });
+    const { desk, occupant } = seatOf(floor, 'sw-b2');
+    expect(step.tags.get('sw-b2')).toEqual(labelAnchor(floor, desk, occupant));
+    const end = fs.frame(tripEnd(there));
+    expect(end.tags.get('sw-c3')).toEqual(labelAnchor(floor, seatOf(floor, 'sw-c3').desk, seatOf(floor, 'sw-c3').occupant));
   });
 
   it('puts every robot in its place at once when it settles: those on their way arrive, those leaving are gone', () => {

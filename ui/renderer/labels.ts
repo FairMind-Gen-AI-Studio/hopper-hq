@@ -145,6 +145,12 @@ export class LabelLayer {
     this.keepStopOnView();
   }
 
+  /** Hangs a session's tag from another point: over its robot while it walks. The next position() moves it there. */
+  moveTag(sessionId: string, anchor: Point3): void {
+    const tag = this.tags.get(deskKey(sessionId));
+    if (tag) tag.anchor = anchor;
+  }
+
   tag(sessionId: string): HTMLElement | undefined {
     return this.tags.get(deskKey(sessionId))?.el;
   }

@@ -3,11 +3,12 @@ import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'th
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target, ViewOptions } from '../../renderer/index';
+import { projectToScreen } from '../../renderer/labels';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { findPath, walkGrid } from '../../renderer/walk';
-import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, elevatorSpot, floorCenter, labelAnchor, loungeSpots, seatSpot, tableCenter } from '../../renderer/world';
+import { HOME_AZIMUTH, LABEL_Y, POLAR, azimuthOf, cameraOffset, deskAnchor, elevatorSpot, floorCenter, labelAnchor, loungeSpots, seatSpot, standSpot, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
 import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
 
@@ -1268,5 +1269,128 @@ describe('robots walking in the floor view', () => {
     // Every frame while they close, and none once they are shut.
     expect(env.flush(16, 1000)).toBe(Math.ceil((DOOR_MS - 20) / 16));
     expect([env.queue.size, env.timers.size]).toEqual([0, 0]);
+  });
+
+  it('draws the shadow map once as robots set off and once in each frame where some come to rest, whatever the frames between', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(renderer.shadowDraws).toBe(1);
+    const grid = walkGrid(lounge);
+    const walkEnd = (from: { x: number; z: number }, to: { x: number; z: number }) => tripEnd(startTrip(from, findPath(grid, from, to), 0, WALK_SPEED));
+    /** Standing up from a desk's chair is one straight step. */
+    const upEnd = (d: Parameters<typeof seatSpot>[0]) => tripEnd(startTrip(seatSpot(d), [standSpot(d)], 0, WALK_SPEED));
+    /** The shadow maps drawn from a floor update until all is still again, after a jump back to the checkout floor. */
+    const draws = (floor: ReturnType<typeof checkoutFloor>, from = checkoutFloor()) => {
+      view.setFloor(from, { snap: true });
+      env.flush();
+      const before = renderer.shadowDraws;
+      view.setFloor(floor);
+      env.flush(16, 1000);
+      expect(env.queue.size).toBe(0);
+      return renderer.shadowDraws - before;
+    };
+    // One walk: as it sets off, and as it sits down.
+    expect(draws(lounge)).toBe(2);
+    // Two walks that end in different frames: as they set off, and as each comes to rest.
+    const apart = checkoutSpecs();
+    apart[0]!.desks[0]!.state = 'needs_you';
+    apart[0]!.desks[2] = { ...apart[0]!.desks[2]!, lounge: 2 };
+    const a1 = seatOf(checkoutFloor(), 'sw-a1').desk;
+    expect(walkEnd(seat, sofa) - upEnd(a1)).toBeGreaterThan(32);
+    expect(draws(makeFloor(apart))).toBe(3);
+    // Two robots side by side in a row of desks that stand up in the same frame: as they set off, and as both stand.
+    const seated = checkoutSpecs();
+    seated[0]!.desks[1]!.state = 'working';
+    const both = checkoutSpecs();
+    both[0]!.desks[0]!.state = 'needs_you';
+    both[0]!.desks[1]!.state = 'needs_you';
+    const b2 = seatOf(checkoutFloor(), 'sw-b2').desk;
+    expect([a1.chair, b2.chair, b2.rect.y]).toEqual([a1.chair, a1.chair, a1.rect.y]);
+    expect(upEnd(a1)).toBeCloseTo(upEnd(b2), 6);
+    expect(draws(makeFloor(both), makeFloor(seated))).toBe(2);
+  });
+
+  it('draws the shadow map once for a robot that leaves, once more for one that comes as it reaches its place, and no more for an intern', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const draws = (floor: ReturnType<typeof checkoutFloor>) => {
+      const before = renderer.shadowDraws;
+      view.setFloor(floor);
+      env.flush(16, 1000);
+      expect(env.queue.size).toBe(0);
+      return renderer.shadowDraws - before;
+    };
+    const leaves = checkoutSpecs();
+    leaves[1]!.desks.pop();
+    expect(draws(makeFloor(leaves))).toBe(1);
+    expect(draws(checkoutFloor())).toBe(2);
+    const flies = checkoutSpecs();
+    flies[0]!.desks[0] = { ...flies[0]!.desks[0]!, interns: [{ agentId: 'i1', type: 'Explore', label: null, running: true }] };
+    expect(draws(makeFloor(flies))).toBe(1);
+    expect(draws(checkoutFloor())).toBe(1);
+  });
+
+  it('tells its moving listeners true as robots set off and false once all is still, and nothing for the camera alone or a floor that jumps', () => {
+    const { env, view } = setup();
+    const said: boolean[] = [];
+    view.on('moving', (m) => said.push(m));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    expect(said).toEqual([]);
+    view.setFloor(lounge);
+    expect(said).toEqual([true]);
+    env.step(500);
+    expect(said).toEqual([true]);
+    env.flush(16, 1000);
+    expect(said).toEqual([true, false]);
+    view.rotate(1);
+    env.flush();
+    view.setFloor(checkoutFloor(), { snap: true });
+    env.flush();
+    expect(said).toEqual([true, false]);
+    // Hidden half way, shown again: all is in its place, and still.
+    view.setFloor(lounge);
+    env.step(300);
+    env.isHidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    env.isHidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(said).toEqual([true, false, true, false]);
+    // A robot that leaves: it walks out, the doors stand open, then they close.
+    said.length = 0;
+    const leaves = checkoutSpecs();
+    leaves[1]!.desks.pop();
+    view.setFloor(makeFloor(leaves));
+    env.flush(16, 1000);
+    expect(said).toEqual([true, false]);
+    env.wait(DOOR_HOLD_MS);
+    env.flush(16, 1000);
+    expect(said).toEqual([true, false, true, false]);
+  });
+
+  it("hangs a walking robot's tag over it frame by frame, rings it where it is, and lets a click pick it on its way", () => {
+    const { renderer, env, view, canvas, labels, events } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.select(desk('sw-c3'));
+    view.setFloor(lounge);
+    env.step(1200);
+    const robot = renderer.scene!.getObjectByName('robot sw-c3')!.position;
+    const there = startTrip(seat, findPath(walkGrid(lounge), seat, sofa), env.now() - 1200, WALK_SPEED);
+    expect([robot.x, robot.z]).toEqual([tripAt(there, env.now()).x, tripAt(there, env.now()).z]);
+    const tag = labels.querySelector('[data-session="sw-c3"]') as HTMLElement;
+    const p = projectToScreen({ x: robot.x, y: LABEL_Y.standing, z: robot.z }, renderer.camera!, W, H);
+    expect(tag.style.transform).toBe(`translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`);
+    const ring = renderer.scene!.getObjectByName('selection')!;
+    expect([ring.visible, ring.position.x, ring.position.z]).toEqual([true, robot.x, robot.z]);
+    // A click on its head picks its session.
+    click(canvas, screenOf(renderer, robot.x, 0.9, robot.z));
+    expect(events).toEqual(['select desk sw-c3']);
+    env.flush(16, 1000);
+    const q = projectToScreen(labelAnchor(lounge, seatOf(lounge, 'sw-c3').desk, seatOf(lounge, 'sw-c3').occupant), renderer.camera!, W, H);
+    expect(tag.style.transform).toBe(`translate(${q.x}px, ${q.y}px) translate(-50%, -100%)`);
+    expect([ring.position.x, ring.position.z]).toEqual([sofa.x, sofa.z]);
   });
 });

@@ -374,6 +374,31 @@ describe('the label layer', () => {
     }
   });
 
+  it("moves a session's tag to the point it is given, there at the next placing, until the floor puts it back", () => {
+    const { labels } = layer();
+    const floor = checkoutFloor();
+    labels.sync(floor);
+    const camera = isoCamera(floor.size);
+    const at = (id: string) => labels.tag(id)!.style.transform;
+    const shown = (p: { x: number; y: number; z: number }) => {
+      const s = projectToScreen(p, camera, 800, 500);
+      return `translate(${s.x}px, ${s.y}px) translate(-50%, -100%)`;
+    };
+    labels.position(camera, 800, 500);
+    const { desk, occupant } = seatOf(floor, 'oa-c3');
+    const home = at('oa-c3');
+    const other = at('sw-a1');
+    const walking = { x: 9, y: LABEL_Y.standing, z: 5 };
+    labels.moveTag('oa-c3', walking);
+    labels.moveTag('nobody', walking);
+    expect(at('oa-c3')).toBe(home);
+    labels.position(camera, 800, 500);
+    expect([at('oa-c3'), at('sw-a1')]).toEqual([shown(walking), other]);
+    labels.sync(floor);
+    labels.position(camera, 800, 500);
+    expect(at('oa-c3')).toBe(shown(labelAnchor(floor, desk, occupant)));
+  });
+
   it('shows only the dots while a metre takes few pixels on screen, and keeps the names as text', () => {
     const { root, labels } = layer();
     labels.sync(checkoutFloor());

@@ -72,6 +72,8 @@ export const GLASS_OPACITY = SURFACES.glass.opacity;
 export const JOINT_SHADE = 0.62;
 /** A screen's glass; the state colour glows over it. */
 export const SCREEN_GLASS = '#0a0a0a';
+/** How dark the soft disc under a walking or flying robot is: a shadow's stand-in, the same by day and by night. */
+export const CONTACT_OPACITY = 0.22;
 
 /** The colour a desk's screen glows in, by state; idle and dormant screens are off. */
 export const SCREEN_TOKEN: Record<ShownState, ColorToken | null> = {
@@ -93,6 +95,8 @@ export class Materials {
   readonly surface: Record<Surface, MeshStandardMaterial>;
   /** The selection ring, in the accent colour. */
   readonly ring: MeshBasicMaterial;
+  /** The soft disc on the floor under a robot on its way, in place of its shadow. */
+  readonly contact: MeshBasicMaterial;
   private readonly recipes: Array<[MeshStandardMaterial, Recipe]> = [];
   private readonly bodies: MeshStandardMaterial[] = [];
   private readonly joints: MeshStandardMaterial[] = [];
@@ -118,6 +122,7 @@ export class Materials {
       this.screens.set(token, new MeshStandardMaterial({ color: SCREEN_GLASS, roughness: 0.4, metalness: 0 }));
     }
     this.ring = new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
+    this.contact = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: CONTACT_OPACITY, depthWrite: false });
     this.applyTheme(theme);
   }
 
@@ -163,7 +168,7 @@ export class Materials {
   }
 
   all(): Material[] {
-    return [...this.recipes.map(([m]) => m), ...this.screens.values(), this.ring];
+    return [...this.recipes.map(([m]) => m), ...this.screens.values(), this.ring, this.contact];
   }
 
   dispose(): void {

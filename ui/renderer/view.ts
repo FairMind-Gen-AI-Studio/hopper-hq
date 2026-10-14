@@ -6,13 +6,15 @@
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
  * and while the controls settle, a tween runs, an arrow key is held, a robot walks or the elevator doors open or close
  * (motion.frameRate); doors held open draw nothing until they start to close. Nothing is drawn while the page is
- * hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme, or a wall that comes or
- * goes as the camera turns. Nothing is drawn either while the WebGL context is lost; once the browser restores it, the
- * floor is drawn again.
+ * hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme, a wall that comes or goes
+ * as the camera turns, or robots that come to rest (a robot on its way casts none). Nothing is drawn either while the
+ * WebGL context is lost; once the browser restores it, the floor is drawn again.
  *
  * Robots walk to their new places when a floor changes (design §5.3), except at first sight: the first floor, a floor
  * given with snap, any floor while the page is hidden, under reduced motion and with motion: false, every robot is put
  * in its place at once. A page shown again, and a switch to reduced motion, put robots under way in their places too.
+ * Their tags, the selection ring and picking follow them; the camera does not. 'moving' tells when robots or the
+ * elevator doors start moving, and when all is still again.
  */
 import { OrthographicCamera, PCFShadowMap, type Camera, type Object3D, type ShadowMapType } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -155,6 +157,13 @@ export function createFloorView(
   const listeners = { select: new Set<Listener>(), activate: new Set<Listener>(), moving: new Set<(moving: boolean) => void>() };
   const emit = (event: 'select' | 'activate', target: Target | null) => {
     for (const fn of [...listeners[event]]) fn(target);
+  };
+  /** Whether robots or the elevator doors move, as the 'moving' listeners last heard. */
+  let moving = false;
+  const report = (now: boolean) => {
+    if (now === moving) return;
+    moving = now;
+    for (const fn of [...listeners.moving]) fn(now);
   };
   const labels = new LabelLayer(host.labels, {
     select: (target, clicks) => {
@@ -318,10 +327,13 @@ export function createFloorView(
     // The controls do not report the last, smallest steps of a glide, but those still move the camera.
     keepOnFloor();
     const step = world.frame(now);
+    if (step.shadows) renderer.shadowMap.needsUpdate = true;
+    for (const [id, anchor] of step.tags) labels.moveTag(id, anchor);
     if (world.setAzimuth(pose().azimuth)) renderer.shadowMap.needsUpdate = true;
     renderer.render(world.scene, camera);
     labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
     labels.position(camera, width, height);
+    report(step.moving);
     // A frame with nothing moving is the last, but for one asked for when the doors start to close.
     wake?.();
     wake = null;
@@ -484,6 +496,7 @@ export function createFloorView(
     if (!env.hidden()) {
       // Robots that were on their way while nothing was drawn are where they were going.
       if (world.settle()) renderer.shadowMap.needsUpdate = true;
+      report(world.moving);
       request();
     } else {
       stopKeys();
@@ -557,6 +570,7 @@ export function createFloorView(
       world.setSelected(selected);
       labels.setSelected(selected);
       renderer.shadowMap.needsUpdate = true;
+      report(world.moving);
       const spot = panPending === null ? null : world.focusPoint(panPending);
       if (spot) {
         panPending = null;
@@ -567,6 +581,7 @@ export function createFloorView(
       if (disposed) return;
       reduced = next.reducedMotion;
       if (reduced) world.settle();
+      report(world.moving);
       controls.enableDamping = !reduced;
       world.setTheme(next);
       renderer.shadowMap.needsUpdate = true;
