@@ -1,6 +1,36 @@
+<div align="center">
+
 # scranton-hq
 
-A local dashboard for keeping an eye on your coding-agent sessions while they work.
+**A local dashboard for keeping an eye on your coding-agent sessions while they work.**
+
+An isometric office building where every Claude Code session gets a desk, and a red window means someone is waiting for you.
+
+[![npm version](https://img.shields.io/npm/v/@fairmind/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind/scranton-hq)
+[![npm downloads](https://img.shields.io/npm/dm/@fairmind/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind/scranton-hq)
+[![CI](https://img.shields.io/github/actions/workflow/status/FairMind-Gen-AI-Studio/scranton-hq/ci.yml?branch=main&logo=github&label=CI)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/node/v/@fairmind/scranton-hq?logo=nodedotjs&logoColor=white&color=5fa04e)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Svelte](https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white)](https://svelte.dev)
+[![three.js](https://img.shields.io/badge/three.js-WebGL-black?logo=threedotjs&logoColor=white)](https://threejs.org)
+
+[![Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757?logo=anthropic&logoColor=white)](https://claude.com/claude-code)
+[![tmux](https://img.shields.io/badge/tmux-integrated-1bb91f?logo=tmux&logoColor=white)](#tmux)
+[![Local first](https://img.shields.io/badge/local--first-127.0.0.1%20only-informational)](#privacy-and-security)
+[![No telemetry](https://img.shields.io/badge/telemetry-none-success)](#privacy-and-security)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/pulls)
+[![GitHub stars](https://img.shields.io/github/stars/FairMind-Gen-AI-Studio/scranton-hq?style=flat&logo=github)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/stargazers)
+[![Last commit](https://img.shields.io/github/last-commit/FairMind-Gen-AI-Studio/scranton-hq?logo=git&logoColor=white)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/commits/main)
+
+[**Demo**](#demo) · [**Install**](#install) · [**Quick start**](#quick-start) · [**The building**](#the-building) · [**Claude Code mod**](#the-claude-code-mod-recommended)
+
+<a href="media/demo.mp4">
+  <img src="media/demo-poster.jpg" alt="scranton-hq: the isometric office building with its sessions, meeting rooms and robots. Click to watch the demo video." width="860">
+</a>
+
+</div>
 
 Provided by [FairMind](https://fairmind.ai), and open source under the Apache License 2.0.
 
@@ -11,6 +41,10 @@ Built for Claude Code (local and cloud) first, with an adapter interface meant t
 ## Status
 
 Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-scranton-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), and [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md).
+
+## Demo
+
+[Watch the demo video](media/demo.mp4) (one minute): a floor with three repositories on one feature, a session that needs you, a workflow run in its meeting room, and robots walking between desks. To play it yourself, run `scranton-hq demo`.
 
 ## What it does
 
