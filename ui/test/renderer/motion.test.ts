@@ -5,6 +5,7 @@ import {
   DOOR_HOLD_MS,
   DOOR_MS,
   FLY_SPEED,
+  SPEED_FACTOR_MAX,
   TRIP_MAX_MS,
   WALK_SPEED,
   doorOpen,
@@ -18,8 +19,8 @@ import {
 const QUARTER = Math.PI / 2;
 
 describe('trips', () => {
-  it('walks at 1.6 m/s and flies at 2.2, lasts 5 s at most, spaces a burst 150 ms apart, draws ambient frames every 50 ms and moves the doors in 400 ms, held 1.2 s', () => {
-    expect([WALK_SPEED, FLY_SPEED, TRIP_MAX_MS, BURST_GAP_MS, AMBIENT_MS, DOOR_MS, DOOR_HOLD_MS]).toEqual([1.6, 2.2, 5000, 150, 50, 400, 1200]);
+  it('walks at 1.6 m/s and flies at 2.2, lasts 5 s at most unless that takes more than 3 times its speed, spaces a burst 150 ms apart, draws ambient frames every 50 ms and moves the doors in 400 ms, held 1.2 s', () => {
+    expect([WALK_SPEED, FLY_SPEED, TRIP_MAX_MS, SPEED_FACTOR_MAX, BURST_GAP_MS, AMBIENT_MS, DOOR_MS, DOOR_HOLD_MS]).toEqual([1.6, 2.2, 5000, 3, 150, 50, 400, 1200]);
   });
 
   it('measures its path from where it starts, keeps its speed while it lasts no more than TRIP_MAX_MS, and copies its points', () => {
@@ -36,6 +37,17 @@ describe('trips', () => {
     expect(trip.speed).toBe(4);
     expect(tripEnd(trip)).toBe(TRIP_MAX_MS);
     expect(tripAt(trip, 2500)).toEqual({ x: 0, z: 10, facing: 0, done: false });
+  });
+
+  it('raises the speed at most SPEED_FACTOR_MAX times, so that a still longer path takes longer than TRIP_MAX_MS', () => {
+    // 30 m at 2 m/s: 3 times as fast, 6 m/s, lasts just 5 s.
+    const fits = startTrip({ x: 0, z: 0 }, [{ x: 0, z: 30 }], 0, 2);
+    expect([fits.speed, tripEnd(fits)]).toEqual([6, TRIP_MAX_MS]);
+    // 36 m would need 7.2 m/s: it goes at 6 and lasts 6 s, from t = 1000.
+    const long = startTrip({ x: 0, z: 0 }, [{ x: 0, z: 36 }], 1000, 2);
+    expect([long.speed, tripEnd(long)]).toEqual([6, 7000]);
+    expect(tripAt(long, 4000)).toEqual({ x: 0, z: 18, facing: 0, done: false });
+    expect(tripAt(long, 7000)).toEqual({ x: 0, z: 36, facing: 0, done: true });
   });
 
   it('is where the clock says along its path, facing the way it goes, and done once at the end', () => {
@@ -119,5 +131,11 @@ describe('doorOpen', () => {
     const open = [1, 1, 1, 0.5, 0, 0, 0, 0.5, 1, 1, 0];
     expect(times.map((t) => doorOpen(passes, t))).toEqual(open);
     expect(times.map((t) => doorOpen([...passes].reverse(), t))).toEqual(open);
+  });
+
+  it('ignores a pass that is not a finite time', () => {
+    expect(doorOpen([NaN], 0)).toBe(0);
+    expect(doorOpen([NaN, 10_000, Infinity, -Infinity], 10_000)).toBe(1);
+    expect(doorOpen([10_000, NaN], 11_400)).toBe(0.5);
   });
 });

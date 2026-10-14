@@ -5,12 +5,14 @@
 
 /** Keeps each id that is still listed on its seat; new ids take the lowest free seats in list order; ids beyond `count` seats get none. Pure. */
 export function keepSeats(prev: ReadonlyMap<string, number>, ids: readonly string[], count: number): Map<string, number> {
+  // A count that is not a whole number has only its whole seats; one that is not a number has none.
+  const n = Number.isNaN(count) ? 0 : Math.floor(count);
   const seats = new Map<string, number>();
   const taken = new Set<number>();
-  // Those still listed keep their seat, while it is one of the `count` and nobody listed before them has it.
+  // Those still listed keep their seat, while it is one of the `n` and nobody listed before them has it.
   for (const id of ids) {
     const seat = prev.get(id);
-    if (seat === undefined || seats.has(id) || taken.has(seat) || seat < 0 || seat >= count) continue;
+    if (seat === undefined || seats.has(id) || taken.has(seat) || seat < 0 || seat >= n) continue;
     seats.set(id, seat);
     taken.add(seat);
   }
@@ -19,7 +21,7 @@ export function keepSeats(prev: ReadonlyMap<string, number>, ids: readonly strin
   for (const id of ids) {
     if (seats.has(id)) continue;
     while (taken.has(free)) free++;
-    if (free >= count) break;
+    if (free >= n) break;
     seats.set(id, free);
     taken.add(free);
   }

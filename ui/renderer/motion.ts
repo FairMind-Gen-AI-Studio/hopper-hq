@@ -6,8 +6,10 @@
 import type { Point } from './world';
 
 export const WALK_SPEED = 1.6, FLY_SPEED = 2.2;
-/** The longest a trip lasts: longer paths are walked faster. */
+/** The longest a trip lasts: longer paths are walked faster, up to SPEED_FACTOR_MAX times their speed. */
 export const TRIP_MAX_MS = 5000;
+/** The most a trip's speed is raised: past it, a long trip on a large floor takes longer than TRIP_MAX_MS. */
+export const SPEED_FACTOR_MAX = 3;
 /** Between two robots leaving or arriving in one burst. */
 export const BURST_GAP_MS = 150;
 /** Between two ambient frames. */
@@ -19,7 +21,7 @@ export interface Trip {
   from: Point;
   points: Point[];
   start: number;
-  /** Metres per second, raised so that the trip lasts at most TRIP_MAX_MS. */
+  /** Metres per second: the given speed, raised so that the trip lasts at most TRIP_MAX_MS, up to SPEED_FACTOR_MAX times it. */
   speed: number;
   /** Path length in metres. */
   length: number;
@@ -40,7 +42,7 @@ export function startTrip(from: Point, points: readonly Point[], start: number, 
     from: { x: from.x, z: from.z },
     points: points.map((p) => ({ x: p.x, z: p.z })),
     start,
-    speed: Math.max(speed, (length * 1000) / TRIP_MAX_MS),
+    speed: Math.max(speed, Math.min(speed * SPEED_FACTOR_MAX, (length * 1000) / TRIP_MAX_MS)),
     length,
   };
 }
@@ -73,7 +75,7 @@ export function tripAt(trip: Trip, now: number): { x: number; z: number; facing:
 }
 
 export type FrameRate = 'still' | 'ambient' | 'full';
-/** Hidden or lost: still. Something moving (a trip, doors, a camera tween or glide, a held key): full. Else ambient when ambient loops run, else still. */
+/** Hidden or lost: still. Something moving (a trip, doors opening or closing but not held open, a camera tween or glide, a held key): full. Else ambient when ambient loops run, else still. */
 export function frameRate(s: { hidden: boolean; lost: boolean; moving: boolean; ambient: boolean }): FrameRate {
   if (s.hidden || s.lost) return 'still';
   if (s.moving) return 'full';
@@ -83,9 +85,11 @@ export function frameRate(s: { hidden: boolean; lost: boolean; moving: boolean; 
 /** How open the elevator doors are at `now` (0 closed, 1 open), given the times robots pass them. */
 export function doorOpen(passes: readonly number[], now: number): number {
   // For each pass, the doors open over the DOOR_MS before it, stay open DOOR_HOLD_MS after it and close over the next
-  // DOOR_MS. Passes close together keep them open; their order does not matter.
+  // DOOR_MS. Passes close together keep them open; their order does not matter. A pass that is not a finite time moves
+  // nothing.
   let open = 0;
   for (const pass of passes) {
+    if (!Number.isFinite(pass)) continue;
     const opening = 1 - (pass - now) / DOOR_MS;
     const closing = 1 - (now - pass - DOOR_HOLD_MS) / DOOR_MS;
     open = Math.max(open, Math.min(1, opening, closing));

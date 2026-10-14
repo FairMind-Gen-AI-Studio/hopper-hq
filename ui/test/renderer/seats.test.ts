@@ -41,4 +41,12 @@ describe('keepSeats', () => {
     expect(keepSeats(seats([['b', 0], ['a', 1]]), ['a', 'b', 'c'], 4)).toEqual(out);
     expect([...out]).toEqual([['a', 1], ['b', 0], ['c', 2]]);
   });
+
+  it('counts only the whole seats of a count that is not a whole number, and none of one that is not a number', () => {
+    expect(keepSeats(new Map(), ['a', 'b', 'c'], 2.5)).toEqual(seats([['a', 0], ['b', 1]]));
+    // Seat 2 is not one of 2.5 seats: 'a' takes the lowest free one.
+    expect([...keepSeats(seats([['a', 2]]), ['a', 'b'], 2.5)]).toEqual([['a', 0], ['b', 1]]);
+    expect(keepSeats(new Map(), ['a'], NaN)).toEqual(new Map());
+    expect(keepSeats(seats([['a', 0]]), ['a'], NaN)).toEqual(new Map());
+  });
 });
