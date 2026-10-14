@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import DeskPanel from '../../components/DeskPanel.svelte';
 import type { FloorDetail, Occupant } from '../../../src/scene/types';
 import { occupantsOf } from '../../lib/occupants';
-import { CHECKOUT, NOW, ORDERS, SEARCH, makeFloor } from '../helpers/fixtures';
+import { CHECKOUT, DOCS, NOW, ORDERS, SEARCH, makeFloor } from '../helpers/fixtures';
 import { cleanup, click, render, text } from '../helpers/render';
 import { RUN, checkoutWithRoom } from '../helpers/rooms';
 
@@ -42,6 +42,22 @@ describe('DeskPanel', () => {
     expect(text(target.querySelector('h2'))).toBe('orders-api-c3');
     expect(text(target.querySelector('.pill'))).toBe('Needs you');
     expect(text(target.querySelector('.p-text'))).toBe('Add idempotency keys to POST /orders');
+  });
+
+  it('says in words when the session has no desk: it waits for a free one, or is dormant', () => {
+    const floor = makeFloor(CHECKOUT)!;
+    floor.unseated.push(
+      { ...find(floor, 'sw-a1'), sessionId: 'sw-w9', name: 'storefront-web-w9', at: { kind: 'gone' } },
+      { ...find(floor, 'sw-b2'), sessionId: 'sw-z8', name: 'storefront-web-z8', state: 'dormant', robot: null, at: { kind: 'gone' } },
+    );
+    const line = (id: string, on: FloorDetail = floor) => {
+      const out = panel(CHECKOUT, id, NOW, () => {}, on).target.querySelector('.no-desk');
+      cleanup();
+      return out && text(out);
+    };
+    expect([line('sw-w9'), line('sw-z8'), line('sw-a1')]).toEqual(['No desk: waiting for a free desk', 'No desk: dormant', null]);
+    // A dormant session keeps its desk while nobody needs it.
+    expect(line('ds-m3', makeFloor(DOCS)!)).toBeNull();
   });
 
   it('says what it waits for and who raised it', () => {

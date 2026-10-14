@@ -95,6 +95,19 @@ describe('FloorPanel', () => {
     expect(onDesk).toHaveBeenCalledWith('sw-w9');
   });
 
+  it('says how many more sessions wait for a desk than it lists, counting them in the floor, and says nothing of a route to one of them', () => {
+    const floor = makeFloor(CHECKOUT)!;
+    floor.unseated.push({ ...sessionOf(floor, 'sw-a1'), sessionId: 'sw-w9', name: 'storefront-web-w9', title: 'Wait for a desk', at: { kind: 'gone' } });
+    floor.unseatedMore = 3;
+    const { target, groups } = panel(CHECKOUT, floor, 'sw-w8');
+    expect(groups()).toHaveLength(3);
+    expect(text(target.querySelector('.p-sub'))).toBe('3 repos on this feature · 8 sessions');
+    expect(text(target.querySelector('.unseated-more'))).toBe('+3 more without a desk');
+    expect(target.querySelector('.gone')).toBeNull();
+    cleanup();
+    expect(panel(CHECKOUT).target.querySelector('.unseated-more')).toBeNull();
+  });
+
   it('marks no row for a desk the route points at on this floor: that desk has a panel of its own', () => {
     const { target } = panel(CHECKOUT, makeFloor(CHECKOUT), 'ps-d4');
     expect(target.querySelector('[aria-current], .sel')).toBeNull();

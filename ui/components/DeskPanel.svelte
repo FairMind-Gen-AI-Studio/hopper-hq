@@ -7,12 +7,12 @@
 
   /**
    * One session: what it does, where it stands, what it waits for, where it runs; the two things to do from here; and
-   * its interns and workflow runs.
+   * its interns and workflow runs. A session without a desk says so, in words: the floor has no robot of it to show.
    */
   interface Props {
     /** The session: at a desk on the floor, or waiting for one. */
     desk: Occupant;
-    floor: Pick<FloorDetail, 'number' | 'name' | 'rooms'>;
+    floor: Pick<FloorDetail, 'number' | 'name' | 'rooms' | 'unseated'>;
     now: number;
     onBack: () => void;
     onGo: (sessionId: string) => void;
@@ -32,6 +32,8 @@
   });
   /** The runs with a room on the floor: their rows open them. */
   const roomed = $derived(new Set(floor.rooms.map((r) => r.runId)));
+  /** It is among the floor's sessions without a desk: waiting for one, or dormant with its desk given to another. */
+  const deskless = $derived(floor.unseated.some((o) => o.sessionId === desk.sessionId));
 </script>
 
 <button type="button" class="linkbtn back" onclick={singleClick(onBack)}>← Floor {floor.number} · {floor.name}</button>
@@ -44,6 +46,9 @@
   </div>
 </div>
 <p class="p-text">{desk.title ?? 'No task yet.'}</p>
+{#if deskless}
+  <p class="p-note no-desk">No desk: {desk.state === 'dormant' ? 'dormant' : 'waiting for a free desk'}</p>
+{/if}
 {#if desk.summary}
   <section class="summary" class:stale={desk.summary.stale}>
     <h3 class="p-h3">Where it stands</h3>

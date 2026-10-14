@@ -5,7 +5,8 @@
 
   /**
    * One floor as a list: a group per checkout (repo, branch, path) and a row per session, at a desk or waiting for one,
-   * then a row per meeting room. It is also what a browser without WebGL uses to get around a floor.
+   * then a row per meeting room. It is also what a browser without WebGL uses to get around a floor. A floor lists the
+   * first UNSEATED_MAX of its sessions without a desk and counts the rest.
    */
   interface Props {
     /** From the building scene: number and name while the detail loads. */
@@ -34,9 +35,9 @@
 
   const head = $derived(floor ?? summary);
   const occupants = $derived(floor ? occupantsOf(floor) : []);
-  const sessions = $derived(floor ? occupants.length : summary ? sessionsOf(summary) : 0);
-  /** The route names a desk that is not on the floor any more. */
-  const missing = $derived(selected !== null && !!floor && !occupants.some((o) => o.sessionId === selected));
+  const sessions = $derived(floor ? occupants.length + floor.unseatedMore : summary ? sessionsOf(summary) : 0);
+  /** The route names a desk that is not on the floor any more: one the floor lists all of its sessions without. */
+  const missing = $derived(selected !== null && !!floor && floor.unseatedMore === 0 && !occupants.some((o) => o.sessionId === selected));
   /** The floor's sessions by checkout path, ordered by repo, branch, then path. */
   const groups = $derived.by((): Group[] => {
     if (!floor) return [];
@@ -109,6 +110,9 @@
       </ul>
     </section>
   {/each}
+  {#if floor.unseatedMore > 0}
+    <p class="p-note unseated-more">+{floor.unseatedMore} more without a desk</p>
+  {/if}
   {#if floor.rooms.length > 0 || floor.roomsMore > 0}
     <section class="meetings">
       <h3 class="p-h3">Meeting rooms</h3>
