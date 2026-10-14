@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { LOUNGE_SEATS, layoutPlan } from '../../../src/scene/layout';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
-import { findPath, walkGrid } from '../../renderer/walk';
-import { advance, doorsMoving, doorsNext, moveAll, settled, walkerAt, type Walker, type Wanted, type Ways } from '../../renderer/walkers';
+import { WALK_CELL, findPath, walkGrid } from '../../renderer/walk';
+import { ELEVATOR_LANES, advance, doorsMoving, doorsNext, moveAll, settled, walkerAt, type Walker, type Wanted, type Ways } from '../../renderer/walkers';
 import { elevatorSpot, internSpots, loungeSpots, seatSpot, standSpot, type Point, type Spot } from '../../renderer/world';
 import { checkoutFloor, checkoutSpecs, makeFloor, seatOf } from './fixtures';
 
@@ -43,16 +44,40 @@ describe('moveAll', () => {
     expect(moves.passes).toEqual([]);
   });
 
-  it('brings robots new to the floor out of the elevator once its doors are open, BURST_GAP_MS apart, an intern flying straight', () => {
+  it('brings robots new to the floor out of the elevator once its doors are open, BURST_GAP_MS apart and in three lanes in turn, an intern flying straight', () => {
     const intern = internSpots(desk)[0]!;
-    const moves = moveAll(new Map(), [want('a', 'desk seat', seat), want('b', 'lounge 2', lounge), want('i', 'intern 0', intern, 'fly')], ways, 1000);
+    const wanted = [want('a', 'desk seat', seat), want('b', 'lounge 2', lounge), want('i', 'intern 0', intern, 'fly'), want('c', 'desk seat', other)];
+    const moves = moveAll(new Map(), wanted, ways, 1000);
     const start = 1000 + DOOR_MS;
+    const lane = (k: number): Point => ({ x: elevator.x + ELEVATOR_LANES[k]!, z: elevator.z });
+    expect(ELEVATOR_LANES).toEqual([0, -0.6, 0.6]);
     expect([...moves.walkers]).toEqual([
       ['a', { gait: 'walk', place: 'desk seat', near: null, to: seat, trip: walk(elevator, seat, start), step: false, arriving: true, leaving: false }],
-      ['b', { gait: 'walk', place: 'lounge 2', near: null, to: lounge, trip: walk(elevator, lounge, start + BURST_GAP_MS), step: false, arriving: true, leaving: false }],
-      ['i', { gait: 'fly', place: 'intern 0', near: null, to: intern, trip: startTrip(elevator, [point(intern)], start + 2 * BURST_GAP_MS, FLY_SPEED), step: false, arriving: true, leaving: false }],
+      ['b', { gait: 'walk', place: 'lounge 2', near: null, to: lounge, trip: walk(lane(1), lounge, start + BURST_GAP_MS), step: false, arriving: true, leaving: false }],
+      ['i', { gait: 'fly', place: 'intern 0', near: null, to: intern, trip: startTrip(lane(2), [point(intern)], start + 2 * BURST_GAP_MS, FLY_SPEED), step: false, arriving: true, leaving: false }],
+      ['c', { gait: 'walk', place: 'desk seat', near: null, to: other, trip: walk(elevator, other, start + 3 * BURST_GAP_MS), step: false, arriving: true, leaving: false }],
     ]);
-    expect(moves.passes).toEqual([start, start + BURST_GAP_MS, start + 2 * BURST_GAP_MS]);
+    expect(moves.passes).toEqual([0, 1, 2, 3].map((k) => start + k * BURST_GAP_MS));
+  });
+
+  it('puts every lane out of the elevator on a free cell of the walk grid, at every plan size', () => {
+    for (const blocks of [1, 2, 3, 4]) {
+      for (const roomCols of [1, 2]) {
+        const plan = layoutPlan({ blocks, roomCols });
+        const grid = walkGrid({
+          size: plan.size,
+          core: plan.core,
+          pods: plan.pods.map((p) => ({ ...p, color: null, placard: null, desks: p.desks.map((d) => ({ ...d, occupant: null })) })),
+          lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
+          roomSlots: plan.rooms,
+        });
+        const spot = elevatorSpot(plan.core);
+        for (const lane of ELEVATOR_LANES) {
+          const x = spot.x + lane;
+          expect(grid.blocked[Math.floor(spot.z / WALK_CELL) * grid.cols + Math.floor(x / WALK_CELL)], `${blocks}x${roomCols} lane ${lane}`).toBe(0);
+        }
+      }
+    }
   });
 
   it('keeps a robot whose place stays as it is, at rest or under way, and turns it to a new facing', () => {
@@ -133,7 +158,7 @@ describe('moveAll', () => {
     expect(back).toEqual({ gait: 'walk', place: 'desk seat', near: null, to: seat, trip: walk(where(leaving.trip!, 2000), seat, 2000), step: false, arriving: false, leaving: false });
     const kept = moveAll(new Map([['a', leaving]]), [], ways, 2000);
     expect(kept.walkers.get('a')).toBe(leaving);
-    expect(kept.passes).toEqual([]);
+    expect(kept.passes).toEqual([tripEnd(leaving.trip!)]);
   });
 
   it('finds the way out again on a new grid for a leaver, setting off when it was to', () => {
@@ -149,7 +174,19 @@ describe('moveAll', () => {
     const inside: Walker = { gait: 'walk', place: 'desk seat', near: null, to: seat, trip: walk(elevator, seat, 2400), step: false, arriving: true, leaving: false };
     const moves = moveAll(new Map([['a', inside]]), [want('a', 'lounge 2', lounge)], ways, 2000);
     expect(moves.walkers.get('a')).toEqual({ gait: 'walk', place: 'lounge 2', near: null, to: lounge, trip: walk(elevator, lounge, 2400), step: false, arriving: true, leaving: false });
-    expect(moves.passes).toEqual([]);
+    expect(moves.passes).toEqual([2400]);
+  });
+
+  it('gives the passes of every robot still to come out of the elevator or to reach it, and none of one dropped inside it or turned back', () => {
+    const inside: Walker = { gait: 'walk', place: 'desk seat', near: null, to: seat, trip: walk(elevator, seat, 2400), step: false, arriving: true, leaving: false };
+    const out: Walker = { ...inside, trip: walk(elevator, other, 1500), to: other };
+    const leaving: Walker = { gait: 'walk', place: '', near: null, to: elevator, trip: walk(seat, elevator, 1000), step: false, arriving: false, leaving: true };
+    const prev = new Map([['in', inside], ['out', out], ['leaving', leaving]]);
+    // The one inside and the leaver still have to pass the doors; the one already out passed them at 1500.
+    expect(moveAll(prev, [want('in', 'desk seat', seat), want('out', 'desk seat', other)], ways, 2000).passes).toEqual([2400, tripEnd(leaving.trip!)]);
+    // Dropped inside the elevator, and turned back before it gets there: no pass is left for either.
+    const moves = moveAll(prev, [want('out', 'desk seat', other), want('leaving', 'desk seat', seat)], ways, 2000);
+    expect([[...moves.walkers.keys()], moves.walkers.get('leaving')!.leaving, moves.passes]).toEqual([['out', 'leaving'], false, []]);
   });
 
   it('is pure: the same walkers for the same update, prev left as it was, a robot listed twice placed once', () => {

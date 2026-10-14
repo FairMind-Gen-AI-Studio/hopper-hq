@@ -142,7 +142,10 @@ export class FloorScene {
   private walkers = new Map<string, Walker>();
   /** Each robot by the same key. */
   private readonly movers = new Map<string, Mover>();
-  /** When robots pass the elevator doors, until the doors have shut after them. */
+  /**
+   * When robots pass the elevator doors, until the doors have shut after them: those that did, and those the walkers are
+   * to, given anew with each update, so that no robot that no longer comes or goes keeps the doors open.
+   */
   private passes: number[] = [];
   /** The time of the last update or frame. */
   private clock = 0;
@@ -271,7 +274,7 @@ export class FloorScene {
     const snap = now === undefined;
     const moves = moveAll(this.walkers, wanted, this.ways!, now ?? 0, { snap, regrid: rebuild });
     this.walkers = moves.walkers;
-    this.passes = snap ? [] : [...this.passes, ...moves.passes];
+    this.passes = now === undefined ? [] : [...this.passes.filter((pass) => pass <= now), ...moves.passes];
     this.cast(wanted, now ?? 0);
     for (const c of wanted) c.join(this.movers.get(c.id)!.robot);
     setDoors(shell.doors, floor.core, doorOpen(this.passes, now ?? 0));

@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Box3, BoxGeometry, CanvasTexture, Color, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, SRGBColorSpace, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
 import { POD_DESKS } from '../../../src/scene/layout';
 import type { PodDesk } from '../../../src/scene/types';
+import { CONTACT_R } from '../../renderer/floor-scene';
 import { Furniture, type Piece } from '../../renderer/furniture';
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
 import {
   DOOR_PANEL,
   DOOR_SLIDE,
+  ELEVATOR_W,
   Geometries,
   NAMEPLATE,
   NAMEPLATE_CHARS,
@@ -179,6 +181,21 @@ describe('the shell', () => {
     expect(at(1)).toEqual([-(DOOR_PANEL / 2 + DOOR_SLIDE), DOOR_PANEL / 2 + DOOR_SLIDE]);
     expect(at(0.5)).toEqual([-(DOOR_PANEL / 2 + DOOR_SLIDE / 2), DOOR_PANEL / 2 + DOOR_SLIDE / 2]);
     expect(at(0)).toEqual([-DOOR_PANEL / 2, DOOR_PANEL / 2]);
+  });
+
+  it('slides the elevator doors open no further than its frame, leaving a gap wider than a robot', () => {
+    const { geo, mats } = kit();
+    const floor = checkoutFloor();
+    const shell = buildShell(floor, geo, mats);
+    const coreX = floor.core.x + floor.core.w / 2;
+    const frame = meshes(shell.walls[0]!.group).find((m) => m.material === mats.surface.frame && m.position.x === coreX && m.position.y === 1.2)!;
+    const edge = new Box3().setFromObject(frame).max.x - coreX;
+    expect(edge).toBeCloseTo(ELEVATOR_W / 2, 6);
+    setDoors(shell.doors, floor.core, 1);
+    const [west, east] = shell.doors.map((d) => new Box3().setFromObject(d));
+    expect(coreX - west!.min.x).toBeLessThanOrEqual(edge + 1e-6);
+    expect(east!.max.x - coreX).toBeLessThanOrEqual(edge + 1e-6);
+    expect(east!.min.x - west!.max.x).toBeGreaterThanOrEqual(2 * CONTACT_R);
   });
 
   it('lays a rug under each pod with a lamp over it, neutral until the floor colours them by the pod\'s repository', () => {

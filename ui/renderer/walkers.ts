@@ -44,6 +44,12 @@ export interface Walker {
   leaving: boolean;
 }
 
+/**
+ * Where the robots of a burst come out of the elevator, in turn: across its spot, in metres, so that no two robots of a
+ * burst come out at one place (a robot is about 0.5 m wide).
+ */
+export const ELEVATOR_LANES = [0, -0.6, 0.6] as const;
+
 /** What walkers find their way by: the floor's walk grid, and the elevator spot, where robots come and go. */
 export interface Ways {
   grid: WalkGrid;
@@ -52,7 +58,10 @@ export interface Ways {
 
 export interface Moves {
   walkers: Map<string, Walker>;
-  /** When the trips this update sets off pass the elevator doors: an arrival as it starts, a departure as it ends. */
+  /**
+   * When the walkers pass the elevator doors from now on: each one still inside as it comes out, each leaver as it gets
+   * there. A robot dropped inside the elevator, or turned back on its way out, has none.
+   */
   passes: number[];
 }
 
@@ -60,7 +69,7 @@ export interface Moves {
  * The walkers after a floor update at `now`: those wanted in the order of `wanted`, then those leaving in the order of
  * `prev`. A robot
  * - new to the floor comes out of the elevator: the k-th of the update (k from 0) sets off DOOR_MS + k * BURST_GAP_MS
- *   from now, once the doors are open;
+ *   from now, once the doors are open, from the k-th of ELEVATOR_LANES in turn;
  * - whose place changed, or that was leaving, goes there from where it is now: one straight step from a place near it,
  *   at rest or on such a step, else over the grid;
  * - whose place stayed keeps its trip, or, at rest, its place's spot, which the furniture may have moved;
@@ -73,21 +82,19 @@ export interface Moves {
  */
 export function moveAll(prev: ReadonlyMap<string, Walker>, wanted: readonly Wanted[], ways: Ways, now: number, opts: { snap?: boolean; regrid?: boolean } = {}): Moves {
   const walkers = new Map<string, Walker>();
-  const passes: number[] = [];
   let arrivals = 0;
   for (const w of wanted) {
     if (walkers.has(w.id)) continue;
     const p = prev.get(w.id);
     if (opts.snap) walkers.set(w.id, { gait: w.gait, place: w.place, near: w.near ?? null, to: w.to, trip: null, step: false, arriving: false, leaving: false });
     else if (!p) {
-      const from = ways.elevator;
+      const from = { x: ways.elevator.x + ELEVATOR_LANES[arrivals % ELEVATOR_LANES.length]!, z: ways.elevator.z };
       const trip = startTrip(from, route(ways, w.gait, from, w.to), now + DOOR_MS + arrivals++ * BURST_GAP_MS, speedOf(w.gait));
-      passes.push(trip.start);
       walkers.set(w.id, { gait: w.gait, place: w.place, near: w.near ?? null, to: w.to, trip, step: false, arriving: true, leaving: false });
     } else if (p.leaving || p.place !== w.place || (p.trip && (opts.regrid || !sameSpot(p.to, w.to)))) walkers.set(w.id, head(ways, p, w, now));
     else walkers.set(w.id, sameSpot(p.to, w.to) && p.to.facing === w.to.facing ? p : { ...p, to: w.to });
   }
-  if (opts.snap) return { walkers, passes };
+  if (opts.snap) return { walkers, passes: [] };
   let departures = 0;
   for (const [id, p] of prev) {
     if (walkers.has(id) || (p.arriving && p.trip && now < p.trip.start)) continue;
@@ -99,10 +106,19 @@ export function moveAll(prev: ReadonlyMap<string, Walker>, wanted: readonly Want
     const start = p.leaving ? Math.max(now, p.trip?.start ?? now) : now + departures++ * BURST_GAP_MS;
     const from = positionOf(p, now);
     const trip = startTrip(from, route(ways, p.gait, from, ways.elevator), start, speedOf(p.gait));
-    passes.push(tripEnd(trip));
     walkers.set(id, { gait: p.gait, place: '', near: null, to: ways.elevator, trip, step: false, arriving: false, leaving: true });
   }
-  return { walkers, passes };
+  return { walkers, passes: passesOf(walkers, now) };
+}
+
+/** When the walkers pass the elevator doors from `now` on: each one still inside as it comes out, each leaver as it gets there. */
+function passesOf(walkers: ReadonlyMap<string, Walker>, now: number): number[] {
+  const passes: number[] = [];
+  for (const w of walkers.values()) {
+    const pass = !w.trip ? null : w.arriving ? w.trip.start : w.leaving ? tripEnd(w.trip) : null;
+    if (pass !== null && pass >= now) passes.push(pass);
+  }
+  return passes;
 }
 
 /** Where the walker is at `now`, the way it faces, whether it is on its way (past its start, short of its end), and whether it is out of the elevator. */

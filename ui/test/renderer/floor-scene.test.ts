@@ -985,6 +985,50 @@ describe('walking', () => {
     expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
   });
 
+  it('leaves the elevator doors shut for a robot that leaves before it comes out, and for a leaver wanted back before it gets there', () => {
+    const fs = sceneOf();
+    const doors = fs.shell!.doors;
+    const gap = () => doors[1]!.position.x - doors[0]!.position.x;
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.push({ id: 'sw-x9', state: 'working' });
+    fs.apply(makeFloor(checkouts), 1000);
+    // sw-x9 leaves the floor while the doors open for it, before it comes out.
+    fs.apply(checkoutFloor(), 1100);
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+    expect(fs.frame(1000 + DOOR_MS)).toMatchObject({ moving: false, wake: null });
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+    // sw-c3 leaves, and is wanted back on its way to the elevator: it walks back, and the doors never open.
+    const without = checkoutSpecs();
+    without[0]!.desks.pop();
+    fs.apply(makeFloor(without), 5000);
+    fs.apply(checkoutFloor(), 5200);
+    let t = 5200;
+    for (let step = fs.frame(t); step.moving || step.wake !== null; step = fs.frame(t)) {
+      expect(gap(), `at ${t}`).toBeCloseTo(DOOR_PANEL, 10);
+      t += 16;
+    }
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+    expect(at(fs.sessions.get('sw-c3')!.robot!)).toEqual(spot(seatSpot(seatOf(checkoutFloor(), 'sw-c3').desk)));
+  });
+
+  it('brings the robots of a burst out of the elevator in three lanes, none within 0.5 m of another of its burst as it comes out', () => {
+    const fs = sceneOf();
+    fs.apply(roomFloor(), 0);
+    const elevator = elevatorSpot(checkoutFloor().core);
+    const burst = fs.scene.children.filter((o) => /^agent /.test(o.name));
+    expect(burst).toHaveLength(11);
+    const lanes = new Set<number>();
+    burst.forEach((robot, k) => {
+      fs.frame(DOOR_MS + k * BURST_GAP_MS);
+      expect([robot.visible, robot.position.z]).toEqual([true, elevator.z]);
+      lanes.add(Math.round((robot.position.x - elevator.x) * 10) / 10);
+      for (const other of burst.slice(0, k)) {
+        if (other.parent) expect(Math.hypot(other.position.x - robot.position.x, other.position.z - robot.position.z), `${robot.name} and ${other.name}`).toBeGreaterThanOrEqual(0.5);
+      }
+    });
+    expect([...lanes].sort((a, b) => a - b)).toEqual([-0.6, 0, 0.6]);
+  });
+
   it('lets a robot on its way cast no shadow, with a soft disc under it instead, until it is at its place and casts again', () => {
     const fs = sceneOf();
     const robot = fs.sessions.get('sw-c3')!.robot!;

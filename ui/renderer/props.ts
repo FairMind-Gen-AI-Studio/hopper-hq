@@ -140,11 +140,11 @@ export function part(parent: Object3D, geometry: BufferGeometry, material: Mater
 export const WINDOW_EVERY = 5;
 export const WINDOW_W = 2.2;
 export const WINDOW_Y = 1.55;
-/** The elevator's frame width on the north wall. */
-export const ELEVATOR_W = 2;
 /** Each elevator door's width, and how far it slides aside from its closed place when the doors open. */
 export const DOOR_PANEL = 0.8;
 export const DOOR_SLIDE = 0.72;
+/** The elevator's frame width on the north wall: the doors, open, lie on it and never past it. */
+export const ELEVATOR_W = 2 * (DOOR_PANEL + DOOR_SLIDE);
 
 /** Centres of the windows along a wall of this length, leaving out any that would overlap `skip` (from, to). */
 export function windowSpots(length: number, skip: readonly [number, number] | null = null): number[] {
@@ -237,7 +237,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     return { side, group: wall };
   });
 
-  // The core: the elevator on the north wall above it, a lobby mat and two plants. The doors slide over the wall: they
+  // The core: the elevator on the north wall above it, a lobby mat and two plants. The doors slide over its frame: they
   // cast no shadow, so that the shadow map need not be drawn again as they move.
   const north = walls[0]!.group;
   part(north, geo.rbox(ELEVATOR_W, 2.4, 0.12, 0.03), s.frame, core.x, 1.2, 0.06);
