@@ -256,6 +256,7 @@
           {#key route.floor}
             <FloorStage
               {floor}
+              epoch={$store.epoch}
               selected={target}
               theme={resolvedTheme(theme, systemDark)}
               load={renderer}

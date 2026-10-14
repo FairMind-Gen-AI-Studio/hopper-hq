@@ -656,12 +656,36 @@ describe('App floor in 3D', () => {
     await settle();
     expect(renderer.views).toHaveLength(1);
     const view = renderer.views[0]!;
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan']);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4 snap`, 'select - pan']);
     const floor = makeFloor(CHECKOUT)!;
     floor.pods = floor.pods.slice(1);
     store.set({ floor });
     flushSync();
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', `floor ${CHECKOUT} 3`]);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4 snap`, 'select - pan', `floor ${CHECKOUT} 3`]);
+  });
+
+  it('gives the view the first floor of each stream as first sight, and the floors after it to walk to', async () => {
+    location.hash = toHash({ floor: CHECKOUT, desk: null });
+    const { store, renderer } = app();
+    await settle();
+    const view = renderer.views[0]!;
+    const floors = () => view.calls.filter((c) => c.startsWith('floor'));
+    const fewer = () => {
+      const floor = makeFloor(CHECKOUT)!;
+      floor.pods = floor.pods.slice(1);
+      return floor;
+    };
+    store.set({ floor: fewer() });
+    flushSync();
+    // A new stream opens: its epoch comes first, and changes nothing on its own; then its floor, which is first sight.
+    store.set({ epoch: 1 });
+    flushSync();
+    expect(floors()).toEqual([`floor ${CHECKOUT} 4 snap`, `floor ${CHECKOUT} 3`]);
+    store.set({ floor: makeFloor(CHECKOUT)! });
+    flushSync();
+    store.set({ floor: fewer() });
+    flushSync();
+    expect(floors()).toEqual([`floor ${CHECKOUT} 4 snap`, `floor ${CHECKOUT} 3`, `floor ${CHECKOUT} 4 snap`, `floor ${CHECKOUT} 3`]);
   });
 
   it('pans to the desk the address or the panel picks, and routes a click on a desk without moving the camera', async () => {
@@ -745,7 +769,7 @@ describe('App floor in 3D', () => {
     expect(renderer.views).toHaveLength(2);
     const second = renderer.views[1]!;
     expect(second.host.canvas).not.toBe(first.host.canvas);
-    expect(second.calls).toEqual([`floor ${ORDERS} 5`, 'select desk oa-g7 pan']);
+    expect(second.calls).toEqual([`floor ${ORDERS} 5 snap`, 'select desk oa-g7 pan']);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     flushSync();

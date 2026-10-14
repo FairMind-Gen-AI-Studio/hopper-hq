@@ -1,16 +1,21 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import type { FloorDetail } from '../../src/scene/types';
+  import { motionFromSearch } from '../lib/motion';
   import type { RendererModule } from '../lib/renderer';
   import type { FloorView, Target } from '../renderer/index';
 
   /**
    * The open floor in 3D. The renderer loads on mount and draws on this component's own canvas: a view releases its
    * WebGL context when it is disposed, so each floor gets a fresh stage. The route owns the selection: a desk or a room
-   * clicked in the view is marked and reported, and one the route picks elsewhere is marked and panned to.
+   * clicked in the view is marked and reported, and one the route picks elsewhere is marked and panned to. Robots walk
+   * when the floor changes, but the first floor of each stream is first sight, with every robot already in its place.
+   * ?motion=off turns walking off; the stage is marked data-moving while anything walks.
    */
   interface Props {
     floor: FloorDetail;
+    /** The stream the floor came from (ClientState.epoch). */
+    epoch: number;
     /** The desk or the room the route points at. */
     selected: Target | null;
     /** The theme in force. The stage reads the colours again when it changes. */
@@ -20,7 +25,7 @@
     /** A double-click, or Enter on the selected desk or room: go to the pane of the desk, or of the room's host. */
     onActivate: (sessionId: string) => void;
   }
-  let { floor, selected, theme, load, onSelect, onActivate }: Props = $props();
+  let { floor, epoch, selected, theme, load, onSelect, onActivate }: Props = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let labels: HTMLElement | undefined = $state();
@@ -33,6 +38,12 @@
   /** What the view marks; undefined until the first selection. */
   let marked: Target | null | undefined;
   let gone = false;
+  /** Read once, when the stage mounts. */
+  const motion = motionFromSearch(location.search);
+  /** The epoch of the last floor the view was given; null before the first. */
+  let given: number | null = null;
+  /** Robots or the elevator doors move in the view. */
+  let moving = $state(false);
 
   /** The route gives a new target object for the desk or room it already points at: compare what they name. */
   function same(a: Target | null | undefined, b: Target | null | undefined): boolean {
@@ -71,7 +82,7 @@
     load().then((r) => {
       if (gone || !canvas || !labels) return;
       try {
-        const v = r.mountFloorView({ canvas, labels }, colours(r));
+        const v = r.mountFloorView({ canvas, labels }, colours(r), { motion });
         // A desk or room clicked in the view is on screen: mark it without moving the camera, so that the second click
         // of a double-click lands on the same one.
         v.on('select', (target) => {
@@ -79,6 +90,7 @@
           v.select(target);
           onSelect(target);
         });
+        v.on('moving', (now) => (moving = now));
         // A room is its host's: activating it goes to the host's pane.
         v.on('activate', (target) => {
           const id = target.kind === 'desk' ? target.id : floor.rooms.find((r) => r.runId === target.id)?.hostSessionId;
@@ -98,9 +110,13 @@
     view?.dispose();
   });
 
-  // Separate on purpose: a floor update must not move the camera back to the selected desk.
+  // Separate on purpose: a floor update must not move the camera back to the selected desk. Only a new floor runs this:
+  // a stream that opens moves the epoch on before its first floor comes.
   $effect(() => {
-    if (view) view.setFloor(floor);
+    if (!view) return;
+    const from = untrack(() => epoch);
+    view.setFloor(floor, { snap: from !== given });
+    given = from;
   });
   // A desk or room picked in the address, the panel or the attention bar may be off screen: pan to it.
   $effect(() => {
@@ -129,7 +145,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="floor-stage">
+<div class="floor-stage" data-moving={moving ? 'true' : undefined}>
   {#if failure === 'no-webgl'}
     <p class="no-webgl" role="status">This browser cannot draw the floor in 3D. Its desks are listed in the panel.</p>
   {:else if failure === 'load'}

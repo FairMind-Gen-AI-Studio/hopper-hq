@@ -22,7 +22,7 @@ async function settle(): Promise<void> {
 function stage(renderer: FakeRenderer = fakeRenderer(), selected: Target | null = null, floor: FloorDetail = makeFloor(CHECKOUT)!) {
   const onSelect = vi.fn();
   const onActivate = vi.fn();
-  const target = render(FloorStage, { floor, selected, theme: 'day', load: renderer.load, onSelect, onActivate });
+  const target = render(FloorStage, { floor, epoch: 1, selected, theme: 'day', load: renderer.load, onSelect, onActivate });
   const tool = (label: string) => target.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
   return { target, renderer, onSelect, onActivate, tool };
 }
@@ -44,7 +44,7 @@ describe('FloorStage', () => {
     const view = renderer.views[0]!;
     expect(view.host.canvas).toBe(target.querySelector('.floor-stage canvas'));
     expect(view.host.labels.parentElement).toBe(target.querySelector('.floor-stage'));
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select desk sw-b2 pan']);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4 snap`, 'select desk sw-b2 pan']);
     expect(view.mountedTheme).toBe('system');
     expect(tool('Turn left').disabled).toBe(false);
     expect(target.querySelector('.no-webgl')).toBeNull();
@@ -81,7 +81,7 @@ describe('FloorStage', () => {
     view.emit('activate', { kind: 'desk', id: 'sw-a1' });
     expect(onSelect.mock.calls).toEqual([[{ kind: 'desk', id: 'sw-a1' }], [null]]);
     expect(onActivate.mock.calls).toEqual([['sw-a1']]);
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, 'select - pan', 'select desk sw-a1', 'select -']);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4 snap`, 'select - pan', 'select desk sw-a1', 'select -']);
   });
 
   it('shows the room in the address, marks and reports a room picked in 3D, and goes to its host when it is activated', async () => {
@@ -94,7 +94,7 @@ describe('FloorStage', () => {
     view.emit('activate', { kind: 'room', id: 'wf_gone' });
     expect(onSelect.mock.calls).toEqual([[{ kind: 'desk', id: 'sw-a1' }], [{ kind: 'room', id: RUN }]]);
     expect(onActivate.mock.calls).toEqual([['ps-d4']]);
-    expect(view.calls).toEqual([`floor ${CHECKOUT} 4`, `select room ${RUN} pan`, 'select desk sw-a1', `select room ${RUN}`]);
+    expect(view.calls).toEqual([`floor ${CHECKOUT} 4 snap`, `select room ${RUN} pan`, 'select desk sw-a1', `select room ${RUN}`]);
   });
 
   it('turns and resets the camera from its buttons and from Q, E and R', async () => {
@@ -111,6 +111,36 @@ describe('FloorStage', () => {
     key('E');
     key('r');
     expect(view.calls).toEqual(['rotate -1', 'rotate 1', 'reset']);
+  });
+
+  it('mounts the view with its robots walking, or jumping to their places for ?motion=off', async () => {
+    const { renderer } = stage();
+    await settle();
+    expect(renderer.views[0]!.motion).toBe(true);
+    cleanup();
+    const url = location.href;
+    history.replaceState(null, '', '?motion=off');
+    try {
+      const { renderer: still } = stage();
+      await settle();
+      expect(still.views[0]!.motion).toBe(false);
+    } finally {
+      history.replaceState(null, '', url);
+    }
+  });
+
+  it('marks the stage data-moving while the view says robots or the elevator doors move', async () => {
+    const { target, renderer } = stage();
+    await settle();
+    const view = renderer.views[0]!;
+    const el = target.querySelector('.floor-stage')!;
+    expect(el.hasAttribute('data-moving')).toBe(false);
+    view.emit('moving', true);
+    flushSync();
+    expect(el.getAttribute('data-moving')).toBe('true');
+    view.emit('moving', false);
+    flushSync();
+    expect(el.hasAttribute('data-moving')).toBe(false);
   });
 
   it('leaves other keys, shortcuts and typing alone', async () => {
@@ -151,6 +181,7 @@ describe('FloorStage', () => {
     const onSelect = vi.fn();
     const target = render(FloorStage, {
       floor: makeFloor(CHECKOUT)!,
+      epoch: 1,
       selected: null,
       theme: 'day',
       load: () => Promise.reject(failure),

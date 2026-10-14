@@ -89,10 +89,32 @@ afterEach(() => {
 });
 
 describe('client store', () => {
+  it('starts a new epoch with each stream that opens, the browser reconnecting by itself too, before its first floor', () => {
+    const { store, streams, watch, last } = setup();
+    watch();
+    expect(store.get().epoch).toBe(0);
+    last().open();
+    expect(store.get().epoch).toBe(1);
+    last().send('scene', makeScene());
+    expect(store.get().epoch).toBe(1);
+    // The daemon restarted: the browser opens the same stream again.
+    last().fail(0);
+    expect(store.get()).toMatchObject({ connection: 'retrying', epoch: 1 });
+    last().open();
+    expect(store.get()).toMatchObject({ connection: 'live', epoch: 2 });
+    // A floor to watch: a new stream, whose floor comes after its epoch.
+    store.watchFloor(CHECKOUT);
+    expect(store.get().epoch).toBe(2);
+    last().open();
+    expect([streams.length, store.get().epoch, store.get().floor]).toEqual([2, 3, undefined]);
+    last().send('floor', makeFloor(CHECKOUT));
+    expect(store.get()).toMatchObject({ epoch: 3, floorKey: CHECKOUT, floor: makeFloor(CHECKOUT) });
+  });
+
   it('opens one stream when first subscribed, and goes live when it opens', () => {
     const { store, streams, watch, last } = setup();
     expect(streams).toHaveLength(0);
-    expect(store.get()).toEqual({ connection: 'connecting', scene: null, floorKey: null, floor: undefined });
+    expect(store.get()).toEqual({ connection: 'connecting', epoch: 0, scene: null, floorKey: null, floor: undefined });
     watch();
     watch();
     expect(streams.map((s) => s.url)).toEqual(['/api/events']);

@@ -14,7 +14,7 @@ export interface FakeStore extends ClientStore {
  * the test push any state.
  */
 export function fakeStore(initial: Partial<ClientState> = {}, floors: (key: string) => FloorDetail | null | undefined = makeFloor): FakeStore {
-  let state: ClientState = { connection: 'live', scene: null, floorKey: null, floor: undefined, ...initial };
+  let state: ClientState = { connection: 'live', epoch: 0, scene: null, floorKey: null, floor: undefined, ...initial };
   const subscribers = new Set<(s: ClientState) => void>();
   const store: FakeStore = {
     watched: [],

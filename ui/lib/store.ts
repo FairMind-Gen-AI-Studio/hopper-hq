@@ -15,6 +15,9 @@
  * Every tab of the browser shares those six connections, and `scranton-hq ui` opens a new tab each time. So a page
  * hidden for HIDDEN_GRACE_MS (another tab in front, the window minimised) closes its stream and stops retrying, and
  * opens the stream again as soon as it is shown. The daemon sends the scene on connect, so the page is current at once.
+ *
+ * Each stream that opens, a browser's own reconnection included, starts a new epoch: the floor it sends first is first
+ * sight, which the 3D view shows with every robot already in its place.
  */
 import { SCENE_VERSION, type BuildingScene, type FloorDetail } from '../../src/scene/types';
 
@@ -23,6 +26,8 @@ export type Connection = 'connecting' | 'live' | 'retrying' | 'signed_out' | 'ou
 
 export interface ClientState {
   connection: Connection;
+  /** Streams opened so far: a floor from a new stream is first sight. */
+  epoch: number;
   scene: BuildingScene | null;
   floorKey: string | null;
   /** undefined = loading, null = no such floor. */
@@ -95,7 +100,7 @@ function otherVersion(x: unknown): boolean {
 }
 
 export function createClientStore(deps: StoreDeps): ClientStore {
-  let state: ClientState = { connection: 'connecting', scene: null, floorKey: null, floor: undefined };
+  let state: ClientState = { connection: 'connecting', epoch: 0, scene: null, floorKey: null, floor: undefined };
   const subscribers = new Set<(s: ClientState) => void>();
   let stream: EventSourceLike | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
@@ -135,7 +140,7 @@ export function createClientStore(deps: StoreDeps): ClientStore {
     es.onopen = () => {
       if (!current()) return;
       failures = 0;
-      set({ connection: 'live' });
+      set({ connection: 'live', epoch: state.epoch + 1 });
     };
     es.addEventListener('scene', (e) => {
       const scene = parse(e.data);
