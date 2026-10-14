@@ -62,7 +62,7 @@ describe('bundled fonts', () => {
 
   it('publishes the notices and the licences with the package', () => {
     const pkg = JSON.parse(read('package.json'));
-    expect(pkg.files).toEqual(['dist', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'licenses']);
+    expect(pkg.files).toEqual(['dist', 'README.md', 'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'licenses']);
   });
 
   it('loads seven Latin woff2 files from the pinned packages, and nothing else', () => {

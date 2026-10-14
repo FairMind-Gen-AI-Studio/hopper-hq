@@ -23,7 +23,7 @@
 5. **Imports:** in `src/` and `test/`, all relative imports use the `.js` extension (NodeNext), e.g. `import { x } from './types.js'` even though the file is `types.ts`. Vitest resolves these to the `.ts` sources. The mod in `mod/` follows its own rules (Task 19).
 6. **TDD:** write the test, run it and watch it fail, implement, run it and watch it pass, commit. Commit after every task with the commit block given; each block already carries the `Co-Authored-By` trailer as a second `-m`. Keep it.
 7. **Types are the contract.** Task 3 defines every shared type. Later tasks import them by name and never redefine them. If a task seems to need a type change, stop and report it to the coordinator instead of improvising.
-8. Commands run from the repository root: `/Users/alexiocassani/Projects/watchtower`.
+8. Commands run from the repository root: `/path/to/scranton-hq`.
 
 ## File map
 
@@ -5242,6 +5242,6 @@ These touch the user's real setup. The coordinator stops here and asks the user 
 
 1. Build and link: `npm run build && npm link` (puts `scranton-hq` on the PATH).
 2. Start the daemon in its own tmux window: `scranton-hq start`. Check: `scranton-hq ls` lists the running sessions (this already works from Claude Code's own files).
-3. Try the mod in one new session: `claude --plugin-dir /Users/alexiocassani/Projects/watchtower/mod`. The band shows up there when another session waits or finishes.
-4. To have it in every session: `claude plugin marketplace add /Users/alexiocassani/Projects/watchtower` (or `<owner>/<repo>` once published), then `claude plugin install scranton-hq@scranton-hq`. `claude plugin uninstall scranton-hq` removes it.
+3. Try the mod in one new session: `claude --plugin-dir /path/to/scranton-hq/mod`. The band shows up there when another session waits or finishes.
+4. To have it in every session: `claude plugin marketplace add /path/to/scranton-hq` (or `<owner>/<repo>` once published), then `claude plugin install scranton-hq@scranton-hq`. `claude plugin uninstall scranton-hq` removes it.
 5. Add the tmux lines from the README to `~/.tmux.conf` and reload with `tmux source-file ~/.tmux.conf`.
