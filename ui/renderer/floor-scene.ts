@@ -269,6 +269,11 @@ export class FloorScene {
 
   setTheme(theme: ThemeTokens): void {
     this.mats.applyTheme(theme);
+    // Screens glow in their state's colour from the theme, given to each desk's screen piece.
+    for (const desk of this.floor?.pods.flatMap((p) => p.desks) ?? []) {
+      const obj = this.shellPart?.desks.get(desk.id);
+      if (obj) updateDesk(obj, desk.occupant, this.mats);
+    }
     this.hemi.color.set(theme.colors['hemi-sky']);
     this.hemi.groundColor.set(theme.colors['hemi-ground']);
     this.hemi.intensity = theme.numbers['hemi-int'];
@@ -367,11 +372,13 @@ export class FloorScene {
     return spot ? { x: spot.x, z: spot.z } : null;
   }
 
-  /** Everything a click can pick: the desks somebody sits at, the robots and interns, and the open rooms with their agents. */
+  /**
+   * Everything a click can pick: the furniture, whose pieces pick the desks somebody sits at; the robots and interns; and
+   * the open rooms with their agents.
+   */
   pickables(): Object3D[] {
-    const out: Object3D[] = [];
+    const out: Object3D[] = [...(this.shellPart?.furniture.meshes ?? [])];
     for (const e of this.entries.values()) {
-      if (e.desk) out.push(...(this.shellPart?.desks.get(e.desk.id)?.pickables ?? []));
       out.push(...(e.robot?.pickables ?? []));
       for (const intern of e.interns.values()) out.push(...intern.pickables);
     }

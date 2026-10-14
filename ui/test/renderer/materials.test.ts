@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Color, type MeshStandardMaterial } from 'three';
-import { CONTACT_OPACITY, GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_DIM, ROOM_MIX, RUG_MIX } from '../../renderer/materials';
+import { Color, MeshBasicMaterial, type MeshStandardMaterial } from 'three';
+import { CONTACT_OPACITY, GLASS_OPACITY, JOINT_SHADE, Materials, ROOM_DIM, ROOM_MIX, RUG_MIX, SCREEN_GLASS } from '../../renderer/materials';
 import { dayTheme, type ThemeTokens } from '../../renderer/theme';
 
 const hex = (c: Color) => '#' + c.getHexString();
@@ -103,25 +103,27 @@ describe('materials', () => {
     expect(m.body(1.5)).toBe(m.body(0));
   });
 
-  it('lights a screen in its state colour and leaves idle and dormant screens off', () => {
+  it('lights a screen in its state colour at the screen intensity, as a glowing screen shows it, and leaves idle and dormant screens off', () => {
     const theme = dayTheme();
     const m = new Materials(theme);
     const lit = { working: 's-working', needs_you: 's-needs', done: 's-done', in_meeting: 's-meeting', no_signal: 's-nosignal' } as const;
     for (const [state, token] of Object.entries(lit) as Array<[keyof typeof lit, (typeof lit)[keyof typeof lit]]>) {
-      expect(hex(m.screen(state).emissive), state).toBe(theme.colors[token]);
-      expect(m.screen(state).emissiveIntensity).toBe(theme.numbers['screen-int']);
+      expect(m.screenColor(state).toArray(), state).toEqual(new Color(theme.colors[token]).multiplyScalar(theme.numbers['screen-int']).toArray());
     }
-    expect(new Set(Object.keys(lit).map((s) => m.screen(s as keyof typeof lit))).size).toBe(5);
-    expect(m.screen('idle')).toBe(m.screen('dormant'));
-    expect(m.screen('idle').emissiveIntensity).toBe(0);
-    expect(hex(m.screen('idle').emissive)).toBe('#000000');
+    expect(new Set(Object.keys(lit).map((s) => m.screenColor(s as keyof typeof lit))).size).toBe(5);
+    expect(m.screenColor('idle')).toBe(m.screenColor('dormant'));
+    expect(hex(m.screenColor('idle'))).toBe(SCREEN_GLASS);
+    // The screens' one material is unlit and white: each screen shows the colour it is given.
+    expect(m.screen).toBeInstanceOf(MeshBasicMaterial);
+    expect(hex(m.screen.color)).toBe('#ffffff');
   });
+
 
   it('recolours the same materials in place when the theme changes', () => {
     const m = new Materials(dayTheme());
     const before = m.all();
     const floor = m.surface.floor;
-    const working = m.screen('working');
+    const working = m.screenColor('working');
     const night = nightTheme();
     m.applyTheme(night);
     expect(m.all()).toEqual(before);
@@ -129,11 +131,9 @@ describe('materials', () => {
     expect(m.surface.floor).toBe(floor);
     expect(hex(floor.color)).toBe('#3a3f55');
     expect(hex(m.surface.desk.color)).toBe('#8c877c');
-    expect(hex(m.surface.deskOff.color)).not.toBe('#8c877c');
     expect(m.surface.visor.emissiveIntensity).toBe(1.8);
-    expect(m.screen('working')).toBe(working);
-    expect(hex(working.emissive)).toBe('#ffd27a');
-    expect(working.emissiveIntensity).toBe(2);
+    expect(m.screenColor('working')).toBe(working);
+    expect(working.toArray()).toEqual(new Color('#ffd27a').multiplyScalar(2).toArray());
     expect(hex(m.body(2).color)).toBe('#123456');
     expect(hex(m.tie(4).color)).toBe('#654321');
     expect(hex(m.ring.color)).toBe('#7ea4ff');
@@ -151,7 +151,7 @@ describe('materials', () => {
     m.dispose();
     expect(freed).toBe(m.all().length);
     // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(31 + 3 * 8 + 8 + 1 + 6 + 1 + 1);
+    expect(m.all().length).toBe(30 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Mesh, type BufferGeometry, type Material } from 'three';
+import { Box3, Color, Matrix4, Mesh, Vector3, type BufferGeometry, type Material } from 'three';
 import { CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
+import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
-import { Materials } from '../../renderer/materials';
+import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
 import { DOOR_PANEL, DOOR_SLIDE, Geometries } from '../../renderer/props';
 import { HOVER_Y, KIND_SCALE, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
@@ -51,6 +52,12 @@ const roomTarget = (id: string): Target => ({ kind: 'room', id });
 /** Where a robot stands and the way it faces, as a spot lists them. */
 const at = (o: { group: { position: { x: number; z: number }; rotation: { y: number } } }) => [o.group.position.x, o.group.position.z, o.group.rotation.y];
 const spot = (s: { x: number; z: number; facing: number }) => [s.x, s.z, s.facing];
+/** Where a piece of furniture stands in the world. */
+const matrixOf = (piece: Piece) => new Matrix4().multiplyMatrices(piece.mesh!.matrixWorld, piece.mesh!.getMatrixAt(piece.index, new Matrix4()));
+/** A colour's channels, to the millionth: instanced meshes keep colours in 32-bit floats. */
+const rgb = (c: Color) => c.toArray().map((v) => Math.round(v * 1e6) / 1e6);
+/** The colour a piece is given over its material. */
+const paintOf = (piece: Piece) => rgb(piece.mesh!.getColorAt(piece.index, new Color()));
 
 function sceneOf(floor = checkoutFloor()) {
   const fs = new FloorScene(dayTheme());
@@ -78,15 +85,18 @@ describe('the floor scene', () => {
 
   it('turns each desk to face its chair, lights its screen by its occupant, leaves a free desk dark and dims a dormant one', () => {
     const fs = sceneOf();
+    fs.scene.updateMatrixWorld(true);
     for (const desk of checkoutFloor().pods.flatMap((p) => p.desks)) {
       const obj = fs.shell!.desks.get(desk.id)!;
       const a = deskAnchor(desk);
-      expect([obj.group.position.x, obj.group.position.z, obj.group.rotation.y], desk.id).toEqual([a.x, a.z, desk.chair === 'north' ? Math.PI : 0]);
-      expect(obj.screen.material, desk.id).toBe(fs.mats.screen(desk.occupant?.state ?? 'idle'));
-      expect(obj.top.material, desk.id).toBe(desk.occupant?.state === 'dormant' ? fs.mats.surface.deskOff : fs.mats.surface.desk);
+      const top = new Vector3().setFromMatrixPosition(matrixOf(obj.top));
+      expect([top.x, top.z], desk.id).toEqual([expect.closeTo(a.x, 6), expect.closeTo(a.z, 6)]);
+      // The screen faces the chair: the desk is turned round when its chair is on the north edge.
+      expect(new Vector3(0, 0, 1).transformDirection(matrixOf(obj.screen)).z, desk.id).toBeCloseTo(desk.chair === 'north' ? -1 : 1, 6);
+      expect(paintOf(obj.screen), desk.id).toEqual(rgb(fs.mats.screenColor(desk.occupant?.state ?? 'idle')));
+      expect(paintOf(obj.top), desk.id).toEqual(desk.occupant?.state === 'dormant' ? [DESK_OFF, DESK_OFF, DESK_OFF] : [1, 1, 1]);
     }
-    expect(fs.shell!.desks.get('p0-3')!.screen.material).toBe(fs.mats.screen('idle'));
-    expect(fs.mats.screen('idle').emissiveIntensity).toBe(0);
+    expect(paintOf(fs.shell!.desks.get('p0-3')!.screen)).toEqual(rgb(new Color(SCREEN_GLASS)));
   });
 
   it('keeps unchanged robots, places a changed one where it now belongs, adds the new and drops the gone', () => {
@@ -97,7 +107,7 @@ describe('the floor scene', () => {
     expect(fs.sessions.get('sw-b2')!.robot).toBe(before.get('sw-b2'));
     const changed = fs.sessions.get('sw-a1')!;
     expect(changed.robot).toBe(before.get('sw-a1'));
-    expect(fs.shell!.desks.get(changed.desk!.id)!.screen.material).toBe(fs.mats.screen('needs_you'));
+    expect(paintOf(fs.shell!.desks.get(changed.desk!.id)!.screen)).toEqual(rgb(fs.mats.screenColor('needs_you')));
     expect(at(changed.robot!)).toEqual(spot(standSpot(changed.desk!)));
     expect(fs.sessions.has('sw-c3')).toBe(false);
     expect(gone.robot!.group.parent).toBeNull();
@@ -227,10 +237,10 @@ describe('the floor scene', () => {
     const picks = new Set(fs.pickables());
     for (const { desk, occupant } of seatsOf(roomFloor())) {
       const obj = fs.shell!.desks.get(desk.id)!;
-      expect(obj.pickables.every((m) => picks.has(m) && m.userData.pick?.id === occupant.sessionId), desk.id).toBe(true);
+      expect(obj.pickables.every((p) => picks.has(p.mesh!) && p.pick?.id === occupant.sessionId), desk.id).toBe(true);
     }
     const free = fs.shell!.desks.get('p0-3')!;
-    expect(free.pickables.some((m) => picks.has(m) || m.userData.pick)).toBe(false);
+    expect(free.pickables.some((p) => p.pick)).toBe(false);
     const host = fs.sessions.get('ps-d4')!.robot!;
     expect(host.pickables.every((m) => picks.has(m))).toBe(true);
     expect(host.pickables[0]!.userData.pick).toEqual(deskTarget('ps-d4'));
@@ -239,8 +249,7 @@ describe('the floor scene', () => {
     checkouts[0]!.desks.pop();
     fs.apply(makeFloor(checkouts, undefined, checkoutRooms()));
     const left = fs.shell!.desks.get('p0-2')!;
-    const now = new Set(fs.pickables());
-    expect(left.pickables.some((m) => now.has(m) || m.userData.pick)).toBe(false);
+    expect(left.pickables.some((p) => p.pick)).toBe(false);
   });
 
   it('rings the selected session under its robot, or the chair of its desk when its robot has gone, and hides the ring otherwise', () => {
@@ -321,16 +330,22 @@ describe('the floor scene', () => {
     expect(fs.sun.shadow.camera.right).toBe(shadowExtent(floor.size));
   });
 
-  it('recolours lights and materials in place on a theme change', () => {
+  it('recolours lights and materials in place on a theme change, and lights each screen in the new colour of its state', () => {
     const fs = sceneOf();
     const floorMat = fs.mats.surface.floor;
+    const working = fs.shell!.desks.get(seatOf(checkoutFloor(), 'sw-a1').desk.id)!;
+    const day = dayTheme();
+    expect(paintOf(working.screen)).toEqual(rgb(new Color(day.colors['s-working']).multiplyScalar(day.numbers['screen-int'])));
     const night = dayTheme();
     night.colors['hemi-sky'] = '#8ea2d8';
     night.colors.sun = '#9db4ff';
     night.colors['scene-floor'] = '#3a3f55';
+    night.colors['s-working'] = '#ffd27a';
     night.numbers['hemi-int'] = 0.6;
     night.numbers['sun-int'] = 0.55;
+    night.numbers['screen-int'] = 2;
     fs.setTheme(night);
+    expect(paintOf(working.screen)).toEqual(rgb(new Color('#ffd27a').multiplyScalar(2)));
     expect('#' + fs.hemi.color.getHexString()).toBe('#8ea2d8');
     expect('#' + fs.sun.color.getHexString()).toBe('#9db4ff');
     expect([fs.hemi.intensity, fs.sun.intensity]).toEqual([0.6, 0.55]);

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, BoxGeometry, Group, Mesh, Quaternion, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
-import { Materials } from '../../renderer/materials';
+import { Box3, BoxGeometry, Color, Group, InstancedMesh, Matrix4, Mesh, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
+import { POD_DESKS } from '../../../src/scene/layout';
+import type { PodDesk } from '../../../src/scene/types';
+import { Furniture, type Piece } from '../../renderer/furniture';
+import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
 import { DOOR_PANEL, DOOR_SLIDE, Geometries, buildDesk, buildRoom, buildShell, setDoors, updateDesk, updatePod, updateRoom, windowSpots, type PickData } from '../../renderer/props';
 import { dayTheme } from '../../renderer/theme';
 import {
@@ -38,13 +41,30 @@ function meshes(root: Object3D): Mesh[] {
   return out;
 }
 
-/** The box in the world of every piece drawn under `root` in `material`. */
+/** Where an instance of an instanced mesh stands in the world. */
+function instanceMatrix(mesh: InstancedMesh, index: number): Matrix4 {
+  mesh.updateWorldMatrix(true, false);
+  return new Matrix4().multiplyMatrices(mesh.matrixWorld, mesh.getMatrixAt(index, new Matrix4()));
+}
+
+/** The box in the world of an instance of an instanced mesh. */
+function instanceBox(mesh: InstancedMesh, index: number): Box3 {
+  if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+  return mesh.geometry.boundingBox!.clone().applyMatrix4(instanceMatrix(mesh, index));
+}
+
+/** The box in the world of every piece drawn under `root` in `material`: a mesh, or an instance of an instanced mesh. */
 function drawn(root: Object3D, material: Material): Box3[] {
   root.updateMatrixWorld(true);
   return meshes(root)
     .filter((m) => m.material === material)
-    .map((m) => new Box3().setFromObject(m));
+    .flatMap((m) => (m instanceof InstancedMesh ? Array.from({ length: m.count }, (_, i) => instanceBox(m, i)) : [new Box3().setFromObject(m)]));
 }
+
+/** A colour's channels, to the millionth: instanced meshes keep colours in 32-bit floats. */
+const rgb = (c: Color) => c.toArray().map((v) => Math.round(v * 1e6) / 1e6);
+/** The colour a piece is given over its material. */
+const paintOf = (piece: Piece) => rgb(piece.mesh!.getColorAt(piece.index, new Color()));
 
 describe('shared geometries', () => {
   it('makes each size once and frees them together', () => {
@@ -173,9 +193,20 @@ describe('the shell', () => {
     expect([...shell.desks.keys()]).toEqual(desks.map((d) => d.id));
     for (const desk of desks) {
       const obj = shell.desks.get(desk.id)!;
-      expect(obj.group.parent).toBe(shell.group);
-      expect([obj.screen.material, obj.pickables.some((m) => m.userData.pick)]).toEqual([mats.screen('idle'), false]);
+      expect([obj.top.mesh!.parent, obj.screen.mesh!.parent]).toEqual([shell.group, shell.group]);
+      expect([paintOf(obj.screen), obj.pickables.some((p) => p.pick)]).toEqual([rgb(mats.screenColor('idle')), false]);
     }
+  });
+
+  it('draws the desks with instanced meshes, one per geometry and material, each piece of a desk an instance of one', () => {
+    const { geo, mats } = kit();
+    const floor = checkoutFloor();
+    const shell = buildShell(floor, geo, mats);
+    const n = floor.pods.length * POD_DESKS;
+    // Top, four legs, monitor stand and neck, monitor, screen, keyboard, seat, back, post and base.
+    expect(shell.furniture.meshes.map((m) => m.count)).toEqual([n, 4 * n, n, n, n, n, n, n, n, n, n]);
+    expect(shell.furniture.meshes.every((m) => m.parent === shell.group)).toBe(true);
+    expect(shell.group.getObjectByName(`desk ${floor.pods[0]!.desks[0]!.id}`)).toBeUndefined();
   });
 
   it('furnishes the lounge: a rug, two couches facing each other across a coffee table, and a beanbag at each end', () => {
@@ -222,34 +253,45 @@ describe('the shell', () => {
     const freed = new Set<BufferGeometry>();
     const all = new Set(meshes(shell.group).map((m) => m.geometry));
     for (const g of all) g.addEventListener('dispose', () => freed.add(g));
+    const instanced = new Set<InstancedMesh>();
+    for (const m of shell.furniture.meshes) m.addEventListener('dispose', () => instanced.add(m));
     const shared = geo.size;
     shell.dispose();
     expect(shell.group.parent).toBeNull();
     // The slab, four walls and four base strips; rugs, desks, the lounge, rooms, windows, fittings and lamps stay with the shared set.
     expect(freed.size).toBe(9);
     expect(geo.size).toBe(shared);
+    // The instanced meshes give back what they hold on the GPU.
+    expect(instanced.size).toBe(shell.furniture.meshes.length);
   });
 });
 
 describe('desks', () => {
   const desksOf = () => checkoutFloor().pods.flatMap((p) => p.desks);
+  /** A desk built as the only furniture there is, and drawn. */
+  function alone(desk: PodDesk) {
+    const { geo, mats } = kit();
+    const furniture = new Furniture();
+    const obj = buildDesk(desk, furniture, geo, mats);
+    furniture.build(new Group());
+    return { mats, furniture, obj };
+  }
 
   it('stands each desk at its cells, its screen toward its chair, on either side of a pod', () => {
-    const { geo, mats } = kit();
     for (const desk of desksOf().slice(0, 4)) {
-      const obj = buildDesk(desk, geo, mats);
+      const { furniture, obj } = alone(desk);
       const a = deskAnchor(desk);
-      expect(obj.group.position.toArray()).toEqual([a.x, 0, a.z]);
+      const top = new Vector3().setFromMatrixPosition(instanceMatrix(obj.top.mesh!, obj.top.index));
+      expect([top.x, top.z]).toEqual([expect.closeTo(a.x, 6), expect.closeTo(a.z, 6)]);
       expect(obj.pickables).toHaveLength(5);
-      obj.group.updateMatrixWorld(true);
       // The desk stays inside its 2x2 cells.
-      const box = new Box3().setFromObject(obj.group);
-      expect(box.min.x).toBeGreaterThanOrEqual(desk.rect.x);
-      expect(box.max.x).toBeLessThanOrEqual(desk.rect.x + desk.rect.w);
-      expect(box.min.z).toBeGreaterThanOrEqual(desk.rect.y - 1e-9);
-      expect(box.max.z).toBeLessThanOrEqual(desk.rect.y + desk.rect.h + 1e-9);
+      const box = furniture.meshes.flatMap((m) => Array.from({ length: m.count }, (_, i) => instanceBox(m, i))).reduce((u, b) => u.clone().union(b));
+      expect(box.min.x).toBeGreaterThanOrEqual(desk.rect.x - 1e-6);
+      expect(box.max.x).toBeLessThanOrEqual(desk.rect.x + desk.rect.w + 1e-6);
+      expect(box.min.z).toBeGreaterThanOrEqual(desk.rect.y - 1e-6);
+      expect(box.max.z).toBeLessThanOrEqual(desk.rect.y + desk.rect.h + 1e-6);
       // The screen faces the chair: south in the south row, north in the north row.
-      const normal = new Vector3(0, 0, 1).applyQuaternion(obj.screen.getWorldQuaternion(new Quaternion()));
+      const normal = new Vector3(0, 0, 1).transformDirection(instanceMatrix(obj.screen.mesh!, obj.screen.index));
       expect(normal.z, desk.id).toBeCloseTo(desk.chair === 'south' ? 1 : -1, 6);
     }
   });
@@ -257,37 +299,43 @@ describe('desks', () => {
   it('lights the screen by the state of whoever sits there, dims a dormant one, leaves a free one dark, and picks the occupant only', () => {
     const { geo, mats } = kit();
     const floor = checkoutFloor();
-    for (const desk of desksOf()) {
-      const obj = buildDesk(desk, geo, mats);
+    const furniture = new Furniture();
+    const desks = desksOf().map((desk) => ({ desk, obj: buildDesk(desk, furniture, geo, mats) }));
+    furniture.build(new Group());
+    for (const { desk, obj } of desks) {
       updateDesk(obj, desk.occupant, mats);
       const state = desk.occupant?.state;
-      expect(obj.screen.material, desk.id).toBe(mats.screen(state ?? 'idle'));
-      expect(obj.top.material, desk.id).toBe(state === 'dormant' ? mats.surface.deskOff : mats.surface.desk);
-      for (const m of obj.pickables) expect(m.userData.pick ?? null, desk.id).toEqual(desk.occupant ? ({ kind: 'desk', id: desk.occupant.sessionId } satisfies PickData) : null);
+      expect(paintOf(obj.screen), desk.id).toEqual(rgb(mats.screenColor(state ?? 'idle')));
+      // A dormant session's desk top: the desk's colour times DESK_OFF.
+      expect(paintOf(obj.top), desk.id).toEqual(state === 'dormant' ? [DESK_OFF, DESK_OFF, DESK_OFF] : [1, 1, 1]);
+      for (const p of obj.pickables) expect(p.pick ?? null, desk.id).toEqual(desk.occupant ? ({ kind: 'desk', id: desk.occupant.sessionId } satisfies PickData) : null);
     }
     const { desk, occupant } = seatsOf(floor)[0]!;
-    const obj = buildDesk(desk, geo, mats);
+    const obj = desks.find((d) => d.desk.id === desk.id)!.obj;
     updateDesk(obj, occupant, mats);
     updateDesk(obj, null, mats);
-    expect([obj.screen.material, obj.top.material, obj.pickables.some((m) => m.userData.pick)]).toEqual([mats.screen('idle'), mats.surface.desk, false]);
-    expect(mats.screen('idle').emissiveIntensity).toBe(0);
-    expect(mats.screen('working').emissiveIntensity).toBeGreaterThan(0);
+    expect([paintOf(obj.screen), paintOf(obj.top), obj.pickables.some((p) => p.pick)]).toEqual([rgb(new Color(SCREEN_GLASS)), [1, 1, 1], false]);
+    expect(DESK_OFF).toBe(0.55);
   });
 
   it('lets only the top, the monitor and the chair cast shadows', () => {
-    const { geo, mats } = kit();
-    const obj = buildDesk(desksOf()[0]!, geo, mats);
-    const casters = meshes(obj.group).filter((m) => m.castShadow);
-    expect(casters).toHaveLength(4);
-    for (const m of casters) expect(obj.pickables.includes(m) && m !== obj.screen).toBe(true);
+    const { furniture, obj } = alone(desksOf()[0]!);
+    const casters = furniture.meshes.filter((m) => m.castShadow);
+    expect(casters.map((m) => m.count)).toEqual([1, 1, 1, 1]);
+    const casting = obj.pickables.filter((p) => p.mesh!.castShadow);
+    expect([casting.length, casting.includes(obj.screen)]).toEqual([4, false]);
+    expect(new Set(casting.map((p) => p.mesh))).toEqual(new Set(casters));
   });
 
-  it('shares geometries between desks', () => {
+  it('shares geometries between desks, and the instanced meshes that draw them', () => {
     const { geo, mats } = kit();
     const [a, b] = desksOf();
-    const before = (buildDesk(a!, geo, mats), geo.size);
-    buildDesk(b!, geo, mats);
+    const furniture = new Furniture();
+    const before = (buildDesk(a!, furniture, geo, mats), geo.size);
+    buildDesk(b!, furniture, geo, mats);
     expect(geo.size).toBe(before);
+    furniture.build(new Group());
+    expect(furniture.meshes.map((m) => m.count)).toEqual([2, 8, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
   });
 });
 

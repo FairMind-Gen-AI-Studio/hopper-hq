@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'three';
+import { Vector3, type Camera, type InstancedMesh, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { POD_DESKS } from '../../../src/scene/layout';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target, ViewOptions } from '../../renderer/index';
 import { projectToScreen } from '../../renderer/labels';
@@ -283,7 +284,9 @@ describe('the floor view', () => {
     expect(pose.azimuth).toBeCloseTo(HOME_AZIMUTH, 6);
     expect(pose.zoom).toBe(1);
     expect(labels.querySelectorAll('.fv-tag')).toHaveLength(7);
-    expect(renderer.scene!.getObjectByName(`desk ${seatOf(floor, 'oa-c3').desk.id}`)).toBeDefined();
+    // The desks are drawn by instanced meshes: one of them draws a top for every desk of the plan.
+    const instanced = renderer.scene!.getObjectsByProperty('isInstancedMesh', true) as InstancedMesh[];
+    expect(instanced.some((m) => m.count === floor.pods.length * POD_DESKS)).toBe(true);
     expect(renderer.scene!.getObjectByName('robot oa-c3')).toBeDefined();
     expect(renderer.sizes.at(-1)).toEqual([W, H]);
   });

@@ -1,6 +1,7 @@
 /**
  * Every material of the floor, shared and built from the theme tokens. A theme change recolours them in place, so
- * nothing in the scene is rebuilt; a desk changing state swaps its screen to another shared material.
+ * nothing in the scene is rebuilt. Desk screens share one material and glow in the colour each is given, by its desk's
+ * state (screenColor): the floor gives them their colours again on a theme change.
  */
 import { Color, MeshBasicMaterial, MeshStandardMaterial, type Material } from 'three';
 import { FEATURE_SLOTS, REPO_SLOTS } from '../../src/scene/palette';
@@ -32,7 +33,6 @@ const SURFACES = {
   /** The rug of a pod whose occupants share no repository, or of an empty pod. */
   rug: { color: 'scene-floor', mix: ['scene-base', RUG_MIX] },
   desk: { color: 'scene-desk', roughness: 0.7 },
-  deskOff: { color: 'scene-desk', roughness: 0.7, shade: 0.55 },
   leg: { color: 'scene-leg' },
   chair: { color: 'scene-chair' },
   monitor: { color: 'scene-monitor', roughness: 0.5 },
@@ -70,8 +70,10 @@ export const ROOM_DIM = SURFACES.roomDim.shade;
 export const GLASS_OPACITY = SURFACES.glass.opacity;
 /** Joints and feet: the body colour, darker. */
 export const JOINT_SHADE = 0.62;
-/** A screen's glass; the state colour glows over it. */
+/** A screen that is off: dark glass. */
 export const SCREEN_GLASS = '#0a0a0a';
+/** How much of its colour the top of a dormant session's desk keeps. */
+export const DESK_OFF = 0.55;
 /** How dark the soft disc under a walking or flying robot is: a shadow's stand-in, the same by day and by night. */
 export const CONTACT_OPACITY = 0.22;
 
@@ -93,6 +95,8 @@ function wrap(n: number, size: number): number {
 
 export class Materials {
   readonly surface: Record<Surface, MeshStandardMaterial>;
+  /** Every desk's screen: unlit, white, so that each shows the colour its instance is given (screenColor). */
+  readonly screen: MeshBasicMaterial;
   /** The selection ring, in the accent colour. */
   readonly ring: MeshBasicMaterial;
   /** The soft disc on the floor under a robot on its way, in place of its shadow. */
@@ -103,7 +107,7 @@ export class Materials {
   private readonly rugs: MeshStandardMaterial[] = [];
   private readonly ties: MeshStandardMaterial[] = [];
   private readonly noTie: MeshStandardMaterial;
-  private readonly screens = new Map<ColorToken | null, MeshStandardMaterial>();
+  private readonly screens = new Map<ColorToken | null, Color>();
   private readonly mixer = new Color();
 
   constructor(theme: ThemeTokens) {
@@ -118,9 +122,8 @@ export class Materials {
     }
     for (let n = 0; n < FEATURE_SLOTS; n++) this.ties.push(this.make({ color: `feature-${n}` as ColorToken }));
     this.noTie = this.make({ color: 'feature-none' });
-    for (const token of new Set(Object.values(SCREEN_TOKEN))) {
-      this.screens.set(token, new MeshStandardMaterial({ color: SCREEN_GLASS, roughness: 0.4, metalness: 0 }));
-    }
+    for (const token of new Set(Object.values(SCREEN_TOKEN))) this.screens.set(token, new Color());
+    this.screen = new MeshBasicMaterial();
     this.ring = new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
     this.contact = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: CONTACT_OPACITY, depthWrite: false });
     this.applyTheme(theme);
@@ -144,7 +147,11 @@ export class Materials {
     return slot === null ? this.noTie : this.ties[wrap(slot, FEATURE_SLOTS)]!;
   }
 
-  screen(state: ShownState): MeshStandardMaterial {
+  /**
+   * The colour a screen shows in a state: the state's colour at the theme's screen intensity, as an emissive screen
+   * glows, or dark glass when it is off. Shared: never change it.
+   */
+  screenColor(state: ShownState): Color {
     return this.screens.get(SCREEN_TOKEN[state])!;
   }
 
@@ -159,16 +166,15 @@ export class Materials {
         m.emissiveIntensity = theme.numbers[r.intensity];
       }
     }
-    for (const [token, m] of this.screens) {
-      if (token) m.emissive.set(theme.colors[token]);
-      else m.emissive.setRGB(0, 0, 0);
-      m.emissiveIntensity = token ? theme.numbers['screen-int'] : 0;
+    for (const [token, color] of this.screens) {
+      if (token) color.set(theme.colors[token]).multiplyScalar(theme.numbers['screen-int']);
+      else color.set(SCREEN_GLASS);
     }
     this.ring.color.set(theme.colors.accent);
   }
 
   all(): Material[] {
-    return [...this.recipes.map(([m]) => m), ...this.screens.values(), this.ring, this.contact];
+    return [...this.recipes.map(([m]) => m), this.screen, this.ring, this.contact];
   }
 
   dispose(): void {

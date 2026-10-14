@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, OrthographicCamera, Vector2, Vector3 } from 'three';
+import { BoxGeometry, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Vector2, Vector3 } from 'three';
 import { FloorScene } from '../../renderer/floor-scene';
 import { pickTarget, toNdc } from '../../renderer/pick';
 import { dayTheme } from '../../renderer/theme';
@@ -68,6 +68,23 @@ describe('picking', () => {
     low.removeFromParent();
     low.updateMatrixWorld();
     expect(pickTarget(camera, at, [odd, low])).toEqual(desk('low'));
+  });
+
+  it('picks what the instance under the pointer picks, and lets an instance that picks nothing through', () => {
+    const camera = topDown();
+    const mesh = new InstancedMesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial(), 3);
+    [[2, 2, 0], [-2, 2, 1], [0, 2, 0]].forEach(([x, y, z], i) => mesh.setMatrixAt(i, new Matrix4().makeTranslation(x!, y!, z!)));
+    mesh.userData.picks = [desk('a'), { kind: 'room', id: 'wf_0000aaaa-001' }, undefined];
+    mesh.updateMatrixWorld();
+    const low = box('low', 0, 0, 0);
+    expect(pickTarget(camera, new Vector2(0.4, 0), [mesh, low])).toEqual(desk('a'));
+    expect(pickTarget(camera, new Vector2(-0.4, -0.2), [mesh, low])).toEqual({ kind: 'room', id: 'wf_0000aaaa-001' });
+    // The third instance stands over `low` and picks nothing: the click goes through it.
+    expect(pickTarget(camera, new Vector2(0, 0), [mesh, low])).toEqual(desk('low'));
+    // An instance is read from its mesh's picks, never from the mesh's own pick.
+    mesh.userData.picks = undefined;
+    mesh.userData.pick = desk('whole');
+    expect(pickTarget(camera, new Vector2(0.4, 0), [mesh])).toBeNull();
   });
 
   it('picks the session at each desk of a floor through the home camera, and nothing at a free desk', () => {

@@ -1,11 +1,13 @@
 /**
  * The floor's furniture from primitives: the shell (slab, walls with windows, the elevator and plants of the core), and
  * on the plan a rug, a lamp and four desks per pod, the lounge and a meeting room per room slot. Proportions follow
- * prototypes/floor-3d-mockup.html.
+ * prototypes/floor-3d-mockup.html. The desks are pieces of the floor's furniture (furniture.ts): instanced meshes draw
+ * them.
  */
 import {
   BoxGeometry,
   CircleGeometry,
+  Color,
   CylinderGeometry,
   Group,
   Mesh,
@@ -18,8 +20,9 @@ import {
 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk } from '../../src/scene/types';
+import { Furniture, frameAt, type Piece, type PieceOptions } from './furniture';
 import type { Target } from './index';
-import type { Materials } from './materials';
+import { DESK_OFF, type Materials } from './materials';
 import {
   BEANBAG_R,
   BEANBAG_SCALE,
@@ -50,7 +53,10 @@ import {
   type WallSide,
 } from './world';
 
-/** What a click on a mesh selects, a desk or a room; set as `mesh.userData.pick`. */
+/**
+ * What a click on a mesh selects, a desk or a room: set as `mesh.userData.pick`, or for an instance of an instanced mesh
+ * as `mesh.userData.picks[instanceId]` (furniture.ts).
+ */
 export type PickData = Target;
 
 /** Fixed-size geometries, made once and shared by every desk, robot and fitting; freed together by dispose(). */
@@ -169,11 +175,13 @@ export interface Shell {
   readonly pods: ReadonlyMap<string, PodObject>;
   /** Every desk of every pod, by desk id, in plan order. */
   readonly desks: ReadonlyMap<string, DeskObject>;
+  /** The furniture its instanced meshes draw: the desks. */
+  readonly furniture: Furniture;
   /** Every room of the plan, by slot. */
   readonly rooms: readonly RoomObject[];
   /** The elevator's two doors, west then east: shut until robots come or go. */
   readonly doors: readonly Mesh[];
-  /** Detaches the shell and frees the geometries sized to this floor. */
+  /** Detaches the shell and frees the geometries sized to this floor and the instanced meshes. */
   dispose(): void;
 }
 
@@ -192,6 +200,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     return g;
   };
   const s = mats.surface;
+  const furniture = new Furniture();
 
   part(group, sized(new BoxGeometry(w, 0.3, h)), s.floor, w / 2, -0.15, h / 2, { cast: false });
 
@@ -246,11 +255,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     const shade = part(group, geo.rod(0.2, 0.34, 0.2, 24), s.base, c.x, 2.15, c.z, { cast: false });
     part(group, geo.circle(0.3), s.lamp, c.x, 2.045, c.z, { rx: Math.PI / 2, cast: false });
     pods.set(pod.id, { id: pod.id, rug, shade });
-    for (const desk of pod.desks) {
-      const obj = buildDesk(desk, geo, mats);
-      group.add(obj.group);
-      desks.set(desk.id, obj);
-    }
+    for (const desk of pod.desks) desks.set(desk.id, buildDesk(desk, furniture, geo, mats));
   }
 
   buildLounge(group, floor.lounge.rect, geo, mats);
@@ -260,17 +265,20 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     group.add(obj.group);
     return obj;
   });
+  furniture.build(group);
 
   return {
     group,
     walls,
     pods,
     desks,
+    furniture,
     rooms,
     doors,
     dispose() {
       group.removeFromParent();
       for (const g of own) g.dispose();
+      furniture.dispose();
     },
   };
 }
@@ -325,55 +333,58 @@ function buildLounge(parent: Group, rect: GridRect, geo: Geometries, mats: Mater
 export interface DeskObject {
   /** The desk's id ('p<pod>-<n>'). */
   readonly id: string;
-  /** Sits at the desk top's centre on the ground (world.deskAnchor), turned so that the monitor faces the chair. */
-  readonly group: Group;
-  readonly top: Mesh;
-  readonly screen: Mesh;
-  /** The meshes a click selects the desk by, while somebody sits at it. */
-  readonly pickables: readonly Mesh[];
+  /** Its top, dimmed while its occupant is dormant. */
+  readonly top: Piece;
+  /** Its screen, lit in its occupant's state colour, off while it is free. */
+  readonly screen: Piece;
+  /** The pieces a click selects the desk by, while somebody sits at it: the top, the monitor, the screen and the chair. */
+  readonly pickables: readonly Piece[];
 }
 
+/** The colour that leaves a piece's material as it is, and the one that dims the top of a dormant session's desk. */
+const AS_IS = new Color(1, 1, 1);
+const DIMMED = new Color(DESK_OFF, DESK_OFF, DESK_OFF);
+
 /**
- * One desk: top, legs, monitor and screen, keyboard and chair. Built facing north (the monitor on the north side, the
- * chair on the south side) and turned round when its chair is on the north edge. Only the top, the monitor and the chair
- * cast shadows: the thin parts would cost a draw each for a texel or two of shadow. It starts free: its screen off.
+ * One desk, as pieces of the floor's furniture: top, legs, monitor and screen, keyboard and chair. Built facing north
+ * (the monitor on the north side, the chair on the south side) in a frame at the desk top's centre on the ground
+ * (world.deskAnchor), turned round when its chair is on the north edge. Only the top, the monitor and the chair cast
+ * shadows: thin parts would cost a draw for a texel or two of shadow. It starts free: its screen off.
  */
-export function buildDesk(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, geo: Geometries, mats: Materials): DeskObject {
+export function buildDesk(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, furniture: Furniture, geo: Geometries, mats: Materials): DeskObject {
   const s = mats.surface;
   const thin = { cast: false };
-  const group = new Group();
-  group.name = `desk ${desk.id}`;
-  const top = part(group, geo.rbox(DESK_TOP.w, 0.07, DESK_TOP.d, 0.02), s.desk, 0, 0.74, 0);
-  for (const [lx, lz] of [[-0.74, -0.34], [0.74, -0.34], [-0.74, 0.34], [0.74, 0.34]] as const) {
-    part(group, geo.box(0.05, 0.72, 0.05), s.leg, lx, 0.36, lz, thin);
-  }
-  part(group, geo.box(0.25, 0.02, 0.16), s.leg, 0, 0.785, -0.22, thin);
-  part(group, geo.box(0.05, 0.28, 0.05), s.leg, 0, 0.92, -0.24, thin);
-  const monitor = part(group, geo.rbox(0.74, 0.46, 0.05, 0.02), s.monitor, 0, 1.15, -0.24);
-  const screen = part(group, geo.plane(0.66, 0.38), mats.screen('idle'), 0, 1.15, -0.212, thin);
-  part(group, geo.box(0.46, 0.02, 0.15), s.key, 0, 0.785, 0.26, thin);
-  const seat = part(group, geo.rbox(DESK_CHAIR.w, 0.08, DESK_CHAIR.seat, 0.03), s.chair, 0, 0.45, CHAIR_Z);
-  const back = part(group, geo.rbox(DESK_CHAIR.w, 0.5, DESK_CHAIR.back, 0.03), s.chair, 0, 0.75, DESK_CHAIR.backZ);
-  part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, CHAIR_Z, thin);
-  part(group, geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, CHAIR_Z, thin);
   const a = deskAnchor(desk);
-  group.position.set(a.x, 0, a.z);
-  if (desk.chair === 'north') group.rotation.y = Math.PI;
-  return { id: desk.id, group, top, screen, pickables: [top, monitor, screen, seat, back] };
+  const frame = frameAt(a.x, a.z, desk.chair === 'north' ? Math.PI : 0);
+  const add = (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => furniture.add(frame, geometry, material, x, y, z, opts);
+  const top = add(geo.rbox(DESK_TOP.w, 0.07, DESK_TOP.d, 0.02), s.desk, 0, 0.74, 0);
+  for (const [lx, lz] of [[-0.74, -0.34], [0.74, -0.34], [-0.74, 0.34], [0.74, 0.34]] as const) {
+    add(geo.box(0.05, 0.72, 0.05), s.leg, lx, 0.36, lz, thin);
+  }
+  add(geo.box(0.25, 0.02, 0.16), s.leg, 0, 0.785, -0.22, thin);
+  add(geo.box(0.05, 0.28, 0.05), s.leg, 0, 0.92, -0.24, thin);
+  const monitor = add(geo.rbox(0.74, 0.46, 0.05, 0.02), s.monitor, 0, 1.15, -0.24);
+  const screen = add(geo.plane(0.66, 0.38), mats.screen, 0, 1.15, -0.212, thin);
+  add(geo.box(0.46, 0.02, 0.15), s.key, 0, 0.785, 0.26, thin);
+  const seat = add(geo.rbox(DESK_CHAIR.w, 0.08, DESK_CHAIR.seat, 0.03), s.chair, 0, 0.45, CHAIR_Z);
+  const back = add(geo.rbox(DESK_CHAIR.w, 0.5, DESK_CHAIR.back, 0.03), s.chair, 0, 0.75, DESK_CHAIR.backZ);
+  add(geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, CHAIR_Z, thin);
+  add(geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, CHAIR_Z, thin);
+  const obj: DeskObject = { id: desk.id, top, screen, pickables: [top, monitor, screen, seat, back] };
+  updateDesk(obj, null, mats);
+  return obj;
 }
 
 /**
- * Shows who sits at the desk: the screen lit by its occupant's state, the top dimmed while the occupant is dormant, and a
- * click on it picks the occupant. A free desk has its screen off and picks nothing.
+ * Shows who sits at the desk: the screen lit in its occupant's state colour, the top dimmed while the occupant is
+ * dormant, and a click on it picks the occupant. A free desk has its screen off and picks nothing. Run it again after a
+ * theme change: the screen's colour comes from the theme.
  */
 export function updateDesk(obj: DeskObject, occupant: Occupant | null, mats: Materials): void {
-  obj.screen.material = mats.screen(occupant?.state ?? 'idle');
-  obj.top.material = occupant?.state === 'dormant' ? mats.surface.deskOff : mats.surface.desk;
+  obj.screen.paint(mats.screenColor(occupant?.state ?? 'idle'));
+  obj.top.paint(occupant?.state === 'dormant' ? DIMMED : AS_IS);
   const pick: PickData | undefined = occupant ? { kind: 'desk', id: occupant.sessionId } : undefined;
-  for (const m of obj.pickables) {
-    if (pick) m.userData.pick = pick;
-    else delete m.userData.pick;
-  }
+  for (const piece of obj.pickables) piece.pick = pick;
 }
 
 export interface RoomObject {
