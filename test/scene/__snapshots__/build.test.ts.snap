@@ -142,7 +142,8 @@ exports[`the demo building > matches the snapshot 1`] = `
                 },
                 "agentsRunning": 2,
                 "at": {
-                  "kind": "desk",
+                  "kind": "room",
+                  "slot": 1,
                 },
                 "checkout": {
                   "branch": "feat/checkout-v2",
@@ -154,12 +155,14 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "interns": [
                   {
                     "agentId": "demo-a1-explore",
+                    "inRoom": true,
                     "label": "Find every caller of useCart()",
                     "running": true,
                     "type": "Explore",
                   },
                   {
                     "agentId": "demo-a1-review",
+                    "inRoom": true,
                     "label": "Check the address form against the design",
                     "running": true,
                     "type": "general-purpose",
@@ -349,6 +352,7 @@ exports[`the demo building > matches the snapshot 1`] = `
             "running": 1,
           },
           "hostSessionId": "demo-ps-d4",
+          "kind": "workflow",
           "look": {
             "body": 0,
             "tie": 4,
@@ -382,6 +386,45 @@ exports[`the demo building > matches the snapshot 1`] = `
           "slot": 0,
           "summary": "Verify split payments end to end",
         },
+        {
+          "agents": [
+            {
+              "agentId": "demo-a1-explore",
+              "label": "Find every caller of useCart()",
+              "phase": null,
+              "running": true,
+              "type": "Explore",
+            },
+            {
+              "agentId": "demo-a1-review",
+              "label": "Check the address form against the design",
+              "phase": null,
+              "running": true,
+              "type": "general-purpose",
+            },
+          ],
+          "counts": {
+            "finished": 0,
+            "running": 2,
+          },
+          "hostSessionId": "demo-sw-a1",
+          "kind": "crew",
+          "look": {
+            "body": 2,
+            "tie": 4,
+          },
+          "name": "Subagents",
+          "phases": [],
+          "rect": {
+            "h": 6,
+            "w": 8,
+            "x": 18,
+            "y": 9,
+          },
+          "runId": "crew:demo-sw-a1",
+          "slot": 1,
+          "summary": null,
+        },
       ],
       "roomsMore": 0,
       "shutters": false,
@@ -391,7 +434,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 3,
+      "version": 4,
     },
     {
       "core": {
@@ -599,7 +642,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 3,
+      "version": 4,
     },
     {
       "core": {
@@ -844,7 +887,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 3,
+      "version": 4,
     },
   ],
   "scene": {
@@ -1052,7 +1095,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         ],
       },
     ],
-    "version": 3,
+    "version": 4,
   },
 }
 `;

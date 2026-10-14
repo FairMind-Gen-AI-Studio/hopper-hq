@@ -21,6 +21,7 @@ export function checkoutWithRoom(): FloorDetail {
     { runId: DONE_RUN, name: 'nightly-smoke', status: 'completed', startedAt: NOW - 70 * MIN, endedAt: NOW - 62 * MIN, counts: { running: 0, finished: 4 } },
   ];
   const room: MeetingRoom = {
+    kind: 'workflow',
     runId: RUN,
     hostSessionId: host.sessionId,
     name: 'checkout-verify',

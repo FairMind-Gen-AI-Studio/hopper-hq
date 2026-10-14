@@ -422,6 +422,14 @@ describe('meeting rooms in the floor scene', () => {
     expect(fs.scene.getObjectByName('agent wf_0000aaaa-002-a8')).toBeUndefined();
   });
 
+  it('opens a laptop before each agent at the table and before the host at the head, and none before a session at its desk', () => {
+    const fs = sceneOf(roomFloor());
+    const first = entryOf(fs, 0);
+    expect([...first.agents.values()].map((r) => r.rig.laptop.visible)).toEqual([true, true, true]);
+    expect(fs.sessions.get('ps-d4')!.robot!.rig.laptop.visible).toBe(true);
+    expect(fs.sessions.get('sw-a1')!.robot!.rig.laptop.visible).toBe(false);
+  });
+
   it('keeps each agent that runs on in the seat it took, lets those that finish leave, and gives a freed seat to the next one', () => {
     const fs = sceneOf(roomFloor());
     const first = entryOf(fs, 0);
@@ -542,7 +550,7 @@ describe('meeting rooms in the floor scene', () => {
 
   it('takes away the interns of a session that leaves, also when two of them share an id', () => {
     const checkouts = checkoutSpecs();
-    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true })) };
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false })) };
     const fs = sceneOf(makeFloor(checkouts));
     for (let i = 0; i < 5; i++) fs.apply(makeFloor(checkouts));
     const interns = () => fs.scene.children.filter((o) => o.name.startsWith('intern ')).length;
@@ -567,7 +575,7 @@ describe('meeting rooms in the floor scene', () => {
 });
 
 describe('interns', () => {
-  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running });
+  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false });
   /** The checkout floor with these interns at sw-a1's desk, sw-a1 in this state, and on this lounge seat if given. */
   const withInterns = (interns: Intern[], state: CheckoutSpec['desks'][number]['state'] = 'working', lounge?: number) => {
     const checkouts = checkoutSpecs();
@@ -587,6 +595,11 @@ describe('interns', () => {
     });
     expect(fs.scene.getObjectByName('intern i3')).toBe(entry.interns.get('i3')!.group);
     expect(fs.sessions.get('sw-b2')!.interns.size).toBe(0);
+  });
+
+  it('leaves no intern flying over the desk for a subagent that sits in its session\'s room', () => {
+    const fs = sceneOf(withInterns([{ ...intern('i1'), inRoom: true }, intern('i2')]));
+    expect([...fs.sessions.get('sw-a1')!.interns.keys()]).toEqual(['i2']);
   });
 
   it('lets a click on an intern pick its session', () => {
@@ -1117,7 +1130,7 @@ describe('walking', () => {
 
 describe('loops at rest', () => {
   type Look = Pick<Robot, 'pose' | 'badge'>;
-  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true });
+  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false });
   /** The checkout floor with two interns over sw-a1's desk and both rooms open, ps-d4 at the head of the first. */
   function busyFloor() {
     const checkouts = checkoutSpecs();

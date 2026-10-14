@@ -5,7 +5,7 @@
  */
 import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 3;
+export const SCENE_VERSION = 4;
 
 /** States a desk can show. Ended sessions have left the building. */
 export type ShownState = Exclude<SessionState, 'ended'>;
@@ -100,13 +100,15 @@ export interface DeskSummary {
   stale: boolean;
 }
 
-/** A plain subagent, hovering next to its parent desk. */
+/** A plain subagent, hovering next to its parent desk while its session's crew has no room. */
 export interface Intern {
   agentId: string;
   /** Agent type, e.g. 'Explore'; null when unknown. */
   type: string | null;
   label: string | null;
   running: boolean;
+  /** Running in its session's room, as part of its crew: it does not hover. */
+  inRoom: boolean;
 }
 
 /** One run of a session, for its desk panel. */
@@ -129,8 +131,10 @@ export interface MeetingAgent {
   running: boolean;
 }
 
-/** A running workflow run: a room in the meeting wing of its host's floor. */
+/** A running workflow run, or the crew of a session's running subagents: a room in the meeting wing of its host's floor. */
 export interface MeetingRoom {
+  /** 'crew': the host's plain subagents, one room per host, whose runId is not a workflow run's. */
+  kind: 'workflow' | 'crew';
   runId: string;
   hostSessionId: string;
   name: string | null;
@@ -188,7 +192,7 @@ export interface Occupant {
   focusable: boolean;
   /** Null when dormant: gone home. */
   robot: Robot | null;
-  /** Where its robot should be: its desk, a lounge seat, the head of its run's room, or gone (dormant, or no desk). */
+  /** Where its robot should be: its desk, a lounge seat, the head of its room while it works with a run or a crew in it, or gone (dormant, or no desk). */
   at: Place;
   checkout: Checkout;
 }

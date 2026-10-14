@@ -8,6 +8,7 @@ import {
   HEAD_DOWN,
   HOVER_Y,
   KIND_SCALE,
+  LAPTOP,
   LOOPS,
   POSES,
   STRIDE,
@@ -158,6 +159,8 @@ describe('robots', () => {
   it('stays inside its desk cells, under its label, on either side of a pod', () => {
     const sides = new Set<string>();
     for (const { floor, desk, occupant, obj } of posed()) {
+      // A hidden laptop still has extent, and a desk's robot has none open.
+      obj.rig.laptop.removeFromParent();
       const box = new Box3().setFromObject(obj.group);
       const name = `${occupant.state} at ${desk.id}`;
       sides.add(desk.chair);
@@ -215,6 +218,38 @@ describe('robots', () => {
     poseRobot(intern, { pose: 'still', badge: null }, { x: 0, z: 0, facing: 0 });
     intern.group.updateMatrixWorld(true);
     expect(new Box3().setFromObject(intern.group).min.y).toBeGreaterThan(HOVER_Y + 0.1);
+  });
+
+  it('opens a laptop on the table before a robot seated at a room, the same height for every kind, and puts it away on its way', () => {
+    const { geo, mats } = kit();
+    const spot = { x: 3, z: 4, facing: 0 };
+    const look = { pose: 'typing', badge: null } as const;
+    const kinds: RobotKind[] = ['session', 'workflow', 'intern'];
+    const bots = kinds.map((kind) => buildRobot(kind, { ...look, body: 0, tie: null }, geo, mats, kind));
+    // Closed away until a robot sits at a table.
+    expect(bots.map((b) => b.rig.laptop.visible)).toEqual([false, false, false]);
+    for (const b of bots) poseRobot(b, look, spot);
+    expect(bots.map((b) => b.rig.laptop.visible)).toEqual([false, false, false]);
+    for (const b of bots) poseRobot(b, look, spot, true);
+    expect(bots.map((b) => b.rig.laptop.visible)).toEqual([true, true, true]);
+    // An intern flies and has no laptop to show; the others have it on the table, ahead of their seat.
+    expect(bots[2]!.rig.laptop.children).toHaveLength(0);
+    for (const b of bots.slice(0, 2)) {
+      b.group.updateMatrixWorld(true);
+      const base = new Vector3();
+      b.rig.laptop.getWorldPosition(base);
+      expect([b.kind, base.y.toFixed(3), base.x.toFixed(3), base.z.toFixed(3)]).toEqual([b.kind, LAPTOP.top.toFixed(3), '3.000', (4 + LAPTOP.ahead).toFixed(3)]);
+      const size = new Box3().setFromObject(b.rig.laptop).getSize(new Vector3());
+      expect(size.x).toBeCloseTo(LAPTOP.w, 6);
+    }
+    // A standing robot has no chair to sit at.
+    poseRobot(bots[0]!, { pose: 'holding', badge: null }, spot, true);
+    expect(bots[0]!.rig.laptop.visible).toBe(false);
+    poseRobot(bots[0]!, look, spot, true);
+    strideRobot(bots[0]!, { x: 1, z: 1, facing: 0 }, 0.1);
+    expect(bots[0]!.rig.laptop.visible).toBe(false);
+    // It picks what its robot picks.
+    expect(bots[0]!.pickables.filter((m) => bots[0]!.rig.laptop.getObjectById(m.id))).not.toHaveLength(0);
   });
 
   it('sits a workflow agent on its chair at its own size, and hovers an intern whatever its pose', () => {

@@ -25,12 +25,35 @@ export interface Seating {
   rooms: (string | null)[];
 }
 
-/** A live run of a session on the floor that can hold a room. */
+/** The key of a session's crew: the room of its running subagents. A workflow run id never has this form. */
+export const CREW_PREFIX = 'crew:';
+
+/** The crew of a session: its running subagents as one run, named for what it is. Null while none runs. */
+function crewRun(host: SessionView): WorkflowRun | null {
+  if (!host.children.some((c) => c.running)) return null;
+  return {
+    id: CREW_PREFIX + host.id,
+    name: 'Subagents',
+    summary: null,
+    phases: [],
+    currentPhase: null,
+    status: 'running',
+    onDisk: false,
+    startedAt: host.startedAt,
+    endedAt: null,
+    agents: host.children.map((c) => ({ id: c.id, label: c.description, phase: null, type: c.type, running: c.running, startedAt: c.updatedAt, updatedAt: c.updatedAt })),
+    agentsFinished: 0,
+  };
+}
+
+/** A live run of a session on the floor that can hold a room: a workflow run, or the crew of its running subagents. */
 export interface RoomRun {
   run: WorkflowRun;
   host: SessionView;
   /** capKey(run.id): one room per key on a floor. */
   key: string;
+  /** True for the crew of the host's running subagents, false for a workflow run. */
+  crew: boolean;
 }
 
 /** One block, one room column, nobody seated. */
@@ -51,19 +74,20 @@ const byStartOrder = (a: SessionView, b: SessionView): number => a.startedAt - b
 const bySince = (a: SessionView, b: SessionView): number => a.effectiveSince - b.effectiveSince || byCodeUnit(a.id, b.id);
 
 /**
- * The floor's live runs, one per key (the host that started first, then by id), in room order: run start, then run id,
- * then host id.
+ * The floor's live runs and crews, one per key (the host that started first, then by id), in room order: runs before
+ * crews, then run start, then run id, then host id.
  */
 export function roomRunsOf(floor: Floor): RoomRun[] {
   const first = new Map<string, RoomRun>();
   for (const host of floor.sessions) {
-    for (const run of host.runs.filter(liveRun)) {
+    const crew = crewRun(host);
+    for (const run of crew ? [...host.runs.filter(liveRun), crew] : host.runs.filter(liveRun)) {
       const key = capKey(run.id);
       const held = first.get(key);
-      if (!held || (host.startedAt - held.host.startedAt || byCodeUnit(host.id, held.host.id)) < 0) first.set(key, { run, host, key });
+      if (!held || (host.startedAt - held.host.startedAt || byCodeUnit(host.id, held.host.id)) < 0) first.set(key, { run, host, key, crew: run === crew });
     }
   }
-  return [...first.values()].sort((a, b) => a.run.startedAt - b.run.startedAt || byCodeUnit(a.run.id, b.run.id) || byCodeUnit(a.host.id, b.host.id));
+  return [...first.values()].sort((a, b) => Number(a.crew) - Number(b.crew) || a.run.startedAt - b.run.startedAt || byCodeUnit(a.run.id, b.run.id) || byCodeUnit(a.host.id, b.host.id));
 }
 
 /**
