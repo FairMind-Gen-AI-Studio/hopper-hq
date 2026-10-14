@@ -50,10 +50,21 @@ export function sessionsOf(f: Pick<FloorSummary, 'counts'>): number {
   return Object.values(f.counts).reduce((n, c) => n + (c ?? 0), 0);
 }
 
-/** What a floor is ('2 repos · 4 sessions', 'Department · 5 sessions') and the counts worth a glance. */
+/**
+ * What a floor is: 'Department', or a feature floor's repositories by name, at most `names` of them, the rest counted:
+ * 'code-ingestion', 'api, web', 'orders-api +2'.
+ */
+export function floorWhat(f: Pick<FloorSummary, 'kind' | 'repos'>, names = 2): string {
+  if (f.kind === 'department') return 'Department';
+  if (f.repos.length === 0) return 'Feature';
+  if (f.repos.length <= names) return f.repos.join(', ');
+  return `${f.repos.slice(0, names).join(', ')} +${f.repos.length - names}`;
+}
+
+/** What a floor is ('orders-api, payments-svc +1 · 4 sessions', 'Department · 5 sessions') and the counts worth a glance. */
 export function floorMeta(f: FloorSummary): Meta[] {
   const sessions = plural(sessionsOf(f), 'session', 'sessions');
-  const metas: Meta[] = [{ text: f.kind === 'department' ? `Department · ${sessions}` : `${plural(f.repos.length, 'repo', 'repos')} · ${sessions}`, tone: null }];
+  const metas: Meta[] = [{ text: `${floorWhat(f)} · ${sessions}`, tone: null }];
   if (f.shutters) metas.push({ text: 'shutters down', tone: null });
   const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
   if (needs) metas.push({ text: `● ${needs} ${needYou(needs)}`, tone: 'needs' });
@@ -63,7 +74,7 @@ export function floorMeta(f: FloorSummary): Meta[] {
   return metas;
 }
 
-/** A floor for a screen reader, with every count its label shows: 'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done'. */
+/** A floor for a screen reader, with its repositories and every count its label shows: 'Floor 4, checkout-v2 (orders-api, web): 4 sessions, 1 needs you, 1 done'. */
 export function floorLabel(f: FloorSummary): string {
   const parts = [plural(sessionsOf(f), 'session', 'sessions')];
   const { needs_you: needs, done, in_meeting: meeting, no_signal: quiet } = f.counts;
@@ -72,7 +83,8 @@ export function floorLabel(f: FloorSummary): string {
   if (meeting) parts.push(`${meeting} in a meeting`);
   if (quiet) parts.push(`${quiet} no signal`);
   if (f.shutters) parts.push('shutters down');
-  return `Floor ${f.number}, ${f.name}: ${parts.join(', ')}`;
+  const repos = f.kind === 'feature' && f.repos.length > 0 ? ` (${f.repos.join(', ')})` : '';
+  return `Floor ${f.number}, ${f.name}${repos}: ${parts.join(', ')}`;
 }
 
 /** A workflow run's status in words. A killed run was stopped: by the user, or when its session ended. */

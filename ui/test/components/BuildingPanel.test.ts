@@ -27,10 +27,10 @@ describe('BuildingPanel', () => {
   it('shows what each floor is, its repos and its counts', () => {
     const { rows } = panel();
     expect(rows().map((r) => text(r.querySelector('.fl-meta')))).toEqual([
-      '3 repos · 4 sessions · orders-api, payments-svc, storefront-web',
-      '2 repos · 2 sessions · search-svc, storefront-web',
+      'orders-api, payments-svc, storefront-web · 4 sessions',
+      'search-svc, storefront-web · 2 sessions',
       'Department · 5 sessions',
-      '2 repos · 2 sessions · docs-site, storefront-web',
+      'docs-site, storefront-web · 2 sessions',
     ]);
     expect(rows().map((r) => text(r.querySelector('.fl-counts')))).toEqual(['◉1 needs you ✓1 done', '', '◉1 needs you ✓1 done', 'shut']);
     const floors = makeScene().floors;

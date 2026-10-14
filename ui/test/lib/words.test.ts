@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PHASE, RUN_STATUS, STATES, STATE_ORDER, floorLabel, floorMeta, needYou, plural, raisedBy, runCounts, runSpan, sessionsOf, waitText } from '../../lib/words';
+import { PHASE, RUN_STATUS, STATES, STATE_ORDER, floorLabel, floorMeta, floorWhat, needYou, plural, raisedBy, runCounts, runSpan, sessionsOf, waitText } from '../../lib/words';
 import { NOW, makeScene } from '../helpers/fixtures';
 
 describe('words', () => {
@@ -31,16 +31,28 @@ describe('words', () => {
   it('describes each floor, with the counts that matter', () => {
     const [checkout, search, orders, docs] = makeScene().floors;
     const metas = (f: typeof checkout) => floorMeta(f!).map((m) => (m.tone ? `${m.tone}:${m.text}` : m.text));
-    expect(metas(checkout)).toEqual(['3 repos · 4 sessions', 'needs:● 1 needs you', 'done:● 1 done', 'meeting:● 1 in a meeting']);
-    expect(metas(search)).toEqual(['2 repos · 2 sessions', 'nosignal:● 1 no signal']);
+    expect(metas(checkout)).toEqual(['orders-api, payments-svc +1 · 4 sessions', 'needs:● 1 needs you', 'done:● 1 done', 'meeting:● 1 in a meeting']);
+    expect(metas(search)).toEqual(['search-svc, storefront-web · 2 sessions', 'nosignal:● 1 no signal']);
     expect(metas(orders)).toEqual(['Department · 5 sessions', 'needs:● 1 needs you', 'done:● 1 done']);
-    expect(metas(docs)).toEqual(['2 repos · 2 sessions', 'shutters down']);
+    expect(metas(docs)).toEqual(['docs-site, storefront-web · 2 sessions', 'shutters down']);
     // A screen reader hears every count the label shows.
-    expect(floorLabel(checkout!)).toBe('Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done, 1 in a meeting');
-    expect(floorLabel(search!)).toBe('Floor 3, search-ranking: 2 sessions, 1 no signal');
-    expect(floorLabel(docs!)).toBe('Floor 1, docs-refresh: 2 sessions, shutters down');
+    expect(floorLabel(checkout!)).toBe('Floor 4, checkout-v2 (orders-api, payments-svc, storefront-web): 4 sessions, 1 needs you, 1 done, 1 in a meeting');
+    expect(floorLabel(search!)).toBe('Floor 3, search-ranking (search-svc, storefront-web): 2 sessions, 1 no signal');
+    expect(floorLabel(docs!)).toBe('Floor 1, docs-refresh (docs-site, storefront-web): 2 sessions, shutters down');
     expect(floorLabel({ ...orders!, counts: { needs_you: 2 } })).toBe('Floor 2, orders-api: 2 sessions, 2 need you');
     expect(floorMeta({ ...orders!, counts: { needs_you: 2 } })[1]!.text).toBe('● 2 need you');
+  });
+
+  it('says what a floor is: a department, or the repositories of a feature', () => {
+    const feature = (repos: string[]) => ({ kind: 'feature' as const, repos });
+    expect(floorWhat({ kind: 'department', repos: ['orders-api'] })).toBe('Department');
+    expect(floorWhat(feature(['code-ingestion']))).toBe('code-ingestion');
+    expect(floorWhat(feature(['api', 'web']))).toBe('api, web');
+    const three = feature(['orders-api', 'payments-svc', 'storefront-web']);
+    expect(floorWhat(three)).toBe('orders-api, payments-svc +1');
+    expect(floorWhat(three, 1)).toBe('orders-api +2');
+    expect(floorWhat(three, Infinity)).toBe('orders-api, payments-svc, storefront-web');
+    expect(floorWhat(feature([]))).toBe('Feature');
   });
 
   it('counts a floor\'s sessions from its counts, those waiting for a desk too, and not from its windows', () => {
@@ -49,7 +61,7 @@ describe('words', () => {
     expect(sessionsOf(checkout!)).toBe(4);
     // Two sessions wait for a desk: no window is theirs, and the floor counts them.
     const crowded = { ...checkout!, counts: { ...checkout!.counts, working: 3 } };
-    expect([sessionsOf(crowded), floorMeta(crowded)[0]!.text]).toEqual([6, '3 repos · 6 sessions']);
+    expect([sessionsOf(crowded), floorMeta(crowded)[0]!.text]).toEqual([6, 'orders-api, payments-svc +1 · 6 sessions']);
     expect(sessionsOf({ counts: {} })).toBe(0);
   });
 

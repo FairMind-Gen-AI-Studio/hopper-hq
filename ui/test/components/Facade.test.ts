@@ -19,10 +19,10 @@ describe('Facade', () => {
   it('draws one floor button per floor, bottom-up, each named for a screen reader', () => {
     const { target } = facade();
     expect([...target.querySelectorAll('g.floor')].map((g) => g.getAttribute('aria-label'))).toEqual([
-      'Floor 1, docs-refresh: 2 sessions, shutters down',
+      'Floor 1, docs-refresh (docs-site, storefront-web): 2 sessions, shutters down',
       'Floor 2, orders-api: 5 sessions, 1 needs you, 1 done',
-      'Floor 3, search-ranking: 2 sessions, 1 no signal',
-      'Floor 4, checkout-v2: 4 sessions, 1 needs you, 1 done, 1 in a meeting',
+      'Floor 3, search-ranking (search-svc, storefront-web): 2 sessions, 1 no signal',
+      'Floor 4, checkout-v2 (orders-api, payments-svc, storefront-web): 4 sessions, 1 needs you, 1 done, 1 in a meeting',
     ]);
     for (const g of target.querySelectorAll('g.floor')) {
       expect(g.getAttribute('role')).toBe('button');
@@ -66,7 +66,7 @@ describe('Facade', () => {
     expect(text(top.querySelector('.t-name'))).toBe('checkout-v2');
     const tone = (t: Element) => [...t.classList].find((c) => c.startsWith('c-')) ?? '';
     expect([...top.querySelectorAll('.t-meta tspan')].map((t) => `${tone(t)}|${t.textContent}`)).toEqual([
-      '|3 repos · 4 sessions',
+      '|orders-api, payments-svc +1 · 4 sessions',
       'c-needs|● 1 needs you',
       'c-done|● 1 done',
       'c-meeting|● 1 in a meeting',
@@ -91,7 +91,7 @@ describe('Facade', () => {
     const { floor } = facade(floors);
     expect(text(floor(3).querySelector('.t-name'))).toBe('jira-1234-add-idempotency-k…');
     expect(floor(3).querySelector(':scope > title')?.textContent).toBe('jira-1234-add-idempotency-keys-to-orders');
-    expect(floor(3).getAttribute('aria-label')).toMatch(/^Floor 4, jira-1234-add-idempotency-keys-to-orders: /);
+    expect(floor(3).getAttribute('aria-label')).toMatch(/^Floor 4, jira-1234-add-idempotency-keys-to-orders \(.*\): /);
     expect(text(floor(2).querySelector('.t-name'))).toBe('search-ranking');
     expect(floor(2).querySelector(':scope > title')?.textContent).toBe('search-ranking');
   });
