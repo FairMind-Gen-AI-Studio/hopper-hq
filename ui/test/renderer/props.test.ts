@@ -562,7 +562,7 @@ describe('nameplates', () => {
   afterEach(() => vi.restoreAllMocks());
 
   /** Markup that must stay text, short enough to be shown whole. */
-  const HOSTILE = '<img src=x>&lt;';
+  const HOSTILE = '<img src=x>&lt';
   const span = (b: Box3) => b.getSize(new Vector3());
   const near = (v: number) => expect.closeTo(v, 5);
 
@@ -593,14 +593,22 @@ describe('nameplates', () => {
     return made;
   }
 
-  it('shows a name whole up to NAMEPLATE_CHARS code points, and cuts a longer one short with an ellipsis', () => {
+  it('shows a name whole up to NAMEPLATE_CHARS graphemes, and cuts a longer one short with an ellipsis, never inside a character the eye reads as one', () => {
+    expect(NAMEPLATE_CHARS).toBe(14);
     const whole = 'n'.repeat(NAMEPLATE_CHARS);
     expect(nameplateText(whole)).toBe(whole);
     expect(nameplateText(whole + 'n')).toBe('n'.repeat(NAMEPLATE_CHARS - 1) + '\u2026');
-    // Code points, not UTF-16 units: a character outside the BMP is never cut in two.
+    // Graphemes, not UTF-16 units or code points: a character outside the BMP, a family joined by zero-width joiners
+    // and a flag each count as one, and stay whole.
     const octopus = '\u{1F419}';
+    const family = '\u{1F469}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}';
+    const flag = '\u{1F1EE}\u{1F1F9}';
     expect(nameplateText(octopus.repeat(NAMEPLATE_CHARS))).toBe(octopus.repeat(NAMEPLATE_CHARS));
     expect(nameplateText(octopus.repeat(NAMEPLATE_CHARS + 2))).toBe(octopus.repeat(NAMEPLATE_CHARS - 1) + '\u2026');
+    const twelve = 'abcdefghijkl';
+    expect(nameplateText(twelve + family + 'n')).toBe(twelve + family + 'n');
+    expect(nameplateText(twelve + family + 'xyz')).toBe(twelve + family + '\u2026');
+    expect(nameplateText(twelve + flag + 'xyz')).toBe(twelve + flag + '\u2026');
     expect(nameplateText('')).toBe('');
   });
 
@@ -658,6 +666,15 @@ describe('nameplates', () => {
       const material = plate.mesh.material as MeshStandardMaterial;
       expect([material.isMeshStandardMaterial, material.map instanceof CanvasTexture, material.map!.colorSpace]).toEqual([true, true, SRGBColorSpace]);
     }
+  });
+
+  it("picks its session on a click, and filters its name as sharply as it is asked, for a card seen at a slant", () => {
+    const desk = checkoutFloor().pods[0]!.desks[0]!;
+    const plate = buildNameplate(desk, { sessionId: 'ps-f7', name: 'ps-f7' }, new Geometries(), 8);
+    expect(plate.mesh.userData.pick).toEqual({ kind: 'desk', id: 'ps-f7' });
+    const map = (plate.mesh.material as MeshStandardMaterial).map!;
+    expect(map.anisotropy).toBe(8);
+    expect(((buildNameplate(desk, { sessionId: 'ps-f7', name: 'ps-f7' }, new Geometries()).mesh.material as MeshStandardMaterial).map!).anisotropy).toBe(1);
   });
 
   it('frees its texture and its material, not the geometry every nameplate shares, as it comes off its desk', () => {

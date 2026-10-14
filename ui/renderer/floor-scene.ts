@@ -19,8 +19,9 @@
  * intern's bob grows as it comes to rest and dies away as it sets off, so that its height never jumps. The scene owns
  * its geometries and materials and frees them all in dispose().
  *
- * A dormant session's desk has a nameplate with its name instead of a tag (design §7.3). Nameplates hide while the floor
- * is seen from far (setCompact), and each goes, with its texture, when its desk frees or its session wakes.
+ * A dormant session's desk has a nameplate with its name instead of a tag (design §7.3), which a click selects it by.
+ * Nameplates hide while the floor is seen from far (setCompact), and each goes, with its texture, when its desk frees or
+ * its session wakes.
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
@@ -145,6 +146,8 @@ export class FloorScene {
   readonly roomRing = new Group();
   /** Robots at their places run their loops: off under reduced motion and with motion: false. */
   loops = false;
+  /** How sharply the nameplates' names are filtered, seen at a slant: the renderer's most, which the view gives. */
+  anisotropy = 1;
   private shellPart: Shell | null = null;
   private signature = '';
   private floor: FloorDetail | null = null;
@@ -416,10 +419,12 @@ export class FloorScene {
 
   /**
    * Everything a click can pick: the furniture, whose pieces pick the desks somebody sits at and the open rooms they
-   * stand in; the robots and interns; and the open rooms with their agents.
+   * stand in; the nameplates, which pick their dormant sessions while they show; the robots and interns; and the open
+   * rooms with their agents.
    */
   pickables(): Object3D[] {
     const out: Object3D[] = [...(this.shellPart?.furniture.meshes ?? [])];
+    for (const plate of this.plates.values()) out.push(plate.mesh);
     for (const e of this.entries.values()) {
       out.push(...(e.robot?.pickables ?? []));
       for (const intern of e.interns.values()) out.push(...intern.pickables);
@@ -669,7 +674,7 @@ export class FloorScene {
     if (had && occupant && had.sessionId === occupant.sessionId && had.name === occupant.name) return;
     if (had) this.dropPlate(desk.id);
     if (!occupant) return;
-    const plate = buildNameplate(desk, occupant, this.geo);
+    const plate = buildNameplate(desk, occupant, this.geo, this.anisotropy);
     plate.mesh.visible = !this.compact;
     this.scene.add(plate.mesh);
     this.plates.set(desk.id, plate);

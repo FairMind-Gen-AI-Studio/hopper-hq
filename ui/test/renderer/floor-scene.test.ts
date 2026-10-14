@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Color, Matrix4, Mesh, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
+import { Box3, Color, Matrix4, Mesh, OrthographicCamera, Vector2, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
+import { MAX_ZOOM, QUARTER } from '../../renderer/camera';
 import { CONTACT_R, CONTACT_Y, FloorScene, HOVER_BLEND_MS, layoutSignature } from '../../renderer/floor-scene';
 import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
-import { DOOR_PANEL, DOOR_SLIDE, Geometries } from '../../renderer/props';
+import { pickTarget } from '../../renderer/pick';
+import { DOOR_PANEL, DOOR_SLIDE, Geometries, NAMEPLATE } from '../../renderer/props';
 import { HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
@@ -13,8 +15,11 @@ import type { Target } from '../../renderer/index';
 import {
   HOME_AZIMUTH,
   LABEL_Y,
+  POLAR,
+  cameraOffset,
   deskAnchor,
   elevatorSpot,
+  frustumFor,
   headSpot,
   internSpots,
   labelAnchor,
@@ -1262,14 +1267,53 @@ describe('nameplates', () => {
   /** The id of the desk a session sits at on the checkout floor. */
   const deskOf = (sessionId: string) => seatOf(checkoutFloor(), sessionId).desk.id;
 
-  it('puts a nameplate on the desk of each dormant session only, where it neither casts a shadow nor takes a click', () => {
+  it('puts a nameplate on the desk of each dormant session only, where it casts no shadow and a click on it picks the session', () => {
     const fs = sceneOf(floorWith({ 'sw-b2': { state: 'dormant' } }));
     expect(plates(fs).map((m) => m.name)).toEqual([`nameplate ${deskOf('sw-b2')}`, `nameplate ${deskOf('ps-f7')}`]);
     const picks = new Set(fs.pickables());
-    expect(plates(fs).some((m) => picks.has(m) || m.castShadow)).toBe(false);
-    // A click goes through the plate to the desk, which picks the dormant session.
+    expect(plates(fs).map((m) => [picks.has(m), m.castShadow, m.userData.pick])).toEqual([
+      [true, false, deskTarget('sw-b2')],
+      [true, false, deskTarget('ps-f7')],
+    ]);
+    // So does the desk under it.
     expect(fs.shell!.desks.get(deskOf('ps-f7'))!.top.pick).toEqual(deskTarget('ps-f7'));
     expect(sceneOf(floorWith({ 'ps-f7': { state: 'idle' } })).scene.children.some((o) => o.name.startsWith('nameplate '))).toBe(false);
+  });
+
+  it('lets a click anywhere on a nameplate pick its dormant session from every side close in, and the plate pick nothing while it hides from far', () => {
+    const floor = checkoutFloor();
+    const fs = sceneOf(floor);
+    fs.anisotropy = 4;
+    fs.apply(floorWith({ 'ps-f7': { name: 'ps-f7-renamed' } }));
+    const [plate] = plates(fs);
+    expect(((plate!.material as MeshStandardMaterial).map!).anisotropy).toBe(4);
+    fs.scene.updateMatrixWorld(true);
+    const c = new Box3().setFromObject(plate!).getCenter(new Vector3());
+    const cameraAt = (azimuth: number) => {
+      const f = frustumFor(floor.size, 1034 / 714, azimuth);
+      const camera = new OrthographicCamera(f.left, f.right, f.top, f.bottom, 0.1, 300);
+      const o = cameraOffset(azimuth, POLAR);
+      camera.position.set(c.x + o.x, o.y, c.z + o.z);
+      camera.zoom = MAX_ZOOM;
+      camera.lookAt(c.x, 0, c.z);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      return camera;
+    };
+    const through = (camera: OrthographicCamera, u: number, v: number) => {
+      const p = new Vector3(u * NAMEPLATE.w, v * NAMEPLATE.h, 0).applyMatrix4(plate!.matrixWorld).project(camera);
+      return new Vector2(p.x, p.y);
+    };
+    // From the four home azimuths, two of which see the plate's front and two its back: 21 points across it.
+    for (let k = 0; k < 4; k++) {
+      const camera = cameraAt(HOME_AZIMUTH + k * QUARTER);
+      for (let i = -3; i <= 3; i++) {
+        for (const v of [-0.35, 0, 0.35]) expect(pickTarget(camera, through(camera, i * 0.15, v), fs.pickables()), `azimuth ${k}, at ${i}, ${v}`).toEqual(deskTarget('ps-f7'));
+      }
+    }
+    fs.setCompact(true);
+    const camera = cameraAt(HOME_AZIMUTH);
+    expect(pickTarget(camera, through(camera, 0, 0), [plate!])).toBeNull();
   });
 
   it('keeps a nameplate while its session sleeps on, draws it anew for a new name, and takes it off and frees it as its session wakes or its desk frees', () => {

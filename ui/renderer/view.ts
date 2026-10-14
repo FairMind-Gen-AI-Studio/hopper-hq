@@ -58,6 +58,8 @@ export interface RendererLike {
   dispose(): void;
   /** Frees the WebGL context at once instead of waiting for garbage collection. */
   forceContextLoss?(): void;
+  /** What the GPU offers: the sharpest filtering of a texture seen at a slant, for the nameplates. */
+  capabilities: { getMaxAnisotropy(): number };
 }
 
 /** The browser services the view uses. */
@@ -147,6 +149,7 @@ export function createFloorView(
   const motion = opts.motion !== false;
   const world = new FloorScene(theme);
   world.loops = motion && !theme.reducedMotion;
+  world.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const camera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
   const controls = new OrbitControls(camera, canvas);
   controls.minPolarAngle = MIN_POLAR;

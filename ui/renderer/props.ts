@@ -403,8 +403,13 @@ export function updateDesk(obj: DeskObject, occupant: Occupant | null, mats: Mat
 export const NAMEPLATE = { w: 1.2, h: 0.225, d: 0.01, y: 1.4925, z: 0.24 } as const;
 /** The canvas a nameplate's name is drawn on, in pixels: as wide for its height as the card, with PAD on either side. */
 export const NAMEPLATE_PX = { w: 512, h: 96, pad: 16, font: 56 } as const;
-/** The most of a name a nameplate shows, in code points: a longer one is cut short with an ellipsis. */
-export const NAMEPLATE_CHARS = 18;
+/**
+ * The most of a name a nameplate shows, in graphemes, the characters the eye reads as one: a longer one is cut short
+ * with an ellipsis. NAMEPLATE_PX's width holds about as many glyphs of its font, so that a name is not squeezed.
+ */
+export const NAMEPLATE_CHARS = 14;
+/** Splits a name into graphemes, so that a cut never splits an emoji joined by zero-width joiners, or a flag. */
+const GRAPHEMES = new Intl.Segmenter('en', { granularity: 'grapheme' });
 /** The card and its ink, lit as the desk is: dimmer by night. */
 const PLATE_PAPER = '#ffffff';
 const PLATE_INK = '#20263a';
@@ -418,9 +423,9 @@ export interface Nameplate {
   dispose(): void;
 }
 
-/** What a nameplate shows of a name: all of it, or its first NAMEPLATE_CHARS - 1 code points and an ellipsis. */
+/** What a nameplate shows of a name: all of it, or its first NAMEPLATE_CHARS - 1 graphemes and an ellipsis. */
 export function nameplateText(name: string): string {
-  const chars = [...name];
+  const chars = Array.from(GRAPHEMES.segment(name), (g) => g.segment);
   return chars.length > NAMEPLATE_CHARS ? chars.slice(0, NAMEPLATE_CHARS - 1).join('') + '\u2026' : name;
 }
 
@@ -438,10 +443,11 @@ export function drawNameplate(ctx: CanvasRenderingContext2D, name: string): void
 
 /**
  * The nameplate of a dormant session's desk: a card on the monitor's top edge, readable from either side, with the
- * name drawn on a canvas that never joins the page. It casts no shadow and takes no click: one goes through it to the
- * desk. A canvas without a 2D context leaves the card blank.
+ * name drawn on a canvas that never joins the page, filtered with `anisotropy` (the renderer's most) so that it reads
+ * at a slant. It casts no shadow, and a click on it picks its session. A canvas without a 2D context leaves the card
+ * blank.
  */
-export function buildNameplate(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, occupant: Pick<Occupant, 'sessionId' | 'name'>, geo: Geometries): Nameplate {
+export function buildNameplate(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, occupant: Pick<Occupant, 'sessionId' | 'name'>, geo: Geometries, anisotropy = 1): Nameplate {
   const canvas = document.createElement('canvas');
   canvas.width = NAMEPLATE_PX.w;
   canvas.height = NAMEPLATE_PX.h;
@@ -449,6 +455,7 @@ export function buildNameplate(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, occ
   if (ctx) drawNameplate(ctx, occupant.name);
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
+  texture.anisotropy = anisotropy;
   const material = new MeshStandardMaterial({ map: texture, roughness: 0.85, metalness: 0 });
   const mesh = new Mesh(geo.box(NAMEPLATE.w, NAMEPLATE.h, NAMEPLATE.d), material);
   mesh.name = `nameplate ${desk.id}`;
@@ -457,6 +464,8 @@ export function buildNameplate(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, occ
   mesh.rotation.y = desk.chair === 'north' ? Math.PI : 0;
   mesh.castShadow = false;
   mesh.receiveShadow = true;
+  const pick: PickData = { kind: 'desk', id: occupant.sessionId };
+  mesh.userData.pick = pick;
   return {
     sessionId: occupant.sessionId,
     name: occupant.name,

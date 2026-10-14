@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Vector3, type Camera, type InstancedMesh, type Object3D, type OrthographicCamera } from 'three';
+import { Vector3, type Camera, type InstancedMesh, type Mesh, type MeshStandardMaterial, type Object3D, type OrthographicCamera } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { POD_DESKS } from '../../../src/scene/layout';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
@@ -20,6 +20,7 @@ const H = 500;
 /** A renderer that records what it is asked to do. */
 class FakeRenderer implements RendererLike {
   shadowMap = { enabled: false, type: 0 as RendererLike['shadowMap']['type'], autoUpdate: true, needsUpdate: false };
+  capabilities = { getMaxAnisotropy: () => 8 };
   renders = 0;
   /** Frames that drew the shadow map too, as three decides it. */
   shadowDraws = 0;
@@ -517,6 +518,22 @@ describe('the floor view', () => {
     env.flush();
     expect([frames.at(-1), labels.classList.contains('fv-compact')]).toEqual([[true, false], false]);
     expect(frames.filter(([shown, far]) => shown === far)).toEqual([]);
+  });
+
+  it("selects a dormant session by a click on its nameplate close in, the plate's name filtered at the renderer's sharpest", () => {
+    const { renderer, env, view, canvas } = setup();
+    const seen: Array<Target | null> = [];
+    view.on('select', (target) => seen.push(target));
+    view.setFloor(checkoutFloor());
+    env.flush();
+    for (let i = 0; i < 6; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -1000, bubbles: true, cancelable: true }));
+    env.flush();
+    const plate = renderer.scene!.getObjectByName(`nameplate ${seatOf(checkoutFloor(), 'ps-f7').desk.id}`) as Mesh;
+    expect(plate.visible).toBe(true);
+    const c = plate.getWorldPosition(new Vector3());
+    click(canvas, screenOf(renderer, c.x, c.y, c.z));
+    expect(seen).toEqual([desk('ps-f7')]);
+    expect((plate.material as MeshStandardMaterial).map!.anisotropy).toBe(8);
   });
 
   it('stops calling a listener once it unsubscribes', () => {
