@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Mesh, type BufferGeometry, type Material } from 'three';
 import { FloorScene, layoutSignature } from '../../renderer/floor-scene';
-import { BURST_GAP_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
-import { KIND_SCALE, POSES, STRIDE, rootHeight } from '../../renderer/robot';
+import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
+import { DOOR_PANEL, DOOR_SLIDE } from '../../renderer/props';
+import { HOVER_Y, KIND_SCALE, POSES, STRIDE, rootHeight } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
 import type { Intern } from '../../../src/scene/types';
@@ -22,7 +23,7 @@ import {
   tableCenter,
   type Point,
 } from '../../renderer/world';
-import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatsOf, type CheckoutSpec } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at its desk. */
 function changedCheckouts(): CheckoutSpec[] {
@@ -398,20 +399,24 @@ describe('meeting rooms in the floor scene', () => {
     expect(fs.scene.getObjectByName('agent wf_0000aaaa-002-a8')).toBeUndefined();
   });
 
-  it('keeps the robots of agents that run on, moves them up the table, and lets those that finish leave', () => {
+  it('keeps each agent that runs on in the seat it took, lets those that finish leave, and gives a freed seat to the next one', () => {
     const fs = sceneOf(roomFloor());
     const first = entryOf(fs, 0);
     const [a0, a1, a2] = [...first.agents.values()];
     const floor = roomFloor();
     const agents = floor.rooms[0]!.agents;
-    // a0 finishes; a1 and a2 run on and move up to the first two seats.
+    // a0 finishes; a1 and a2 run on in their own seats: nobody moves up the table.
     floor.rooms[0] = { ...floor.rooms[0]!, agents: [agents[1]!, agents[2]!, { ...agents[0]!, running: false }, ...agents.slice(3)], counts: { running: 2, finished: 3 } };
     expect(fs.apply(floor)).toBe(false);
     const seats = seatSpots(first.room.rect);
     expect([...first.agents.values()]).toEqual([a1, a2]);
-    expect([a1!.group.position.x, a1!.group.position.z]).toEqual([seats[0]!.x, seats[0]!.z]);
-    expect([a2!.group.position.x, a2!.group.position.z]).toEqual([seats[1]!.x, seats[1]!.z]);
+    expect([at(a1!), at(a2!)]).toEqual([spot(seats[1]!), spot(seats[2]!)]);
     expect(a0!.group.parent).toBeNull();
+    // A new agent starts: it takes the seat a0 left.
+    const next = { ...agents[0]!, agentId: 'wf_0000aaaa-001-a9' };
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [agents[1]!, agents[2]!, next, { ...agents[0]!, running: false }, ...agents.slice(3)], counts: { running: 3, finished: 3 } };
+    fs.apply(floor);
+    expect([at(first.agents.get(next.agentId)!), at(a1!), at(a2!)]).toEqual([spot(seats[0]!), spot(seats[1]!), spot(seats[2]!)]);
   });
 
   it('brings the host back to its desk when it leaves the meeting, and puts the placard back', () => {
@@ -566,19 +571,47 @@ describe('interns', () => {
     expect(robot.pickables[0]!.userData.pick).toEqual(deskTarget('sw-a1'));
   });
 
-  it('keeps an intern that flies on, moves it up the arc, and lands the ones that finish or leave with their session', () => {
+  it('keeps each intern that flies on at the spot it took, gives a freed spot to the next, and lands the ones that finish or leave with their session', () => {
     const fs = sceneOf(withInterns([intern('i1'), intern('i2')]));
     const entry = fs.sessions.get('sw-a1')!;
     const [i1, i2] = [...entry.interns.values()];
+    const spots = internSpots(entry.desk!);
     fs.apply(withInterns([intern('i1', false), intern('i2')]));
     expect([...entry.interns.values()]).toEqual([i2]);
-    const middle = internSpots(entry.desk!)[0]!;
-    expect([i2!.group.position.x, i2!.group.position.z]).toEqual([middle.x, middle.z]);
+    expect(at(i2!)).toEqual(spot(spots[1]!));
     expect(i1!.group.parent).toBeNull();
+    fs.apply(withInterns([intern('i2'), intern('i3')]));
+    expect([at(entry.interns.get('i3')!), at(i2!)]).toEqual([spot(spots[0]!), spot(spots[1]!)]);
     const checkouts = checkoutSpecs();
     checkouts[0]!.desks.shift();
     fs.apply(makeFloor(checkouts));
     expect(i2!.group.parent).toBeNull();
+  });
+
+  it('flies a new intern straight from the elevator to its spot, at hover height, and back out when it finishes', () => {
+    const fs = sceneOf(withInterns([]));
+    const floor = withInterns([intern('i1')]);
+    fs.apply(floor, 1000);
+    const entry = fs.sessions.get('sw-a1')!;
+    const robot = entry.interns.get('i1')!;
+    const to = internSpots(entry.desk!)[0]!;
+    const elevator = elevatorSpot(floor.core);
+    const flight = startTrip(elevator, [to], 1000 + DOOR_MS, FLY_SPEED);
+    const where = () => [robot.group.visible, robot.group.position.x, robot.group.position.y, robot.group.position.z];
+    expect(where()).toEqual([false, elevator.x, HOVER_Y, elevator.z]);
+    fs.frame(1000 + DOOR_MS + 500);
+    expect(where()).toEqual([true, tripAt(flight, 1000 + DOOR_MS + 500).x, HOVER_Y, tripAt(flight, 1000 + DOOR_MS + 500).z]);
+    fs.frame(tripEnd(flight));
+    expect([...where(), robot.group.rotation.y]).toEqual([true, to.x, HOVER_Y, to.z, to.facing]);
+    // It finishes: it flies straight back to the elevator, and is gone once there.
+    const t = tripEnd(flight) + 100;
+    fs.apply(withInterns([intern('i1', false)]), t);
+    expect(entry.interns.size).toBe(0);
+    const back = startTrip(to, [elevator], t, FLY_SPEED);
+    fs.frame(t + 300);
+    expect(where()).toEqual([true, tripAt(back, t + 300).x, HOVER_Y, tripAt(back, t + 300).z]);
+    fs.frame(tripEnd(back));
+    expect(robot.group.parent).toBeNull();
   });
 
   it('keeps the interns over the desk while their session rests in the lounge, and flies none for a dormant one', () => {
@@ -784,6 +817,81 @@ describe('walking', () => {
     expect(xz(walker.robot!)).toEqual(along(again, 3000));
     fs.frame(tripEnd(again));
     expect(at(walker.robot!)).toEqual(spot(couch[0]!));
+  });
+
+  it('brings the agents of a run that opens out of the elevator one after another to their seats, and walks them back out when it ends', () => {
+    const fs = sceneOf();
+    const rooms = roomFloor();
+    fs.apply(rooms, 0);
+    const key = (n: number) => roomKey({ hostSessionId: checkoutRooms()[n]!.host, runId: checkoutRooms()[n]!.runId });
+    const room = fs.rooms.get(key(0))!;
+    // The first room's three agents come first, then the second room's eight.
+    const agents = [...room.agents.values(), ...fs.rooms.get(key(1))!.agents.values()];
+    expect(agents).toHaveLength(11);
+    agents.forEach((robot, k) => {
+      const out = DOOR_MS + k * BURST_GAP_MS;
+      fs.frame(out - 1);
+      expect(robot.group.visible, `${k} before ${out}`).toBe(false);
+      fs.frame(out);
+      expect(robot.group.visible, `${k} at ${out}`).toBe(true);
+    });
+    fs.frame(20_000);
+    const seats = seatSpots(room.room.rect);
+    [...room.agents.values()].forEach((robot, i) => {
+      expect(at(robot)).toEqual(spot(seats[i]!));
+      expect(robot.group.position.y).toBeCloseTo(rootHeight('typing', 'workflow'), 10);
+    });
+    // The first run ends: its agents walk back to the elevator, BURST_GAP_MS apart, and are gone once there.
+    const [a0, a1, a2] = [...room.agents.values()];
+    fs.apply(roomFloor([{ ...checkoutRooms()[1]!, slot: 1 }]), 30_000);
+    expect(fs.rooms.size).toBe(1);
+    const picks = new Set(fs.pickables());
+    expect([a0, a1, a2].some((a) => a!.pickables.some((m) => picks.has(m)))).toBe(false);
+    const elevator = elevatorSpot(rooms.core);
+    const outs = [a0, a1, a2].map((_, k) => walk(rooms, seats[k]!, elevator, 30_000 + k * BURST_GAP_MS));
+    fs.frame(30_000 + BURST_GAP_MS);
+    expect([xz(a0!), xz(a1!), xz(a2!)]).toEqual([along(outs[0]!, 30_000 + BURST_GAP_MS), along(outs[1]!, 30_000 + BURST_GAP_MS), [seats[2]!.x, seats[2]!.z]]);
+    fs.frame(tripEnd(outs[2]!));
+    expect([a0!.group.parent, a1!.group.parent, a2!.group.parent]).toEqual([null, null, null]);
+  });
+
+  it('opens the elevator doors for each robot that comes or goes and shuts them DOOR_HOLD_MS after it, moving only as they open and close', () => {
+    const fs = sceneOf();
+    const doors = fs.shell!.doors;
+    const core = checkoutFloor().core;
+    const gap = () => doors[1]!.position.x - doors[0]!.position.x;
+    const open = DOOR_PANEL + 2 * DOOR_SLIDE;
+    const half = DOOR_PANEL + DOOR_SLIDE;
+    expect((doors[0]!.position.x + doors[1]!.position.x) / 2).toBeCloseTo(core.x + core.w / 2, 10);
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+    // sw-x9 arrives: the doors open over DOOR_MS, it comes out as they are open, and they close after their hold.
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.push({ id: 'sw-x9', state: 'working' });
+    const more = makeFloor(checkouts);
+    fs.apply(more, 1000);
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+    const comes = walk(more, elevatorSpot(core), seatSpot(seatOf(more, 'sw-x9').desk), 1000 + DOOR_MS);
+    expect(tripEnd(comes)).toBeGreaterThan(1400 + DOOR_HOLD_MS + DOOR_MS);
+    for (const [t, width] of [[1200, half], [1400, open], [1400 + DOOR_HOLD_MS, open], [1400 + DOOR_HOLD_MS + DOOR_MS / 2, half], [1400 + DOOR_HOLD_MS + DOOR_MS, DOOR_PANEL]] as const) {
+      expect(fs.frame(t), `at ${t}`).toMatchObject({ moving: true, wake: null });
+      expect(gap(), `at ${t}`).toBeCloseTo(width, 10);
+    }
+    expect(fs.frame(tripEnd(comes))).toMatchObject({ moving: false, wake: null });
+    // It leaves again: the doors open as it reaches them, stay open while nothing moves, and close after their hold.
+    const leaves = walk(more, seatSpot(seatOf(more, 'sw-x9').desk), elevatorSpot(core), 20_000);
+    const last = tripEnd(leaves);
+    fs.apply(checkoutFloor(), 20_000);
+    expect(fs.frame(last - DOOR_MS - 1)).toMatchObject({ moving: true, wake: null });
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
+    expect(fs.frame(last - DOOR_MS / 2)).toMatchObject({ moving: true, wake: null });
+    expect(gap()).toBeCloseTo(half, 10);
+    expect(fs.frame(last)).toMatchObject({ moving: false, wake: last + DOOR_HOLD_MS });
+    expect(gap()).toBeCloseTo(open, 10);
+    expect(fs.frame(last + DOOR_HOLD_MS)).toMatchObject({ moving: true, wake: null });
+    expect(fs.frame(last + DOOR_HOLD_MS + DOOR_MS / 2)).toMatchObject({ moving: true, wake: null });
+    expect(gap()).toBeCloseTo(half, 10);
+    expect(fs.frame(last + DOOR_HOLD_MS + DOOR_MS)).toMatchObject({ moving: false, wake: null });
+    expect(gap()).toBeCloseTo(DOOR_PANEL, 10);
   });
 
   it('puts every robot in its place at once when it settles: those on their way arrive, those leaving are gone', () => {

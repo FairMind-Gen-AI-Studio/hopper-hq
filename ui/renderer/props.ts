@@ -124,6 +124,9 @@ export const WINDOW_W = 2.2;
 export const WINDOW_Y = 1.55;
 /** The elevator's frame width on the north wall. */
 export const ELEVATOR_W = 2;
+/** Each elevator door's width, and how far it slides aside from its closed place when the doors open. */
+export const DOOR_PANEL = 0.8;
+export const DOOR_SLIDE = 0.72;
 
 /** Centres of the windows along a wall of this length, leaving out any that would overlap `skip` (from, to). */
 export function windowSpots(length: number, skip: readonly [number, number] | null = null): number[] {
@@ -160,6 +163,8 @@ export interface Shell {
   readonly desks: ReadonlyMap<string, DeskObject>;
   /** Every room of the plan, by slot. */
   readonly rooms: readonly RoomObject[];
+  /** The elevator's two doors, west then east: shut until robots come or go. */
+  readonly doors: readonly Mesh[];
   /** Detaches the shell and frees the geometries sized to this floor. */
   dispose(): void;
 }
@@ -211,11 +216,12 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     return { side, group: wall };
   });
 
-  // The core: the elevator on the north wall above it, a lobby mat and two plants.
+  // The core: the elevator on the north wall above it, a lobby mat and two plants. The doors slide over the wall: they
+  // cast no shadow, so that the shadow map need not be drawn again as they move.
   const north = walls[0]!.group;
   part(north, geo.rbox(ELEVATOR_W, 2.4, 0.12, 0.03), s.frame, core.x, 1.2, 0.06);
   part(north, geo.box(1.6, 2.1, 0.02), s.monitor, core.x, 1.05, 0.12, { cast: false });
-  for (const side of [-1, 1]) part(north, geo.box(0.8, 2.1, 0.05), s.elevator, core.x + side * 0.4, 1.05, 0.16);
+  const doors = [-1, 1].map((side) => part(north, geo.box(DOOR_PANEL, 2.1, 0.05), s.elevator, core.x + (side * DOOR_PANEL) / 2, 1.05, 0.16, { cast: false }));
   part(north, geo.ball(0.06), s.lamp, core.x, 2.5, 0.16, { cast: false });
   const lobbyD = floor.core.y + floor.core.h;
   part(group, geo.plane(floor.core.w, lobbyD), s.lobby, core.x, 0.004, lobbyD / 2, { rx: -Math.PI / 2, cast: false });
@@ -253,11 +259,20 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
     pods,
     desks,
     rooms,
+    doors,
     dispose() {
       group.removeFromParent();
       for (const g of own) g.dispose();
     },
   };
+}
+
+/** Slides the elevator doors `open` of the way open: 0 shut, 1 open. */
+export function setDoors(doors: readonly Mesh[], core: GridRect, open: number): void {
+  const x = rectCenter(core).x;
+  doors.forEach((door, i) => {
+    door.position.x = x + (i === 0 ? -1 : 1) * (DOOR_PANEL / 2 + open * DOOR_SLIDE);
+  });
 }
 
 /** Colours a pod's rug and lamp shade by its repo slot; neutral when it has none. */

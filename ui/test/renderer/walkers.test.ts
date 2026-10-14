@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BURST_GAP_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
+import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
 import { findPath, walkGrid } from '../../renderer/walk';
-import { advance, moveAll, settled, walkerAt, type Walker, type Wanted, type Ways } from '../../renderer/walkers';
+import { advance, doorsMoving, doorsNext, moveAll, settled, walkerAt, type Walker, type Wanted, type Ways } from '../../renderer/walkers';
 import { elevatorSpot, internSpots, loungeSpots, seatSpot, standSpot, type Point, type Spot } from '../../renderer/world';
 import { checkoutFloor, checkoutSpecs, makeFloor, seatOf } from './fixtures';
 
@@ -194,5 +194,28 @@ describe('a walker over time', () => {
     const still = resting('desk seat', seat);
     expect(settled(still)).toBe(still);
     expect(settled({ gait: 'walk', place: '', near: null, to: elevator, trip: walk(seat, elevator, 3000), step: false, arriving: false, leaving: true })).toBeNull();
+  });
+});
+
+describe('the elevator doors', () => {
+  it('move while they open and close, and neither while shut nor while held open', () => {
+    const passes = [10_000];
+    const at = (t: number) => doorsMoving(passes, t);
+    expect([9000, 9599, 9600, 9800, 9999, 10_000, 10_600, 11_199, 11_200, 11_400, 11_599, 11_600, 12_000].map(at)).toEqual([
+      false, false, true, true, true, false, false, false, true, true, true, false, false,
+    ]);
+    // Two passes closer than the hold: the doors stay open between them.
+    expect([10_800, 11_200, 11_600, 12_000, 12_400].map((t) => doorsMoving([10_000, 10_800], t))).toEqual([false, false, false, true, false]);
+    expect(doorsMoving([], 0)).toBe(false);
+  });
+
+  it('tell when they next start to open, or to close after their hold', () => {
+    expect(doorsNext([10_000], 0)).toBe(10_000 - DOOR_MS);
+    expect(doorsNext([10_000], 9600)).toBe(10_000 + DOOR_HOLD_MS);
+    // A second pass while they are open: they close after its hold, not after the first one's.
+    expect(doorsNext([10_000, 10_800], 10_000)).toBe(10_800 + DOOR_HOLD_MS);
+    expect(doorsNext([10_000, 14_000], 11_300)).toBe(14_000 - DOOR_MS);
+    expect(doorsNext([10_000], 11_200)).toBeNull();
+    expect(doorsNext([], 0)).toBeNull();
   });
 });

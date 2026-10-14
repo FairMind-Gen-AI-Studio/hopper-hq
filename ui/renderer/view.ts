@@ -4,10 +4,11 @@
  * drive it with stand-ins; mountFloorView passes the real WebGLRenderer.
  *
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
- * and while the controls settle, a tween runs, an arrow key is held or a robot walks (motion.frameRate). Nothing is
- * drawn while the page is hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme,
- * or a wall that comes or goes as the camera turns. Nothing is drawn either while the WebGL context is lost; once the
- * browser restores it, the floor is drawn again.
+ * and while the controls settle, a tween runs, an arrow key is held, a robot walks or the elevator doors open or close
+ * (motion.frameRate); doors held open draw nothing until they start to close. Nothing is drawn while the page is
+ * hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme, or a wall that comes or
+ * goes as the camera turns. Nothing is drawn either while the WebGL context is lost; once the browser restores it, the
+ * floor is drawn again.
  *
  * Robots walk to their new places when a floor changes (design §5.3), except at first sight: the first floor, a floor
  * given with snap, any floor while the page is hidden, under reduced motion and with motion: false, every robot is put
@@ -186,6 +187,8 @@ export function createFloorView(
   let press: PointerEvent | null = null;
   /** The last press on a tag went on to the canvas as a drag. */
   let relayed = false;
+  /** Cancels the frame asked for when the elevator doors, held open, start to close. */
+  let wake: (() => void) | null = null;
   /** The arrows held on the canvas, whether Shift is down with them, and when they last moved the camera. */
   const held = new Set<string>();
   let shifted = false;
@@ -293,6 +296,8 @@ export function createFloorView(
   function cancelFrame(): void {
     if (frame) env.cancelFrame(frame);
     frame = 0;
+    wake?.();
+    wake = null;
   }
 
   function draw(now: number): void {
@@ -317,8 +322,16 @@ export function createFloorView(
     renderer.render(world.scene, camera);
     labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
     labels.position(camera, width, height);
-    // A frame with nothing moving is the last.
+    // A frame with nothing moving is the last, but for one asked for when the doors start to close.
+    wake?.();
+    wake = null;
     if (frameRate({ hidden: env.hidden(), lost, moving: again || step.moving, ambient: false }) === 'full') request();
+    else if (step.wake !== null) {
+      wake = env.later(step.wake - now, () => {
+        wake = null;
+        request();
+      });
+    }
   }
 
   /** Takes the canvas's CSS size; a canvas without a layout box (hidden) keeps the last one. */

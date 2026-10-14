@@ -3,11 +3,11 @@ import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'th
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target, ViewOptions } from '../../renderer/index';
-import { WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
+import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
 import { findPath, walkGrid } from '../../renderer/walk';
-import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, loungeSpots, seatSpot, tableCenter } from '../../renderer/world';
+import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, elevatorSpot, floorCenter, labelAnchor, loungeSpots, seatSpot, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
 import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
 
@@ -1243,5 +1243,30 @@ describe('robots walking in the floor view', () => {
     env.step();
     expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
     expect([env.queue.size, renderer.shadowDraws]).toEqual([0, shadows + 1]);
+  });
+
+  it('draws nothing while the elevator doors are held open after a robot leaves, and wakes to draw them closing', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    const leaves = checkoutSpecs();
+    leaves[1]!.desks.pop();
+    const from = seatSpot(seatOf(checkoutFloor(), 'oa-d5').desk);
+    const floor = checkoutFloor();
+    const pass = tripEnd(startTrip(from, findPath(walkGrid(floor), from, elevatorSpot(floor.core)), env.now(), WALK_SPEED));
+    view.setFloor(makeFloor(leaves));
+    env.flush(16, 1000);
+    // The frame that saw it gone into the elevator is the last one, and one more is asked for when the doors start to close.
+    expect(env.now() - pass).toBeGreaterThanOrEqual(0);
+    expect(env.now() - pass).toBeLessThan(16);
+    expect([env.queue.size, env.timers.size]).toEqual([0, 1]);
+    const drawn = renderer.renders;
+    env.wait(pass + DOOR_HOLD_MS - env.now() - 20);
+    expect([renderer.renders, env.queue.size]).toEqual([drawn, 0]);
+    env.wait(40);
+    expect(env.queue.size).toBe(1);
+    // Every frame while they close, and none once they are shut.
+    expect(env.flush(16, 1000)).toBe(Math.ceil((DOOR_MS - 20) / 16));
+    expect([env.queue.size, env.timers.size]).toEqual([0, 0]);
   });
 });

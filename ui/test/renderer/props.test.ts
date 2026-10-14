@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, BoxGeometry, Group, Mesh, Quaternion, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
 import { Materials } from '../../renderer/materials';
-import { Geometries, buildDesk, buildRoom, buildShell, updateDesk, updatePod, updateRoom, windowSpots, type PickData } from '../../renderer/props';
+import { DOOR_PANEL, DOOR_SLIDE, Geometries, buildDesk, buildRoom, buildShell, setDoors, updateDesk, updatePod, updateRoom, windowSpots, type PickData } from '../../renderer/props';
 import { dayTheme } from '../../renderer/theme';
 import { PARTITION_H, WALL_H, boardAnchor, deskAnchor, doorGap, headSpot, loungeSpots, seatSpots, tableCenter } from '../../renderer/world';
 import { checkoutFloor, roomFloor, seatsOf } from './fixtures';
@@ -92,6 +92,26 @@ describe('the shell', () => {
       expect(pot.position.z).toBeGreaterThan(floor.core.y);
       expect(pot.position.z).toBeLessThan(floor.core.y + floor.core.h);
     }
+  });
+
+  it('slides the elevator doors aside to open them and back to shut them, and lets neither cast a shadow', () => {
+    const { geo, mats } = kit();
+    const floor = checkoutFloor();
+    const shell = buildShell(floor, geo, mats);
+    const doors = meshes(shell.walls[0]!.group).filter((m) => m.material === mats.surface.elevator);
+    expect(shell.doors).toEqual(doors);
+    expect(doors.map((d) => d.castShadow)).toEqual([false, false]);
+    const coreX = floor.core.x + floor.core.w / 2;
+    /** Each door's centre from the core's middle, to the nanometre. */
+    const xs = () => shell.doors.map((d) => Math.round((d.position.x - coreX) * 1e9) / 1e9);
+    const at = (open: number) => {
+      setDoors(shell.doors, floor.core, open);
+      return xs();
+    };
+    expect(xs()).toEqual([-DOOR_PANEL / 2, DOOR_PANEL / 2]);
+    expect(at(1)).toEqual([-(DOOR_PANEL / 2 + DOOR_SLIDE), DOOR_PANEL / 2 + DOOR_SLIDE]);
+    expect(at(0.5)).toEqual([-(DOOR_PANEL / 2 + DOOR_SLIDE / 2), DOOR_PANEL / 2 + DOOR_SLIDE / 2]);
+    expect(at(0)).toEqual([-DOOR_PANEL / 2, DOOR_PANEL / 2]);
   });
 
   it('lays a rug under each pod with a lamp over it, neutral until the floor colours them by the pod\'s repository', () => {

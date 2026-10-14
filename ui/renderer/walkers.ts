@@ -2,11 +2,11 @@
  * Where each robot on a floor is going, and how it gets there (design §5.2, §5.3). Pure: no three.js objects, no DOM
  * and no clock; times are passed in, on the view's clock. A walker is one robot's way to its place: a session's robot,
  * a workflow agent or an intern. Robots on foot follow the walk grid (walk.ts); interns fly straight over everything.
- * New robots come out of the elevator and robots no longer on the floor leave by it, a burst of them BURST_GAP_MS apart.
- * Standing up from a desk's chair to its stand, and sitting back down, is one straight step off the grid: findPath's way
- * between them goes round the chair.
+ * New robots come out of the elevator and robots no longer on the floor leave by it, a burst of them BURST_GAP_MS apart;
+ * the elevator doors move for them (motion.doorOpen). Standing up from a desk's chair to its stand, and sitting back
+ * down, is one straight step off the grid: findPath's way between them goes round the chair.
  */
-import { BURST_GAP_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from './motion';
+import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, doorOpen, startTrip, tripAt, tripEnd, type Trip } from './motion';
 import { findPath, type WalkGrid } from './walk';
 import type { Point, Spot } from './world';
 
@@ -122,6 +122,22 @@ export function advance(w: Walker, now: number): Walker | null {
 export function settled(w: Walker): Walker | null {
   if (w.leaving) return null;
   return w.trip ? { ...w, trip: null, step: false, arriving: false } : w;
+}
+
+/** Whether the elevator doors move at `now`: opening or closing, neither shut nor held open. */
+export function doorsMoving(passes: readonly number[], now: number): boolean {
+  // A moment later, they are not as open as now.
+  return doorOpen(passes, now + 1) !== doorOpen(passes, now);
+}
+
+/** The first time after `now` at which the elevator doors start to open, or start to close after their hold; null when there is none. */
+export function doorsNext(passes: readonly number[], now: number): number | null {
+  let next: number | null = null;
+  for (const pass of passes) {
+    // Another pass may hold them open then: only a time at which they do move counts.
+    for (const t of [pass - DOOR_MS, pass + DOOR_HOLD_MS]) if (t > now && (next === null || t < next) && doorsMoving(passes, t)) next = t;
+  }
+  return next;
 }
 
 /**
