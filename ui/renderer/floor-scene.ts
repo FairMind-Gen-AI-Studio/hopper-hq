@@ -1,22 +1,31 @@
 /**
  * The open floor as a three.js scene, kept in step with each FloorDetail the server sends. The shell holds the plan's
  * furniture (every desk, the lounge, every room) and is rebuilt only when the plan grows; who sits where, rug colours
- * and which rooms are open are updated in place. Each session on the floor has one robot, matched by sessionId, that
- * stands in floor coordinates wherever its occupant is: at its desk, in the lounge or at the head of a room. Room agents
- * are matched by run and agent id. The scene owns its geometries and materials and frees them all in dispose().
+ * and which rooms are open are updated in place. Each session on the floor has one robot, matched by sessionId, in floor
+ * coordinates, that goes wherever its occupant is: to its desk, to the lounge or to the head of a room.
+ *
+ * Given the time of an update, robots walk (walkers.ts): one whose place changed goes there from where it is, a new one
+ * comes out of the elevator, and one whose session goes walks to the elevator and leaves. frame() moves them on.
+ * Without the time, every robot is put in its place at once. Room agents are matched by run and agent id. The scene owns
+ * its geometries and materials and frees them all in dispose().
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { SEATS_MAX } from '../../src/scene/layout';
 import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot } from '../../src/scene/types';
 import type { Target } from './index';
 import { Materials } from './materials';
+import { WALK_SPEED, tripEnd } from './motion';
 import { Geometries, buildShell, updateDesk, updatePod, updateRoom, type PickData, type Shell } from './props';
-import { buildRobot, poseRobot, type RobotObject } from './robot';
+import { buildRobot, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
 import type { ThemeTokens } from './theme';
+import { walkGrid } from './walk';
+import { advance, moveAll, settled, walkerAt, type Walker, type Wanted, type Ways } from './walkers';
 import {
   HOME_AZIMUTH,
+  elevatorSpot,
   floorCenter,
   internSpots,
+  isStanding,
   placeSpot,
   roomKey,
   seatSpot,
@@ -37,7 +46,7 @@ export interface SessionEntry {
   occupant: Occupant;
   /** Its desk; null while it waits for one. */
   desk: PodDesk | null;
-  /** Its robot while it is on the floor: none when its occupant is gone. */
+  /** Its robot while it is on the floor: none when its occupant is gone, or while it walks out to leave. */
   robot: RobotObject | null;
   /** The robots of its running interns, by agent id, in the order of their places over its desk. */
   readonly interns: Map<string, RobotObject>;
@@ -48,6 +57,28 @@ export interface RoomEntry {
   /** The robots of the agents at the table, by agent id, in seat order. */
   readonly agents: Map<string, RobotObject>;
 }
+
+/** What one frame did: whether any robot is still under way. */
+export interface FrameStep {
+  moving: boolean;
+}
+
+/** A robot the floor wants: its walker's place, and what it is built as. */
+interface Cast extends Wanted {
+  kind: RobotKind;
+  /** The id it is built with: the session it belongs to. */
+  owner: string;
+  look: Robot;
+}
+
+/** A robot on the floor, leaving ones too, and the pose it takes at its place. */
+interface Mover {
+  robot: RobotObject;
+  look: Pick<Robot, 'pose' | 'badge'>;
+}
+
+/** A session's robot, by the key its walker goes by. */
+const sessionKey = (sessionId: string) => JSON.stringify(['session', sessionId]);
 
 export class FloorScene {
   readonly scene = new Scene();
@@ -62,6 +93,12 @@ export class FloorScene {
   private shellPart: Shell | null = null;
   private signature = '';
   private floor: FloorDetail | null = null;
+  /** The walk grid and the elevator of the plan. */
+  private ways: Ways | null = null;
+  /** Where each robot is going, by robot key: those the floor wants, then those leaving. */
+  private walkers = new Map<string, Walker>();
+  /** Each robot by the same key. */
+  private readonly movers = new Map<string, Mover>();
   /** The floor's sessions by id: those at a desk and those waiting for one. */
   private readonly entries = new Map<string, SessionEntry>();
   /** By roomKey. */
@@ -106,8 +143,11 @@ export class FloorScene {
     return this.roomEntries;
   }
 
-  /** Brings the scene in step with the floor. Returns true when the shell was rebuilt. */
-  apply(floor: FloorDetail): boolean {
+  /**
+   * Brings the scene in step with the floor. With `now`, robots walk from there on to their new places; without it,
+   * each is put in its place at once (first sight, reduced motion). Returns true when the shell was rebuilt.
+   */
+  apply(floor: FloorDetail, now?: number): boolean {
     this.floor = floor;
     const signature = layoutSignature(floor);
     const rebuild = signature !== this.signature;
@@ -118,9 +158,11 @@ export class FloorScene {
       this.signature = signature;
       this.fitSun(floor.size);
       this.setAzimuth(this.azimuth);
+      this.ways = { grid: walkGrid(floor), elevator: elevatorSpot(floor.core) };
     }
     const shell = this.shellPart!;
     const seen = new Set<string>();
+    const wanted: Cast[] = [];
     for (const pod of floor.pods) {
       const look = shell.pods.get(pod.id);
       if (look) updatePod(look, pod.color, this.mats);
@@ -129,16 +171,22 @@ export class FloorScene {
         if (obj) updateDesk(obj, desk.occupant, this.mats);
         if (desk.occupant && !seen.has(desk.occupant.sessionId)) {
           seen.add(desk.occupant.sessionId);
-          this.sync(desk.occupant, desk);
+          this.track(desk.occupant, desk, wanted);
         }
       }
     }
     for (const occupant of floor.unseated) {
       if (seen.has(occupant.sessionId)) continue;
       seen.add(occupant.sessionId);
-      this.sync(occupant, null);
+      this.track(occupant, null, wanted);
     }
     for (const [id, entry] of this.entries) if (!seen.has(id)) this.remove(id, entry);
+    this.walkers = moveAll(this.walkers, wanted, this.ways!, now ?? 0, { snap: now === undefined, regrid: rebuild }).walkers;
+    this.cast(wanted, now ?? 0);
+    for (const entry of this.entries.values()) {
+      entry.robot = this.walkers.get(sessionKey(entry.occupant.sessionId))?.leaving === false ? this.movers.get(sessionKey(entry.occupant.sessionId))!.robot : null;
+      this.syncInterns(entry);
+    }
 
     const rooms = new Set<string>();
     this.roomOrder = floor.rooms.map(roomKey);
@@ -191,8 +239,51 @@ export class FloorScene {
   }
 
   /**
-   * Where the camera looks when it pans to a session or a room: the session's robot where it is, or the chair of its desk
-   * when its robot has gone; the table of the run's first room. Null when it is not on this floor, or waits for a desk.
+   * Moves every robot on to `now`: along its trip, or at its place once it is there; one that has walked out of the
+   * elevator goes. Every robot takes its part of the frame, at rest too.
+   */
+  frame(now: number): FrameStep {
+    let moving = false;
+    for (const [key, w] of this.walkers) {
+      const mover = this.movers.get(key)!;
+      const next = advance(w, now);
+      if (next === null) {
+        this.walkers.delete(key);
+        this.drop(key, mover);
+        continue;
+      }
+      if (next !== w) this.walkers.set(key, next);
+      this.place(mover, next, now);
+      if (next.trip) moving = true;
+    }
+    this.placeRing();
+    return { moving };
+  }
+
+  /** Puts every robot at its place at once: those under way are there, and those leaving are gone. Returns whether any robot moved. */
+  settle(): boolean {
+    let moved = false;
+    for (const [key, w] of this.walkers) {
+      if (!w.trip) continue;
+      moved = true;
+      const mover = this.movers.get(key)!;
+      const next = settled(w);
+      if (next === null) {
+        this.walkers.delete(key);
+        this.drop(key, mover);
+        continue;
+      }
+      this.walkers.set(key, next);
+      this.place(mover, next, 0);
+    }
+    this.placeRing();
+    return moved;
+  }
+
+  /**
+   * Where the camera looks when it pans to a session or a room: the place the session's robot is at or going to, or the
+   * chair of its desk when its robot has gone; the table of the run's first room. Null when it is not on this floor, or
+   * waits for a desk.
    */
   focusPoint(target: Target): Point | null {
     if (target.kind === 'room') {
@@ -201,7 +292,7 @@ export class FloorScene {
     }
     const entry = this.entries.get(target.id);
     if (!entry) return null;
-    const spot = this.spotOf(entry) ?? (entry.desk ? seatSpot(entry.desk) : null);
+    const spot = entry.robot ? this.walkers.get(sessionKey(target.id))!.to : entry.desk ? seatSpot(entry.desk) : null;
     return spot ? { x: spot.x, z: spot.z } : null;
   }
 
@@ -224,6 +315,8 @@ export class FloorScene {
     this.shellPart = null;
     for (const [id, entry] of this.entries) this.remove(id, entry);
     for (const [key, entry] of this.roomEntries) this.removeRoom(key, entry);
+    for (const [key, mover] of this.movers) this.drop(key, mover);
+    this.walkers.clear();
     this.sun.dispose();
     this.hemi.dispose();
     this.scene.clear();
@@ -231,17 +324,11 @@ export class FloorScene {
     this.mats.dispose();
   }
 
-  /** Where the session's robot stands: its place on the floor, or none when it is gone. */
-  private spotOf(entry: SessionEntry): Spot | null {
-    return this.floor ? placeSpot(this.floor, entry.desk, entry.occupant) : null;
-  }
-
   /**
-   * Builds, rebuilds (new colours), places or removes the session's robot, and its interns. The robot stands at its
-   * occupant's place, and rests in the lounge. A session that is gone, or waits for a desk, has none. Geometries and
-   * materials are shared.
+   * Keeps the session's entry, and asks for its robot at its occupant's place, resting in the lounge. A session that is
+   * gone, or waits for a desk, has none.
    */
-  private sync(occupant: Occupant, desk: PodDesk | null): void {
+  private track(occupant: Occupant, desk: PodDesk | null, wanted: Cast[]): void {
     let entry = this.entries.get(occupant.sessionId);
     if (!entry) {
       entry = { occupant, desk, robot: null, interns: new Map() };
@@ -249,24 +336,59 @@ export class FloorScene {
     }
     entry.occupant = occupant;
     entry.desk = desk;
-    const spot = this.spotOf(entry);
-    const want = spot ? occupant.robot : null;
-    let robot = entry.robot;
-    if (robot && (!want || want.body !== robot.body || want.tie !== robot.tie)) {
-      robot.group.removeFromParent();
-      robot = null;
-    }
-    if (want && !robot) {
-      robot = buildRobot(occupant.sessionId, want, this.geo, this.mats);
-      this.scene.add(robot.group);
-    }
-    if (want && robot && spot) poseRobot(robot, occupant.at.kind === 'lounge' ? { pose: 'resting', badge: want.badge } : want, spot);
-    entry.robot = robot;
-    this.syncInterns(entry);
+    const spot = this.floor ? placeSpot(this.floor, desk, occupant) : null;
+    const robot = occupant.robot;
+    if (!spot || !robot) return;
+    const at = occupant.at;
+    const place =
+      at.kind === 'lounge' ? `lounge ${at.seat}` : at.kind === 'room' ? `room ${at.slot}` : `desk ${desk!.id} ${isStanding(robot.pose) ? 'stand' : 'seat'}`;
+    const look = at.kind === 'lounge' ? { ...robot, pose: 'resting' as const } : robot;
+    const near = at.kind === 'desk' ? `desk ${desk!.id}` : undefined;
+    wanted.push({ id: sessionKey(occupant.sessionId), gait: 'walk', place, near, to: spot, kind: 'session', owner: occupant.sessionId, look });
   }
 
+  /**
+   * Builds the robot of each cast that has none, or new colours, and gives it its pose; lets go of every robot no walker
+   * keeps; then places each robot as it is at `now`. Geometries and materials are shared.
+   */
+  private cast(wanted: Cast[], now: number): void {
+    for (const c of wanted) {
+      let mover = this.movers.get(c.id);
+      if (mover && (mover.robot.body !== c.look.body || mover.robot.tie !== c.look.tie)) {
+        this.drop(c.id, mover);
+        mover = undefined;
+      }
+      if (!mover) {
+        const robot = buildRobot(c.owner, c.look, this.geo, this.mats, c.kind);
+        this.scene.add(robot.group);
+        mover = { robot, look: c.look };
+        this.movers.set(c.id, mover);
+      }
+      mover.look = { pose: c.look.pose, badge: c.look.badge };
+    }
+    for (const [key, mover] of this.movers) if (!this.walkers.has(key)) this.drop(key, mover);
+    for (const [key, mover] of this.movers) this.place(mover, this.walkers.get(key)!, now);
+  }
+
+  /**
+   * Puts a robot where its walker is at `now`: striding along its trip, its legs keeping pace with its speed, inside the
+   * elevator out of sight until it sets off, or in its pose at its place. One that waits to set off from where it stands
+   * stays as it is.
+   */
+  private place(mover: Mover, w: Walker, now: number): void {
+    const at = walkerAt(w, now);
+    mover.robot.group.visible = at.shown;
+    if (w.trip && (at.walking || !at.shown)) strideRobot(mover.robot, at, ((Math.max(0, now - w.trip.start) / 1000) * w.trip.speed) / WALK_SPEED);
+    else if (!w.trip || now >= tripEnd(w.trip)) poseRobot(mover.robot, mover.look, w.to);
+  }
+
+  private drop(key: string, mover: Mover): void {
+    mover.robot.group.removeFromParent();
+    this.movers.delete(key);
+  }
+
+  /** Forgets a session no longer on the floor: its interns go with it, and its robot walks out (cast). */
   private remove(id: string, entry: SessionEntry): void {
-    entry.robot?.group.removeFromParent();
     for (const intern of entry.interns.values()) intern.group.removeFromParent();
     this.entries.delete(id);
   }
@@ -342,9 +464,19 @@ export class FloorScene {
     return undefined;
   }
 
+  /** Where a session's robot is now, or the chair of its desk when its robot has gone; null when it is not on this floor, or waits for a desk. */
+  private robotPoint(sessionId: string): Point | null {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return null;
+    if (entry.robot) return { x: entry.robot.group.position.x, z: entry.robot.group.position.z };
+    if (!entry.desk) return null;
+    const chair = seatSpot(entry.desk);
+    return { x: chair.x, z: chair.z };
+  }
+
   private placeRing(): void {
     const selected = this.selected;
-    const at = selected?.kind === 'desk' ? this.focusPoint(selected) : null;
+    const at = selected?.kind === 'desk' ? this.robotPoint(selected.id) : null;
     this.ring.visible = at !== null;
     if (at) this.ring.position.set(at.x, 0.02, at.z);
     const room = selected?.kind === 'room' ? this.roomOf(selected.id) : undefined;

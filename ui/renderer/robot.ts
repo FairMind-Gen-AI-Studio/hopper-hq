@@ -1,7 +1,7 @@
 /**
  * A session's robot, from primitives (prototypes/floor-3d-mockup.html, dressBot): a monitor head with a glowing
- * visor, a body in the repo colour and a tie in the feature colour. M2 robots do not move: each state has one static
- * pose (outline §2.6), set by rotating the limb pivots.
+ * visor, a body in the repo colour and a tie in the feature colour. At its place, each state has one pose (outline
+ * §2.6), set by rotating the limb pivots; on its way there, it strides, swinging its legs and arms.
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
 import { CylinderGeometry, Group, SphereGeometry, type Mesh } from 'three';
@@ -149,6 +149,32 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
     }
   });
   return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper }, body: robot.body, tie: robot.tie, pickables };
+}
+
+/**
+ * How a walking robot swings its limbs (prototypes/floor-3d-mockup.html, Mascot.update): its legs `swing` radians either
+ * way at `rate` radians a second, its arms 0.8 of that against them, and it bobs `bob` metres at its size.
+ */
+export const STRIDE = { rate: 9, swing: 0.6, bob: 0.03 } as const;
+
+/**
+ * The robot on its way, `t` seconds into its walk at walking pace (one walking faster is further into it): at `at`,
+ * facing its way, legs and arms swinging, standing on the floor; an intern flies at HOVER_Y.
+ */
+export function strideRobot(obj: RobotObject, at: { x: number; z: number; facing: number }, t: number): void {
+  const phase = t * STRIDE.rate;
+  const swing = Math.sin(phase) * STRIDE.swing;
+  const r = obj.rig;
+  const y = obj.kind === 'intern' ? HOVER_Y : Math.abs(Math.cos(phase)) * STRIDE.bob * KIND_SCALE[obj.kind];
+  obj.group.position.set(at.x, y, at.z);
+  obj.group.rotation.y = at.facing;
+  r.armL.rotation.set(0.05 - 0.8 * swing, 0, -0.1);
+  r.armR.rotation.set(0.05 + 0.8 * swing, 0, 0.1);
+  r.legL.rotation.x = swing;
+  r.legR.rotation.x = -swing;
+  r.neck.rotation.x = 0;
+  r.waist.rotation.x = 0;
+  r.paper.visible = false;
 }
 
 /** Puts the robot on its spot, facing its way, in the pose of its state. */

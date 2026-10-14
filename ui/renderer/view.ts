@@ -4,9 +4,14 @@
  * drive it with stand-ins; mountFloorView passes the real WebGLRenderer.
  *
  * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
- * and while the controls settle, a tween runs or an arrow key is held. Nothing is drawn while the page is hidden. The shadow map is drawn
- * only when the shadows can change: a new floor, a new theme, or a wall that comes or goes as the camera turns.
- * Nothing is drawn either while the WebGL context is lost; once the browser restores it, the floor is drawn again.
+ * and while the controls settle, a tween runs, an arrow key is held or a robot walks (motion.frameRate). Nothing is
+ * drawn while the page is hidden. The shadow map is drawn only when the shadows can change: a new floor, a new theme,
+ * or a wall that comes or goes as the camera turns. Nothing is drawn either while the WebGL context is lost; once the
+ * browser restores it, the floor is drawn again.
+ *
+ * Robots walk to their new places when a floor changes (design §5.3), except at first sight: the first floor, a floor
+ * given with snap, any floor while the page is hidden, under reduced motion and with motion: false, every robot is put
+ * in its place at once. A page shown again, and a switch to reduced motion, put robots under way in their places too.
  */
 import { OrthographicCamera, PCFShadowMap, type Camera, type Object3D, type ShadowMapType } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -32,6 +37,7 @@ import {
 import { FloorScene } from './floor-scene';
 import type { FloorView, Target, ViewOptions } from './index';
 import { LabelLayer } from './labels';
+import { frameRate } from './motion';
 import { pickTarget, toNdc } from './pick';
 import type { ThemeTokens } from './theme';
 import { azimuthOf, cameraOffset, frustumFor, polarOf, sameTarget, type Point } from './world';
@@ -128,6 +134,7 @@ export function createFloorView(
   opts: ViewOptions = {},
 ): FloorView {
   const { canvas } = host;
+  const motion = opts.motion !== false;
   const world = new FloorScene(theme);
   const camera = new OrthographicCamera(-10, 10, 10, -10, 0.1, 300);
   const controls = new OrbitControls(camera, canvas);
@@ -305,11 +312,13 @@ export function createFloorView(
     if (controls.update()) again = true;
     // The controls do not report the last, smallest steps of a glide, but those still move the camera.
     keepOnFloor();
+    const step = world.frame(now);
     if (world.setAzimuth(pose().azimuth)) renderer.shadowMap.needsUpdate = true;
     renderer.render(world.scene, camera);
     labels.setScale((height * camera.zoom) / (camera.top - camera.bottom));
     labels.position(camera, width, height);
-    if (again) request();
+    // A frame with nothing moving is the last.
+    if (frameRate({ hidden: env.hidden(), lost, moving: again || step.moving, ambient: false }) === 'full') request();
   }
 
   /** Takes the canvas's CSS size; a canvas without a layout box (hidden) keeps the last one. */
@@ -459,8 +468,11 @@ export function createFloorView(
   };
   const stopKeys = () => held.clear();
   const onVisibility = () => {
-    if (!env.hidden()) request();
-    else {
+    if (!env.hidden()) {
+      // Robots that were on their way while nothing was drawn are where they were going.
+      if (world.settle()) renderer.shadowMap.needsUpdate = true;
+      request();
+    } else {
       stopKeys();
       cancelFrame();
     }
@@ -511,9 +523,10 @@ export function createFloorView(
   }
 
   return {
-    setFloor(floor: FloorDetail, _opts?: { snap?: boolean }) {
+    setFloor(floor: FloorDetail, opts?: { snap?: boolean }) {
       if (disposed) return;
-      if (world.apply(floor)) {
+      const snap = !hasFloor || opts?.snap === true || !motion || reduced || env.hidden();
+      if (world.apply(floor, snap ? undefined : env.now())) {
         // A camera at home frames the floor again as it grows. One the user moved stays where it looks, showing as much
         // of the floor as it did, within the zoom limits.
         const home = atHome();
@@ -540,6 +553,7 @@ export function createFloorView(
     setTheme(next: ThemeTokens) {
       if (disposed) return;
       reduced = next.reducedMotion;
+      if (reduced) world.settle();
       controls.enableDamping = !reduced;
       world.setTheme(next);
       renderer.shadowMap.needsUpdate = true;

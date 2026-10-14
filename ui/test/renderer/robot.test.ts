@@ -3,7 +3,7 @@ import { Box3, Mesh } from 'three';
 import type { Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
-import { BOT, HEAD_DOWN, HOVER_Y, KIND_SCALE, POSES, buildRobot, poseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
+import { BOT, HEAD_DOWN, HOVER_Y, KIND_SCALE, POSES, STRIDE, buildRobot, poseOf, poseRobot, rootHeight, strideRobot, type RobotObject } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
 import { SEAT_Y, labelAnchor, placeSpot } from '../../renderer/world';
 import { checkoutFloor, seatsOf } from './fixtures';
@@ -82,6 +82,36 @@ describe('robots', () => {
     expect(POSES.waving.legs).toBe(0);
     expect(POSES.resting.lean).toBeLessThan(0);
     expect(POSES.holding.paper).toBe(true);
+  });
+
+  it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'holding', badge: 'done', body: 0, tie: null }, geo, mats);
+    poseRobot(obj, { pose: 'holding', badge: 'done' }, { x: 0, z: 0, facing: 0 });
+    const r = obj.rig;
+    const limbs = () => [r.legL.rotation.x, r.legR.rotation.x, r.armL.rotation.x, r.armR.rotation.x];
+    // A quarter of a swing in: the right leg forward (a negative x swings a limb forward), the left arm with it.
+    const quarter = Math.PI / 2 / STRIDE.rate;
+    strideRobot(obj, { x: 3, z: 4, facing: Math.PI / 2 }, quarter);
+    expect([obj.group.position.x, obj.group.position.z, obj.group.rotation.y]).toEqual([3, 4, Math.PI / 2]);
+    expect(obj.group.position.y).toBeCloseTo(0, 10);
+    limbs().forEach((v, i) => expect(v).toBeCloseTo([0.6, -0.6, 0.05 - 0.48, 0.05 + 0.48][i]!, 10));
+    expect([r.armL.rotation.z, r.armR.rotation.z, r.neck.rotation.x, r.waist.rotation.x, r.paper.visible]).toEqual([-0.1, 0.1, 0, 0, false]);
+    // Half a swing later, the other way round.
+    strideRobot(obj, { x: 3, z: 5, facing: Math.PI / 2 }, 3 * quarter);
+    limbs().forEach((v, i) => expect(v).toBeCloseTo([-0.6, 0.6, 0.05 + 0.48, 0.05 - 0.48][i]!, 10));
+    // Between, legs together, it is at the top of its bob: a workflow agent bobs less, and an intern flies.
+    strideRobot(obj, { x: 3, z: 5, facing: 0 }, 0);
+    expect([obj.group.position.y, Math.abs(r.legL.rotation.x), Math.abs(r.legR.rotation.x)]).toEqual([STRIDE.bob, 0, 0]);
+    const agent = buildRobot('a1', { pose: 'typing', badge: null, body: 0, tie: null }, geo, mats, 'workflow');
+    strideRobot(agent, { x: 0, z: 0, facing: 0 }, 0);
+    expect(agent.group.position.y).toBeCloseTo(STRIDE.bob * KIND_SCALE.workflow, 10);
+    const intern = buildRobot('p1', { pose: 'still', badge: null, body: 0, tie: null }, geo, mats, 'intern');
+    strideRobot(intern, { x: 1, z: 2, facing: 0 }, quarter);
+    expect([intern.group.position.x, intern.group.position.y, intern.group.position.z]).toEqual([1, HOVER_Y, 2]);
+    // At its place again, it takes its pose.
+    poseRobot(obj, { pose: 'holding', badge: 'done' }, { x: 3, z: 5, facing: 0 });
+    expect([r.legL.rotation.x, r.paper.visible]).toEqual([POSES.holding.legs, true]);
   });
 
   it('hangs its head without a signal, and not in a meeting', () => {

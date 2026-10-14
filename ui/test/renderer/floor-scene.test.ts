@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Mesh, type BufferGeometry, type Material } from 'three';
 import { FloorScene, layoutSignature } from '../../renderer/floor-scene';
-import { KIND_SCALE } from '../../renderer/robot';
+import { BURST_GAP_MS, DOOR_MS, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
+import { KIND_SCALE, POSES, STRIDE, rootHeight } from '../../renderer/robot';
+import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
 import type { Intern } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
 import {
   HOME_AZIMUTH,
   deskAnchor,
+  elevatorSpot,
   headSpot,
   internSpots,
   loungeSpots,
@@ -17,6 +20,7 @@ import {
   shadowExtent,
   standSpot,
   tableCenter,
+  type Point,
 } from '../../renderer/world';
 import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatsOf, type CheckoutSpec } from './fixtures';
 
@@ -584,5 +588,220 @@ describe('interns', () => {
     expect(at(entry.robot!)).not.toEqual(spot(seatSpot(entry.desk!)));
     fs.apply(withInterns([intern('i1')], 'dormant'));
     expect(entry.interns.size).toBe(0);
+  });
+});
+
+describe('walking', () => {
+  /** A walk over this floor, from `from` to `to`, setting off at `start`. */
+  const walk = (floor: Parameters<typeof walkGrid>[0], from: Point, to: Point, start: number): Trip => startTrip(from, findPath(walkGrid(floor), from, to), start, WALK_SPEED);
+  const xz = (o: { group: { position: { x: number; z: number } } }) => [o.group.position.x, o.group.position.z];
+  const along = (trip: Trip, now: number) => [tripAt(trip, now).x, tripAt(trip, now).z];
+  const free = (grid: WalkGrid, p: { x: number; z: number }) => grid.blocked[Math.floor(p.z / WALK_CELL) * grid.cols + Math.floor(p.x / WALK_CELL)] === 0;
+
+  it('walks a robot from its desk to the lounge and back, striding on its way, and rests at its place once there', () => {
+    const fs = sceneOf();
+    const entry = fs.sessions.get('sw-c3')!;
+    const robot = entry.robot!;
+    const seat = seatSpot(entry.desk!);
+    const lounge = loungeFloor();
+    const sofa = loungeSpots(lounge.lounge.rect)[2]!;
+    const there = walk(lounge, seat, sofa, 1000);
+    expect(fs.apply(lounge, 1000)).toBe(false);
+    // It sets off at once, from its chair, on its feet.
+    expect(xz(robot)).toEqual(along(there, 1000));
+    expect(robot.group.position.y).toBeCloseTo(0.03, 10);
+    // A long walk goes faster than WALK_SPEED, and its legs keep pace.
+    expect(there.speed).toBeGreaterThan(WALK_SPEED);
+    for (const t of [1400, 2600]) {
+      expect(fs.frame(t).moving).toBe(true);
+      expect(xz(robot)).toEqual(along(there, t));
+      expect(robot.rig.legL.rotation.x).toBeCloseTo(Math.sin((((t - 1000) / 1000) * there.speed * STRIDE.rate) / WALK_SPEED) * STRIDE.swing, 10);
+    }
+    expect(fs.frame(tripEnd(there)).moving).toBe(false);
+    expect(at(robot)).toEqual(spot(sofa));
+    expect([robot.group.position.y, robot.rig.legL.rotation.x]).toEqual([rootHeight('resting'), POSES.resting.legs]);
+    // At the next prompt it walks back to its chair.
+    const start = tripEnd(there) + 500;
+    const back = walk(lounge, sofa, seat, start);
+    fs.apply(checkoutFloor(), start);
+    fs.frame(start + 700);
+    expect(xz(robot)).toEqual(along(back, start + 700));
+    fs.frame(tripEnd(back));
+    expect(at(robot)).toEqual(spot(seat));
+    expect(entry.robot).toBe(robot);
+    expect(fs.frame(tripEnd(back) + 1000).moving).toBe(false);
+  });
+
+  it('stands a robot up from its chair in one straight step, and sits it back down the same way', () => {
+    const fs = sceneOf();
+    const entry = fs.sessions.get('sw-a1')!;
+    const robot = entry.robot!;
+    const seat = seatSpot(entry.desk!);
+    const stand = standSpot(entry.desk!);
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0]!.state = 'needs_you';
+    const up = startTrip(seat, [{ x: stand.x, z: stand.z }], 1000, WALK_SPEED);
+    expect(tripEnd(up) - 1000).toBeLessThan(400);
+    fs.apply(makeFloor(checkouts), 1000);
+    fs.frame(1200);
+    expect(xz(robot)).toEqual(along(up, 1200));
+    fs.frame(tripEnd(up));
+    expect(at(robot)).toEqual(spot(stand));
+    const down = startTrip(stand, [{ x: seat.x, z: seat.z }], 3000, WALK_SPEED);
+    fs.apply(checkoutFloor(), 3000);
+    fs.frame(3200);
+    expect(xz(robot)).toEqual(along(down, 3200));
+    fs.frame(tripEnd(down));
+    expect(at(robot)).toEqual(spot(seat));
+  });
+
+  it("walks a host to the head of its room's table through the door, never across glass, a table or a desk, and back", () => {
+    const fs = sceneOf();
+    const host = fs.sessions.get('ps-d4')!;
+    const robot = host.robot!;
+    const rooms = roomFloor();
+    const grid = walkGrid(rooms);
+    const head = headSpot(rooms.roomSlots[0]!);
+    const there = walk(rooms, seatSpot(host.desk!), head, 0);
+    fs.apply(rooms, 0);
+    // Getting off its chair and onto the head seat it may cross a seat's cells; every step between them is clear.
+    const near = (p: Point, q: Point) => Math.hypot(p.x - q.x, p.z - q.z) < 1;
+    let checked = 0;
+    for (let t = 0; t < tripEnd(there); t += 50) {
+      fs.frame(t);
+      const p = robot.group.position;
+      if (near(p, there.from) || near(p, head)) continue;
+      expect(free(grid, p), `at ${t}`).toBe(true);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(40);
+    fs.frame(tripEnd(there));
+    expect(at(robot)).toEqual(spot(head));
+    const back = walk(rooms, head, seatSpot(host.desk!), 10_000);
+    fs.apply(checkoutFloor(), 10_000);
+    fs.frame(tripEnd(back));
+    expect(at(robot)).toEqual(spot(seatSpot(host.desk!)));
+  });
+
+  it('turns a robot on its way when its place changes again, from where it got to', () => {
+    const fs = sceneOf();
+    const entry = fs.sessions.get('sw-c3')!;
+    const robot = entry.robot!;
+    const seat = seatSpot(entry.desk!);
+    const lounge = loungeFloor();
+    const there = walk(lounge, seat, loungeSpots(lounge.lounge.rect)[2]!, 1000);
+    fs.apply(lounge, 1000);
+    fs.frame(2000);
+    const halfway = { x: tripAt(there, 2000).x, z: tripAt(there, 2000).z };
+    expect(xz(robot)).toEqual([halfway.x, halfway.z]);
+    fs.apply(checkoutFloor(), 2000);
+    expect(xz(robot)).toEqual([halfway.x, halfway.z]);
+    const back = walk(lounge, halfway, seat, 2000);
+    fs.frame(2300);
+    expect(xz(robot)).toEqual(along(back, 2300));
+    fs.frame(tripEnd(back));
+    expect(at(robot)).toEqual(spot(seat));
+  });
+
+  it('brings the robot of a new session out of the elevator once its doors are open, and walks the robot of one that left out to it, then lets it go', () => {
+    const fs = sceneOf();
+    const gone = fs.sessions.get('sw-c3')!.robot!;
+    const goneFrom = seatSpot(fs.sessions.get('sw-c3')!.desk!);
+    const changed = makeFloor(changedCheckouts());
+    const elevator = elevatorSpot(changed.core);
+    fs.apply(changed, 1000);
+    // sw-c3 left: it no longer has an entry, nor can it be picked, but it walks out first.
+    expect(fs.sessions.has('sw-c3')).toBe(false);
+    expect(gone.group.parent).toBe(fs.scene);
+    const picks = new Set(fs.pickables());
+    expect(gone.pickables.some((m) => picks.has(m))).toBe(false);
+    const out = walk(changed, goneFrom, elevator, 1000);
+    // sw-x9 waits inside the elevator, out of sight, until the doors are open.
+    const fresh = fs.sessions.get('sw-x9')!;
+    const robot = fresh.robot!;
+    const seat = seatSpot(fresh.desk!);
+    const comes = walk(changed, elevator, seat, 1000 + DOOR_MS);
+    expect([robot.group.visible, ...xz(robot)]).toEqual([false, elevator.x, elevator.z]);
+    fs.frame(1000 + DOOR_MS - 1);
+    expect(robot.group.visible).toBe(false);
+    fs.frame(1000 + DOOR_MS + 600);
+    expect([robot.group.visible, ...xz(robot)]).toEqual([true, ...along(comes, 1000 + DOOR_MS + 600)]);
+    expect(xz(gone)).toEqual(along(out, 1000 + DOOR_MS + 600));
+    fs.frame(tripEnd(out) - 1);
+    expect(gone.group.parent).toBe(fs.scene);
+    fs.frame(tripEnd(out));
+    expect(gone.group.parent).toBeNull();
+    fs.frame(tripEnd(comes));
+    expect(at(robot)).toEqual(spot(seat));
+    expect(fs.frame(20_000).moving).toBe(false);
+  });
+
+  it('brings new robots out of the elevator BURST_GAP_MS apart, and walks a dormant session out while its desk stays its', () => {
+    const fs = sceneOf();
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0]!.state = 'dormant';
+    checkouts[1]!.desks.push({ id: 'oa-n1', state: 'working' }, { id: 'oa-n2', state: 'working' });
+    const floor = makeFloor(checkouts);
+    const sleeper = fs.sessions.get('sw-a1')!;
+    const robot = sleeper.robot!;
+    fs.apply(floor, 0);
+    expect([sleeper.robot, robot.group.parent, fs.focusPoint(deskTarget('sw-a1'))]).toEqual([null, fs.scene, { x: seatSpot(sleeper.desk!).x, z: seatSpot(sleeper.desk!).z }]);
+    const first = fs.sessions.get('oa-n1')!.robot!;
+    const second = fs.sessions.get('oa-n2')!.robot!;
+    fs.frame(DOOR_MS);
+    expect([first.group.visible, second.group.visible]).toEqual([true, false]);
+    fs.frame(DOOR_MS + BURST_GAP_MS);
+    expect([first.group.visible, second.group.visible]).toEqual([true, true]);
+    fs.frame(10_000);
+    expect(robot.group.parent).toBeNull();
+    expect(fs.frame(10_000).moving).toBe(false);
+  });
+
+  it('finds new ways for the robots on their way when the plan grows, and moves a lounge sitter with its couch', () => {
+    const resting = checkoutSpecs();
+    resting[0]!.desks[2] = { ...resting[0]!.desks[2]!, lounge: 2 };
+    const fs = sceneOf(makeFloor(resting));
+    const sitter = fs.sessions.get('sw-c3')!.robot!;
+    const walker = fs.sessions.get('oa-d5')!;
+    const going = checkoutSpecs();
+    going[0]!.desks[2] = { ...going[0]!.desks[2]!, lounge: 2 };
+    going[1]!.desks[1] = { id: 'oa-d5', state: 'idle', lounge: 0 };
+    const before = makeFloor(going);
+    const there = walk(before, seatSpot(walker.desk!), loungeSpots(before.lounge.rect)[0]!, 1000);
+    fs.apply(before, 1000);
+    fs.frame(2000);
+    // Four more checkouts, a pod each: the plan grows to four blocks and the lounge moves 16 m south.
+    for (const n of [1, 2, 3, 4]) going.push({ key: `/demo/more-${n}`, repo: 'more', color: 5, tie: 4, desks: [{ id: `m${n}`, state: 'working' }] });
+    const grown = makeFloor(going);
+    const couch = loungeSpots(grown.lounge.rect);
+    expect(couch[2]!.z).toBe(loungeSpots(before.lounge.rect)[2]!.z + 16);
+    expect(fs.apply(grown, 2000)).toBe(true);
+    expect(at(sitter)).toEqual(spot(couch[2]!));
+    const from = { x: tripAt(there, 2000).x, z: tripAt(there, 2000).z };
+    expect(xz(walker.robot!)).toEqual([from.x, from.z]);
+    const again = walk(grown, from, couch[0]!, 2000);
+    fs.frame(3000);
+    expect(xz(walker.robot!)).toEqual(along(again, 3000));
+    fs.frame(tripEnd(again));
+    expect(at(walker.robot!)).toEqual(spot(couch[0]!));
+  });
+
+  it('puts every robot in its place at once when it settles: those on their way arrive, those leaving are gone', () => {
+    const fs = sceneOf();
+    const entry = fs.sessions.get('sw-a1')!;
+    const robot = entry.robot!;
+    const leaving = fs.sessions.get('sw-c3')!.robot!;
+    const checkouts = changedCheckouts();
+    fs.apply(makeFloor(checkouts), 1000);
+    fs.frame(1100);
+    const fresh = fs.sessions.get('sw-x9')!.robot!;
+    expect(fs.settle()).toBe(true);
+    expect([at(robot), leaving.group.parent, fresh.group.visible, at(fresh)]).toEqual([spot(standSpot(entry.desk!)), null, true, spot(seatSpot(fs.sessions.get('sw-x9')!.desk!))]);
+    expect(fs.settle()).toBe(false);
+    expect(fs.frame(1200).moving).toBe(false);
+    // Without a time, a floor puts its robots in their places at once too.
+    fs.apply(loungeFloor());
+    expect(at(fs.sessions.get('sw-a1')!.robot!)).toEqual(spot(seatSpot(entry.desk!)));
+    expect(fs.frame(1300).moving).toBe(false);
   });
 });

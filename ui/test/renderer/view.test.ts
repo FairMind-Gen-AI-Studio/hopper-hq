@@ -3,9 +3,11 @@ import { Vector3, type Camera, type Object3D, type OrthographicCamera } from 'th
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DESK_PULL, DESK_ZOOM, MAX_POLAR, MAX_ZOOM, MIN_POLAR, PAN_MS, QUARTER, ROTATE_MS, turnBetween } from '../../renderer/camera';
 import type { FloorView, Target, ViewOptions } from '../../renderer/index';
+import { WALK_SPEED, startTrip, tripAt, tripEnd } from '../../renderer/motion';
 import { dayTheme } from '../../renderer/theme';
 import { DOUBLE_CLICK_MS, DRAG_PX, createFloorView, type RendererLike, type ViewEnv } from '../../renderer/view';
-import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, tableCenter } from '../../renderer/world';
+import { findPath, walkGrid } from '../../renderer/walk';
+import { HOME_AZIMUTH, POLAR, azimuthOf, cameraOffset, deskAnchor, floorCenter, labelAnchor, loungeSpots, seatSpot, tableCenter } from '../../renderer/world';
 import { FloorScene } from '../../renderer/floor-scene';
 import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf } from './fixtures';
 
@@ -1133,5 +1135,113 @@ describe('the floor view', () => {
       controlsDispose.mockRestore();
       worldDispose.mockRestore();
     }
+  });
+});
+
+describe('robots walking in the floor view', () => {
+  /** The checkout floor with sw-c3, idle, resting on lounge seat 2. */
+  function loungeFloor() {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[2] = { ...checkouts[0]!.desks[2]!, lounge: 2 };
+    return makeFloor(checkouts);
+  }
+  const lounge = loungeFloor();
+  const sofa = loungeSpots(lounge.lounge.rect)[2]!;
+  const seat = seatSpot(seatOf(checkoutFloor(), 'sw-c3').desk);
+  /** Where sw-c3's robot stands in the scene the view last drew. */
+  const robot = (renderer: FakeRenderer) => {
+    const p = renderer.scene!.getObjectByName('robot sw-c3')!.position;
+    return [p.x, p.z];
+  };
+
+  /** A view that shows the checkout floor, then the lounge floor, where sw-c3 walks to the lounge: what is drawn a frame later. */
+  function second(theme = dayTheme(), opts?: ViewOptions, snap?: boolean) {
+    const { renderer, env, view } = setup(theme, opts);
+    view.setFloor(checkoutFloor());
+    env.flush();
+    view.setFloor(lounge, snap === undefined ? undefined : { snap });
+    env.step();
+    return { renderer, env, view };
+  }
+
+  it('puts every robot in its place at once on the first floor', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(lounge);
+    env.step();
+    expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
+  });
+
+  it('walks a robot to its new place on a later floor, drawing every frame until all are still', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(lounge);
+    env.flush();
+    expect(env.queue.size).toBe(0);
+    const start = env.now();
+    view.setFloor(checkoutFloor());
+    const back = startTrip(sofa, findPath(walkGrid(lounge), sofa, seat), start, WALK_SPEED);
+    env.step(500);
+    expect(robot(renderer)).toEqual([tripAt(back, start + 500).x, tripAt(back, start + 500).z]);
+    expect(env.queue.size).toBe(1);
+    const drawn = renderer.renders;
+    env.flush(16, 1000);
+    expect(robot(renderer)).toEqual([seat.x, seat.z]);
+    expect(env.queue.size).toBe(0);
+    expect(renderer.renders - drawn).toBe(Math.ceil((tripEnd(back) - start - 500) / 16));
+  });
+
+  it('puts every robot in its place at once for a floor given with snap', () => {
+    const { renderer, env } = second(dayTheme(), undefined, true);
+    expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
+    expect(env.queue.size).toBe(0);
+    // Without it, the same floor walks.
+    const walks = second(dayTheme(), undefined, false);
+    expect(robot(walks.renderer)).not.toEqual([sofa.x, sofa.z]);
+  });
+
+  it('puts every robot in its place at once with motion: false', () => {
+    const { renderer, env } = second(dayTheme(), { motion: false });
+    expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
+    expect(env.queue.size).toBe(0);
+  });
+
+  it('puts every robot in its place at once under reduced motion, and those on their way when motion turns reduced', () => {
+    const { renderer, env } = second(dayTheme(true));
+    expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
+    expect(env.queue.size).toBe(0);
+    const walking = second();
+    walking.env.step(300);
+    expect(robot(walking.renderer)).not.toEqual([sofa.x, sofa.z]);
+    walking.view.setTheme(dayTheme(true));
+    walking.env.step();
+    expect(robot(walking.renderer)).toEqual([sofa.x, sofa.z]);
+    expect(walking.env.queue.size).toBe(0);
+  });
+
+  it('puts the robots of a floor given while the page is hidden in their places', () => {
+    const { renderer, env, view } = setup();
+    view.setFloor(checkoutFloor());
+    env.flush();
+    env.isHidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    view.setFloor(lounge);
+    env.isHidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    env.step();
+    expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
+    expect(env.queue.size).toBe(0);
+  });
+
+  it('puts the robots on their way in their places when the page shows again, and draws the shadows once more', () => {
+    const { renderer, env } = second();
+    env.step(300);
+    const shadows = renderer.shadowDraws;
+    env.isHidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    env.wait(400);
+    env.isHidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    env.step();
+    expect(robot(renderer)).toEqual([sofa.x, sofa.z]);
+    expect([env.queue.size, renderer.shadowDraws]).toEqual([0, shadows + 1]);
   });
 });
