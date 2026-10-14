@@ -2,13 +2,13 @@
 
 A local dashboard for keeping an eye on your coding-agent sessions while they work.
 
-Every session gets a desk in an isometric office building: one floor per feature, an island per repo, interns for subagents, meeting rooms for workflows, and a basement archive for finished work. A red window on the façade means someone is waiting for you.
+Every session gets a desk in an isometric office building: one floor per feature, pods of desks for each checkout, interns for subagents, meeting rooms for workflows, a lounge for idle sessions, and a basement archive for finished work. Robots walk between them as sessions change state. A red window on the façade means someone is waiting for you.
 
 Built for Claude Code (local and cloud) first, with an adapter interface meant to welcome other coding agents.
 
 ## Status
 
-Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, and an optional line that says where each session stands. Walking characters and the archive are planned. See [the design document](docs/plans/2026-10-09-scranton-hq-design.md), and [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md).
+Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-scranton-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), and [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md).
 
 ## What it does
 
@@ -38,6 +38,8 @@ In your clone, pull the new version and run `npm install && npm run build` again
 2. Update the mod: with `/plugin` in Claude Code, or install it again as in [The Claude Code mod](#the-claude-code-mod-recommended).
 3. Reload every building tab you had open. A tab opened before this upgrade stops following the building without saying so. From now on, a tab that can no longer follow the building says so and asks for the reload.
 
+The first start after an upgrade that brings the [floor plan](#the-floor-plan) seats every session afresh, once: each takes a desk on its floor's plan, and keeps it from then on, across restarts.
+
 ## Quick start
 
 Run `scranton-hq up`. It starts the daemon in the background if it is not running yet, then opens the building in your browser. The daemon writes its log to `~/.scranton-hq/daemon.log`. `scranton-hq down` stops it.
@@ -50,7 +52,7 @@ This already works from the files Claude Code writes, without the mod.
 
 `scranton-hq ui` signs your browser in and opens the building. The daemon must be running. With `--no-open` it only prints the link.
 
-The façade has one floor per feature, shared by every repository working on that branch, and one floor per repository for sessions with no feature branch. Floors keep their place, newest on top. Each window is a session:
+The façade has one floor per feature, shared by every repository working on that branch, and one floor per repository for sessions with no feature branch. Floors keep their place, newest on top. Each window is a desk of the floor's [plan](#the-floor-plan), so a floor shows from outside how large it is and how full:
 
 | Window | State |
 | --- | --- |
@@ -60,23 +62,24 @@ The façade has one floor per feature, shared by every repository working on tha
 | Purple | In a meeting: idle itself, while its subagents or workflow agents run. |
 | Amber, flickering | No signal: working, but nothing new for a while, often a long command. |
 | Unlit (grey by day, dark at night) | Idle, or dormant (idle for days). A floor where everyone is dormant lowers its shutters. |
+| Unlit, with a frame | A free desk. |
 
 The bar at the top lists who needs you (longest wait first) and what is done (oldest first) at every level. Click an entry to open its desk; `Go` switches tmux to its pane.
 
-Click a floor to go inside. Each checkout gets an island in its repository's colour, with a desk and a robot per session; the robot's pose and badge show its state. Click a desk to see what it is doing. Double-click it, press Enter, or use `Go to pane` to switch tmux to its pane.
+Click a floor to go inside. Each session has a desk and a robot, whose pose and badge show its state. Click a desk or its robot to see what it is doing. Double-click it, press Enter, or use `Go to pane` to switch tmux to its pane.
 
 A desk's panel also lists the session's interns and its latest workflow runs, with how long each has run and how it ended. With [summaries](#summaries) on, it says in one line where the session stands, and so do the desk's row in the floor's side panel and its entry in the bar at the top.
 
-Subagents that a session starts outside a workflow run are its interns: small robots that hover on jetpacks behind its monitor while they run, three at most.
+Subagents that a session starts outside a workflow run are its interns: small robots that hover on jetpacks over its desk while they run, three at most.
 
-Each workflow run that is going on has a meeting room, in a wing east of the islands on its session's floor:
+Each workflow run that is going on has a meeting room, in a wing east of the desks on its session's floor:
 
 - its agents sit at the table as robots in hard hats, eight at most;
-- the session that started the run sits at the head of the table while it waits for the run, and its own chair stays empty;
+- the robot of the session that started the run sits at the head of the table while the session waits for the run;
 - a tag over the door names the run, and adds its current phase and its counts up close or when the room is selected;
 - up close, the whiteboard lists the run's phases (✓ done, ● current, ○ upcoming) and how many agents run and have finished.
 
-A floor shows four rooms at most; its side panel counts the other runs. A room closes when its run ends, and the session's desk panel keeps how it ended. Click a room or its tag to open the run's panel: its phases, its agents and a link to the session's desk. Double-click the room, press Enter, or use `Go to pane` to switch tmux to that session's pane.
+A floor has two rooms, and four once a third run goes on at the same time; its side panel counts the runs beyond four. A run keeps its room until it ends. The room then closes, its door shut and its lights dimmed, and the session's desk panel keeps how the run ended. Click a room or its tag to open the run's panel: its phases, its agents and a link to the session's desk. Double-click the room, press Enter, or use `Go to pane` to switch tmux to that session's pane.
 
 The page's address names the floor, and the desk or the run on screen: a link opens it, and Back and reload keep your place.
 
@@ -92,6 +95,33 @@ The page's address names the floor, and the desk or the run on screen: a link op
 The theme button cycles through system, day and night. A browser without WebGL still lists a floor's desks and meeting rooms in the side panel. When the page can no longer follow the building, because the daemon was updated since it loaded, it says so and asks you to reload it.
 
 Going to a pane switches the most recently used tmux client to it. The daemon talks to the tmux server it was started under, or the default one. It cannot bring the terminal window to the front.
+
+### The floor plan
+
+A floor's plan is fixed: desks, meeting rooms and a lounge that sessions take and leave.
+
+- Desks come in pods of four, back to back on a rug, and pods in blocks of two: eight desks to a block.
+- A new session sits in a pod where a session of its checkout sits, else at an empty pod, else at the first free desk. It keeps its desk until it ends or moves to another floor.
+- A pod's rug takes its repository's colour while all its sessions share one repository. Its placard names their checkout, or only the repository when that is all they share.
+- With no desk free, a new session takes the desk of the session that has been dormant longest, which takes a desk again when one frees up or it wakes. With none dormant, the floor grows by a block, up to four blocks: 32 desks. Further sessions wait for a desk: the side panel lists them, marked "no desk", and the façade counts them.
+- A floor never shrinks while it has sessions. Once the last one leaves, it starts again from one block.
+- A dormant session's robot goes home. Its desk stays its own, dimmed, with its name on a nameplate that shows closer in.
+- The lounge runs along the south wall, with eight seats on couches and beanbags. An idle session rests there until its next prompt; with the lounge full, it rests at its desk.
+
+### Walking
+
+Robots walk. A session that comes to a floor steps out of the elevator and walks to its desk; one that ends, goes dormant or moves to another floor walks back into it. As its state changes, a robot walks to its meeting room, to the lounge and back to its desk, round the furniture. Workflow agents walk from the elevator to their seats and back, and interns fly straight to their desk and back. Everyone keeps their seat until they leave. The elevator doors open for each robot that passes.
+
+At rest, robots move a little: a working robot or agent types, one that needs you waves, one that is done holds up its paper, one without a signal dozes, an idle one breathes, and interns bob on their jetpacks.
+
+A floor you open, reload or come back to shows everyone already in place: only what changes while you watch walks. Under your system's reduced-motion setting, robots go straight to their places and nothing moves at rest. So it is with `?motion=off` in the page's address (`/ui/?motion=off`), for screenshots and tests.
+
+### Tags
+
+- From far, which is how a floor first shows on most screens, a robot's tag is a dot in its state's colour, named only while it is selected, needs you or is done. Room tags keep their names, and the pods' placards hide.
+- Closer in, every tag and placard shows whole.
+- Where two overlap, the one that ranks lower gives way: the selected tag first, then needs you, done, rooms, working, the other states, and placards last.
+- Hover or focus a tag to read it whole. Free desks and dormant ones have no tag.
 
 ### Signing in
 
@@ -237,7 +267,7 @@ npm run test:e2e
 
 `npm run test:mod` needs the `claude` CLI. It is not run in CI.
 
-To try it with synthetic sessions, run `scranton-hq demo` (or `node dist/bin.js demo`). Then run `scranton-hq ls --data-dir ~/.scranton-hq/demo`. The demo runs a workflow on its payments desk, gives a desk two interns, and writes fixed summary lines.
+To try it with synthetic sessions, run `scranton-hq demo` (or `node dist/bin.js demo`). Then run `scranton-hq ls --data-dir ~/.scranton-hq/demo`. The demo replays a one-minute script. On its checkout floor, two workflow runs take turns, one starting before the other ends, so a meeting room is always open; five more sessions come and go, so the floor holds nine for a while and grows a block in the first minute; one of them rests in the lounge while it is idle. A desk has two interns, and the summary lines are fixed.
 
 ### The browser UI
 
@@ -253,7 +283,7 @@ The dev server listens on 127.0.0.1:17173 and forwards `/api` and `/ui/login` to
 
 ### Browser smoke test
 
-`npm run test:e2e` builds the package and tests it in a real browser. It starts its own demo daemon on a free port between 17000 and 17999, with a temporary data directory. Then it signs in through the demo's link and walks the building, a floor in 3D, a desk, and a meeting room with its run's phases and its session's summary line, in headless Chrome. It fails on any console error or content-policy violation. Its output goes to a temporary directory that is removed after a passing run and kept after a failing one, so the screenshot and error context stay for debugging.
+`npm run test:e2e` builds the package and tests it in a real browser. It starts its own demo daemon on a free port between 17000 and 17999, with a temporary data directory. Then it signs in through the demo's link and walks the building, a floor in 3D, a desk, and a meeting room with its run's phases and its session's summary line, in headless Chrome, with `?motion=off`. With walking on, it then waits for a robot to step out of the elevator and reach its desk. It fails on any console error or content-policy violation. Its output goes to a temporary directory that is removed after a passing run and kept after a failing one, so the screenshot and error context stay for debugging.
 
 It runs on the Google Chrome installed on your machine and never downloads a browser. Without Chrome it stops with a message saying so. It is not part of `npm test` and does not run in CI.
 
