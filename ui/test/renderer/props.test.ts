@@ -3,7 +3,27 @@ import { Box3, BoxGeometry, Group, Mesh, Quaternion, Vector3, type BufferGeometr
 import { Materials } from '../../renderer/materials';
 import { DOOR_PANEL, DOOR_SLIDE, Geometries, buildDesk, buildRoom, buildShell, setDoors, updateDesk, updatePod, updateRoom, windowSpots, type PickData } from '../../renderer/props';
 import { dayTheme } from '../../renderer/theme';
-import { PARTITION_H, WALL_H, boardAnchor, deskAnchor, doorGap, headSpot, loungeSpots, seatSpots, tableCenter } from '../../renderer/world';
+import {
+  BEANBAG_R,
+  BEANBAG_SCALE,
+  CHAIR_Z,
+  COUCH,
+  COUCH_ARM,
+  COUCH_BACK,
+  DESK_CHAIR,
+  DESK_TOP,
+  PARTITION_H,
+  ROOM_SEAT,
+  WALL_H,
+  boardAnchor,
+  deskAnchor,
+  doorGap,
+  headSpot,
+  loungeSpots,
+  plantSpots,
+  seatSpots,
+  tableCenter,
+} from '../../renderer/world';
 import { checkoutFloor, roomFloor, seatsOf } from './fixtures';
 
 function kit() {
@@ -16,6 +36,14 @@ function meshes(root: Object3D): Mesh[] {
     if (o instanceof Mesh) out.push(o);
   });
   return out;
+}
+
+/** The box in the world of every piece drawn under `root` in `material`. */
+function drawn(root: Object3D, material: Material): Box3[] {
+  root.updateMatrixWorld(true);
+  return meshes(root)
+    .filter((m) => m.material === material)
+    .map((m) => new Box3().setFromObject(m));
 }
 
 describe('shared geometries', () => {
@@ -369,5 +397,50 @@ describe('meeting rooms', () => {
     const size = geo.size;
     buildRoom(b!.rect, b!.slot, geo, mats);
     expect(geo.size).toBe(size);
+  });
+});
+
+describe('the sizes the walk grid shares', () => {
+  const span = (b: Box3) => b.getSize(new Vector3());
+  // Geometries keep their vertices in 32-bit floats: sizes are exact to a few millionths of a metre.
+  const near = (v: number) => expect.closeTo(v, 5);
+  const within = (b: Box3, r: { x: number; y: number; w: number; h: number }) => b.min.x > r.x && b.max.x < r.x + r.w && b.min.z > r.y && b.max.z < r.y + r.h;
+
+  it('draws every desk top, desk chair and room seat at the size world.ts gives the walk grid', () => {
+    const { geo, mats } = kit();
+    const floor = roomFloor();
+    const shell = buildShell(floor, geo, mats);
+    const tops = drawn(shell.group, mats.surface.desk);
+    const chairs = drawn(shell.group, mats.surface.chair);
+    for (const desk of floor.pods.flatMap((p) => p.desks)) {
+      const a = deskAnchor(desk);
+      const top = tops.find((b) => Math.abs(b.getCenter(new Vector3()).x - a.x) < 1e-5 && Math.abs(b.getCenter(new Vector3()).z - a.z) < 1e-5)!;
+      expect([span(top).x, span(top).z], desk.id).toEqual([near(DESK_TOP.w), near(DESK_TOP.d)]);
+      // Its chair, seat and back, from the desk top's centre toward the chair.
+      const chair = chairs.filter((b) => within(b, desk.rect)).reduce((u, b) => u.clone().union(b));
+      const toward = desk.chair === 'south' ? [chair.min.z - a.z, chair.max.z - a.z] : [a.z - chair.max.z, a.z - chair.min.z];
+      expect([span(chair).x, ...toward], desk.id).toEqual([near(DESK_CHAIR.w), near(CHAIR_Z - DESK_CHAIR.seat / 2), near(DESK_CHAIR.backZ + DESK_CHAIR.back / 2)]);
+    }
+    for (const rect of floor.roomSlots) {
+      const seats = chairs.filter((b) => within(b, rect));
+      expect(seats).toHaveLength(9);
+      for (const seat of seats) expect([span(seat).x, span(seat).z]).toEqual([near(ROOM_SEAT), near(ROOM_SEAT)]);
+    }
+  });
+
+  it('draws the couches, the beanbags and the plants at the sizes and spots world.ts gives the walk grid', () => {
+    const { geo, mats } = kit();
+    const floor = checkoutFloor();
+    const shell = buildShell(floor, geo, mats);
+    const couch = drawn(shell.group, mats.surface.couch);
+    // Two backs COUCH_BACK deep, four arms COUCH_ARM wide, and each couch COUCH.w + COUCH_ARM wide with its arms.
+    expect(couch.filter((b) => Math.abs(span(b).z - COUCH_BACK) < 1e-5)).toHaveLength(2);
+    expect(couch.filter((b) => Math.abs(span(b).x - COUCH_ARM) < 1e-5)).toHaveLength(4);
+    expect(span(couch.reduce((u, b) => u.clone().union(b))).x).toBeCloseTo(COUCH.w + COUCH_ARM, 5);
+    const beans = [...drawn(shell.group, mats.surface.beanA), ...drawn(shell.group, mats.surface.beanB)];
+    const bean = [2 * BEANBAG_R * BEANBAG_SCALE.across, 2 * BEANBAG_R * BEANBAG_SCALE.up, 2 * BEANBAG_R * BEANBAG_SCALE.across];
+    expect(beans.map((b) => span(b).toArray())).toEqual([bean.map(near), bean.map(near)]);
+    const pots = drawn(shell.group, mats.surface.pot).map((b) => b.getCenter(new Vector3()));
+    expect(pots.map((p) => ({ x: p.x, z: p.z }))).toEqual(plantSpots(floor.core).map((p) => ({ x: near(p.x), z: near(p.z) })));
   });
 });

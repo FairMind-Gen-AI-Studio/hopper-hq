@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX, layoutPlan } from '../../../src/scene/layout';
 import type { Occupant, Place, PodDesk } from '../../../src/scene/types';
 import {
+  BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
   CAMERA_DISTANCE,
   CHAIR_Z,
+  COUCH,
+  COUCH_ARM,
+  COUCH_BACK,
   COUCH_Z,
+  DESK_CHAIR,
+  DESK_TOP,
   DOOR_W,
   ELEVATOR_STEP,
   FRAME_MARGIN,
@@ -14,7 +20,9 @@ import {
   LABEL_Y,
   PARTITION_H,
   PARTITION_T,
+  PLANT_IN,
   POLAR,
+  ROOM_SEAT,
   TABLE,
   azimuthOf,
   boardAnchor,
@@ -31,6 +39,7 @@ import {
   loungeSpots,
   placardAnchor,
   placeSpot,
+  plantSpots,
   polarOf,
   roomKey,
   roomTagAnchor,
@@ -152,6 +161,23 @@ describe('world maths', () => {
     const core = layoutPlan({ blocks: 1, roomCols: 1 }).core;
     expect(elevatorSpot(core)).toEqual({ x: core.x + core.w / 2, z: ELEVATOR_STEP, facing: 0 });
     expect(ELEVATOR_STEP).toBeLessThan(core.y);
+  });
+
+  it('stands the core\'s plants in its south corners, and gives the shell and the walk grid one size for each piece they share', () => {
+    const core = layoutPlan({ blocks: 1, roomCols: 1 }).core;
+    expect(plantSpots(core)).toEqual([
+      { x: core.x + PLANT_IN, z: core.y + core.h - PLANT_IN },
+      { x: core.x + core.w - PLANT_IN, z: core.y + core.h - PLANT_IN },
+    ]);
+    expect(plantSpots(core)).toEqual([{ x: 2.5, z: 3.5 }, { x: 5.5, z: 3.5 }]);
+    expect(DESK_TOP).toEqual({ w: 1.6, d: 0.8 });
+    // A desk chair runs from 0.53 m to 1.065 m from the desk top's centre toward the chair.
+    expect(DESK_CHAIR).toEqual({ w: 0.5, seat: 0.5, back: 0.07, backZ: 1.03 });
+    expect([CHAIR_Z - DESK_CHAIR.seat / 2, DESK_CHAIR.backZ + DESK_CHAIR.back / 2]).toEqual([0.53, 1.065]);
+    expect(ROOM_SEAT).toBe(0.46);
+    expect([COUCH_BACK, COUCH_ARM]).toEqual([0.26, 0.26]);
+    expect(COUCH.w + COUCH_ARM).toBeCloseTo(2.86, 12);
+    expect(BEANBAG_SCALE).toEqual({ across: 1.05, up: 0.55 });
   });
 
   it('places a robot where its occupant is: at its desk by pose, on its lounge seat, at the head of its room, nowhere when gone', () => {

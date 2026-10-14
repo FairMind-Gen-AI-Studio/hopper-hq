@@ -15,14 +15,22 @@
 import type { FloorDetail, GridRect } from '../../src/scene/types';
 import {
   BEANBAG_R,
+  BEANBAG_SCALE,
   BEANBAG_X,
+  CHAIR_Z,
   COFFEE_TABLE,
   COUCH,
+  COUCH_ARM,
+  COUCH_BACK,
   COUCH_Z,
+  DESK_CHAIR,
+  DESK_TOP,
+  ROOM_SEAT,
   TABLE,
   deskAnchor,
   doorGap,
   headSpot,
+  plantSpots,
   rectCenter,
   seatSpots,
   tableCenter,
@@ -40,20 +48,16 @@ export interface WalkGrid {
 
 /** How far a walking robot keeps its centre from furniture, and its way from every blocked cell: about half its width. */
 const CLEARANCE = 0.2;
-/** A desk's top, centred on its anchor (props.ts buildDesk); its monitor stands on it. */
-const DESK_TOP = { w: 1.6, d: 0.8 } as const;
-/** A desk chair's seat and back: its width, and how far from the desk top's centre it starts and ends toward the chair (props.ts buildDesk). */
-const DESK_CHAIR = { w: 0.5, near: 0.53, far: 1.065 } as const;
-/** The side of a room seat, the head seat's too, centred on its spot (props.ts buildRoom). */
-const ROOM_SEAT = 0.46;
-/** The depth of a couch's back, along the couch's outer edge, and the width of its arms, centred on its ends (props.ts buildLounge). */
-const COUCH_BACK = 0.26;
-const COUCH_ARM = 0.26;
-/** A beanbag's radius on the ground: its ball is drawn 1.05 times as wide (props.ts buildLounge). */
-const BEANBAG_FOOT = BEANBAG_R * 1.05;
-/** A plant's pot and leaves around its centre, and how far in from the core's south corners it stands (props.ts buildShell). */
+/**
+ * Furniture takes its sizes from world.ts, where props.ts draws it with the same ones. A desk chair runs from its seat's
+ * front edge to the back of its backrest, measured from the desk top's centre toward the chair.
+ */
+const CHAIR_NEAR = CHAIR_Z - DESK_CHAIR.seat / 2;
+const CHAIR_FAR = DESK_CHAIR.backZ + DESK_CHAIR.back / 2;
+/** A beanbag's radius on the ground. */
+const BEANBAG_FOOT = BEANBAG_R * BEANBAG_SCALE.across;
+/** A plant's pot and leaves around its spot (world.ts plantSpots). */
 const PLANT_R = 0.3;
-const PLANT_IN = 0.5;
 
 /**
  * The floor's walkable cells: blocked are the outer walls, desks (top and monitor), every seat (desk chairs, room seats,
@@ -90,8 +94,7 @@ export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lo
 
   ring({ x: 0, y: 0, w: floor.size.w, h: floor.size.h });
 
-  const core = floor.core;
-  for (const x of [core.x + PLANT_IN, core.x + core.w - PLANT_IN]) round(x, core.y + core.h - PLANT_IN, PLANT_R);
+  for (const spot of plantSpots(floor.core)) round(spot.x, spot.z, PLANT_R);
 
   for (const pod of floor.pods) {
     for (const desk of pod.desks) {
@@ -99,8 +102,8 @@ export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lo
       solid(a.x - DESK_TOP.w / 2, a.z - DESK_TOP.d / 2, a.x + DESK_TOP.w / 2, a.z + DESK_TOP.d / 2);
       // Its chair, toward the chair's edge of its cells.
       const s = desk.chair === 'south' ? 1 : -1;
-      const near = a.z + s * DESK_CHAIR.near;
-      const far = a.z + s * DESK_CHAIR.far;
+      const near = a.z + s * CHAIR_NEAR;
+      const far = a.z + s * CHAIR_FAR;
       solid(a.x - DESK_CHAIR.w / 2, Math.min(near, far), a.x + DESK_CHAIR.w / 2, Math.max(near, far));
     }
   }

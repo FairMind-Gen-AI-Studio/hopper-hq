@@ -50,6 +50,13 @@ export const DESK_TOP_Z = 0.6;
 export const CHAIR_Z = 0.78;
 export const STAND_X = 0.6;
 export const STAND_Z = 0.88;
+/** A desk's top, centred on its anchor: wide along the desk, deep toward the chair. The monitor stands on it. */
+export const DESK_TOP = { w: 1.6, d: 0.8 } as const;
+/**
+ * A desk chair, as wide as its seat: the seat, `seat` deep, centred CHAIR_Z toward the chair, and behind it the back,
+ * `back` thick, centred `backZ` toward the chair.
+ */
+export const DESK_CHAIR = { w: 0.5, seat: 0.5, back: 0.07, backZ: 1.03 } as const;
 
 /** 1 when the chair is on the desk's south edge, -1 when it is on its north edge: the sign of the way to the chair. */
 function toChair(desk: Pick<PodDesk, 'chair'>): 1 | -1 {
@@ -113,6 +120,11 @@ export const COFFEE_TABLE = { w: 1.6, d: 0.8 } as const;
 /** How far west and east of the lounge's centre the beanbags sit, and their radius. */
 export const BEANBAG_X = 2.2;
 export const BEANBAG_R = 0.5;
+/** A couch's back is this deep along its outer edge, and its arms this wide, centred on its ends: COUCH.w + COUCH_ARM in all. */
+export const COUCH_BACK = 0.26;
+export const COUCH_ARM = 0.26;
+/** A beanbag is a ball of BEANBAG_R, this much wider across and this much as high. */
+export const BEANBAG_SCALE = { across: 1.05, up: 0.55 } as const;
 
 /** LOUNGE_SEATS spots in seat order: the north couch west to east (3), the south couch west to east (3), the west beanbag, the east beanbag. */
 export function loungeSpots(lounge: GridRect): Spot[] {
@@ -129,6 +141,15 @@ export const ELEVATOR_STEP = 0.8;
 /** Just inside the elevator doors, facing south. */
 export function elevatorSpot(core: GridRect): Spot {
   return { x: core.x + core.w / 2, z: ELEVATOR_STEP, facing: 0 };
+}
+
+/** How far in from the core's south corners its plants stand. */
+export const PLANT_IN = 0.5;
+
+/** Where the core's two plants stand: in its south-west and south-east corners. */
+export function plantSpots(core: GridRect): Point[] {
+  const z = core.y + core.h - PLANT_IN;
+  return [{ x: core.x + PLANT_IN, z }, { x: core.x + core.w - PLANT_IN, z }];
 }
 
 /** Height of a desk label's anchor: above a standing or a seated robot's head, or above the monitor of a desk whose robot has gone. */
@@ -163,6 +184,8 @@ export const TABLE = { w: 4.4, d: 1.3, south: 0.3 } as const;
 /** A seat's distance from the table's edge, and the gap between two seats along a side. */
 export const SEAT_OUT = 0.45;
 export const SEAT_GAP = 1;
+/** The side of a room seat, the head seat's too, centred on its spot. */
+export const ROOM_SEAT = 0.46;
 /** The whiteboard's size, and the height of its centre. */
 export const BOARD = { w: 3.4, h: 1.2, y: 1.5 } as const;
 

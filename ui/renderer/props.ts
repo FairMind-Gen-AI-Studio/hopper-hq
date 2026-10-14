@@ -22,13 +22,20 @@ import type { Target } from './index';
 import type { Materials } from './materials';
 import {
   BEANBAG_R,
+  BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
+  CHAIR_Z,
   COFFEE_TABLE,
   COUCH,
+  COUCH_ARM,
+  COUCH_BACK,
   COUCH_Z,
+  DESK_CHAIR,
+  DESK_TOP,
   PARTITION_H,
   PARTITION_T,
+  ROOM_SEAT,
   TABLE,
   WALL_H,
   WALL_SIDES,
@@ -36,6 +43,7 @@ import {
   deskAnchor,
   doorGap,
   headSpot,
+  plantSpots,
   rectCenter,
   seatSpots,
   tableCenter,
@@ -225,7 +233,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
   part(north, geo.ball(0.06), s.lamp, core.x, 2.5, 0.16, { cast: false });
   const lobbyD = floor.core.y + floor.core.h;
   part(group, geo.plane(floor.core.w, lobbyD), s.lobby, core.x, 0.004, lobbyD / 2, { rx: -Math.PI / 2, cast: false });
-  for (const px of [floor.core.x + 0.5, floor.core.x + floor.core.w - 0.5]) plant(group, geo, mats, px, floor.core.y + floor.core.h - 0.5);
+  for (const spot of plantSpots(floor.core)) plant(group, geo, mats, spot.x, spot.z);
 
   // Each pod: a rug, a lamp over it, and its four desks. Rugs and shades start neutral: the floor colours them.
   const pods = new Map<string, PodObject>();
@@ -301,16 +309,16 @@ function buildLounge(parent: Group, rect: GridRect, geo: Geometries, mats: Mater
   part(group, geo.plane(2 * (BEANBAG_X + BEANBAG_R) + 0.6, 2 * COUCH_Z + COUCH.d + 0.2), s.loungeRug, c.x, 0.006, c.z, { rx: -Math.PI / 2, cast: false });
   for (const sign of [-1, 1]) {
     const z = c.z + sign * COUCH_Z;
-    const back = z + sign * (COUCH.d / 2 - 0.13);
+    const back = z + sign * (COUCH.d / 2 - COUCH_BACK / 2);
     part(group, geo.rbox(COUCH.w, 0.42, COUCH.d, 0.08), s.couch, c.x, 0.21, z);
-    part(group, geo.rbox(COUCH.w, 0.62, 0.26, 0.08), s.couch, c.x, 0.6, back);
-    for (const end of [-1, 1]) part(group, geo.rbox(0.26, 0.56, COUCH.d, 0.08), s.couch, c.x + end * (COUCH.w / 2), 0.38, z);
+    part(group, geo.rbox(COUCH.w, 0.62, COUCH_BACK, 0.08), s.couch, c.x, 0.6, back);
+    for (const end of [-1, 1]) part(group, geo.rbox(COUCH_ARM, 0.56, COUCH.d, 0.08), s.couch, c.x + end * (COUCH.w / 2), 0.38, z);
   }
   part(group, geo.rbox(COFFEE_TABLE.w, 0.06, COFFEE_TABLE.d, 0.02), s.wood, c.x, 0.42, c.z);
   for (const dx of [-0.6, 0.6]) part(group, geo.rod(0.05, 0.05, 0.4, 8), s.leg, c.x + dx, 0.2, c.z, { cast: false });
   part(group, geo.rod(0.06, 0.07, 0.1, 12), s.paper, c.x + 0.3, 0.5, c.z - 0.1, { cast: false });
   for (const [side, bean] of [[-1, s.beanA], [1, s.beanB]] as const) {
-    part(group, geo.ball(BEANBAG_R), bean, c.x + side * BEANBAG_X, 0.2, c.z).scale.set(1.05, 0.55, 1.05);
+    part(group, geo.ball(BEANBAG_R), bean, c.x + side * BEANBAG_X, 0.2, c.z).scale.set(BEANBAG_SCALE.across, BEANBAG_SCALE.up, BEANBAG_SCALE.across);
   }
 }
 
@@ -335,7 +343,7 @@ export function buildDesk(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, geo: Geo
   const thin = { cast: false };
   const group = new Group();
   group.name = `desk ${desk.id}`;
-  const top = part(group, geo.rbox(1.6, 0.07, 0.8, 0.02), s.desk, 0, 0.74, 0);
+  const top = part(group, geo.rbox(DESK_TOP.w, 0.07, DESK_TOP.d, 0.02), s.desk, 0, 0.74, 0);
   for (const [lx, lz] of [[-0.74, -0.34], [0.74, -0.34], [-0.74, 0.34], [0.74, 0.34]] as const) {
     part(group, geo.box(0.05, 0.72, 0.05), s.leg, lx, 0.36, lz, thin);
   }
@@ -344,10 +352,10 @@ export function buildDesk(desk: Pick<PodDesk, 'id' | 'rect' | 'chair'>, geo: Geo
   const monitor = part(group, geo.rbox(0.74, 0.46, 0.05, 0.02), s.monitor, 0, 1.15, -0.24);
   const screen = part(group, geo.plane(0.66, 0.38), mats.screen('idle'), 0, 1.15, -0.212, thin);
   part(group, geo.box(0.46, 0.02, 0.15), s.key, 0, 0.785, 0.26, thin);
-  const seat = part(group, geo.rbox(0.5, 0.08, 0.5, 0.03), s.chair, 0, 0.45, 0.78);
-  const back = part(group, geo.rbox(0.5, 0.5, 0.07, 0.03), s.chair, 0, 0.75, 1.03);
-  part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, 0.78, thin);
-  part(group, geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, 0.78, thin);
+  const seat = part(group, geo.rbox(DESK_CHAIR.w, 0.08, DESK_CHAIR.seat, 0.03), s.chair, 0, 0.45, CHAIR_Z);
+  const back = part(group, geo.rbox(DESK_CHAIR.w, 0.5, DESK_CHAIR.back, 0.03), s.chair, 0, 0.75, DESK_CHAIR.backZ);
+  part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, 0, 0.22, CHAIR_Z, thin);
+  part(group, geo.rod(0.22, 0.22, 0.03, 16), s.leg, 0, 0.02, CHAIR_Z, thin);
   const a = deskAnchor(desk);
   group.position.set(a.x, 0, a.z);
   if (desk.chair === 'north') group.rotation.y = Math.PI;
@@ -429,7 +437,7 @@ export function buildRoom(rect: GridRect, slot: number, geo: Geometries, mats: M
   for (const dx of [-1.4, 1.4]) part(group, geo.rod(0.12, 0.12, 0.7, 12), s.leg, c.x + dx, 0.35, c.z, thin);
   const head = headSpot(local);
   for (const spot of [...seatSpots(local), head]) {
-    part(group, geo.rbox(0.46, 0.07, 0.46, 0.03), s.chair, spot.x, 0.44, spot.z);
+    part(group, geo.rbox(ROOM_SEAT, 0.07, ROOM_SEAT, 0.03), s.chair, spot.x, 0.44, spot.z);
     part(group, geo.rod(0.03, 0.03, 0.4, 8), s.leg, spot.x, 0.2, spot.z, thin);
   }
   const placard = part(group, geo.box(0.3, 0.2, 0.02), s.paper, head.x, 0.575, head.z, { ry: Math.PI / 2, cast: false });
