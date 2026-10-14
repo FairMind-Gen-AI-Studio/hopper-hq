@@ -12,7 +12,7 @@
  *   retrying, and the stream reopens after RETRY_MS, doubling on each failure up to RETRY_MAX_MS, and back to
  *   RETRY_MS once a stream opens.
  *
- * Every tab of the browser shares those six connections, and `scranton-hq ui` opens a new tab each time. So a page
+ * Every tab of the browser shares those six connections, and `hopper-hq ui` opens a new tab each time. So a page
  * hidden for HIDDEN_GRACE_MS (another tab in front, the window minimised) closes its stream and stops retrying, and
  * opens the stream again as soon as it is shown. The daemon sends the scene on connect, so the page is current at once.
  *

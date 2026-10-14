@@ -80,13 +80,13 @@ describe('end to end', () => {
       expect(floor.sessions[0]).toMatchObject({ id: 'E2E', title: 'End-to-end flow', effectiveState: 'working', tmuxPane: '%9' });
 
       const { token, port } = (await readDaemonFile(dataDir))!;
-      expect(await post(port, token, { hook_event_name: 'PermissionRequest', session_id: 'E2E', cwd: repo, tool_name: 'Bash', tool_input: { command: 'npm publish' }, _scranton_ts: Date.now() + 1000 })).toBe(204);
+      expect(await post(port, token, { hook_event_name: 'PermissionRequest', session_id: 'E2E', cwd: repo, tool_name: 'Bash', tool_input: { command: 'npm publish' }, _hopper_ts: Date.now() + 1000 })).toBe(204);
       await d.collector.idle();
       const tmux = capture();
       await main(['status', '--format', 'tmux', '--data-dir', dataDir], tmux.io);
       expect(tmux.out).toEqual(['#[fg=colour203,bold]◉1#[default]']);
 
-      expect(await post(port, token, { hook_event_name: 'Stop', session_id: 'E2E', cwd: repo, _scranton_ts: Date.now() + 2000 })).toBe(204);
+      expect(await post(port, token, { hook_event_name: 'Stop', session_id: 'E2E', cwd: repo, _hopper_ts: Date.now() + 2000 })).toBe(204);
       await d.collector.idle();
       const ls = capture();
       await main(['ls', '--data-dir', dataDir], ls.io);

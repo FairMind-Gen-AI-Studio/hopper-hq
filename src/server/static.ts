@@ -53,7 +53,7 @@ export async function loadUiBundle(dir: string, limits = UI_LIMITS, log: (line: 
   }
   const left = paths.length - loaded;
   if (left > 0) {
-    log(`scranton-hq left ${left} UI file${left === 1 ? '' : 's'} out, over its limits of ${limits.files} files and ${limits.bytes} bytes: the browser view may not work.`);
+    log(`hopper-hq left ${left} UI file${left === 1 ? '' : 's'} out, over its limits of ${limits.files} files and ${limits.bytes} bytes: the browser view may not work.`);
   }
   return files;
 }

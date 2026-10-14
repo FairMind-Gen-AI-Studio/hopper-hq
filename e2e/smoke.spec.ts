@@ -8,7 +8,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 /**
  * A black-box run of the built package (`npm run test:e2e` builds it first). The test starts a demo daemon of its
  * own on a free port in 17000-17999, with a temporary data directory, signs in through the link the demo prints,
- * and drives the UI in headless Chrome. It never connects to another daemon and never reads ~/.scranton-hq.
+ * and drives the UI in headless Chrome. It never connects to another daemon and never reads ~/.hopper-hq.
  *
  * The demo replays a one-minute script, so who needs you changes as it runs: the test reads what is on screen
  * instead of assuming a session or a floor. Its two workflow runs take turns, one starting before the other ends, so
@@ -33,7 +33,7 @@ const LOGIN = /http:\/\/127\.0\.0\.1:\d+\/ui\/login\?code=[0-9a-f]{48}/;
 
 /** The environment the demo's commands run in: whatever they resolve on their own stays inside its directory. */
 function demoEnv(dir: string): NodeJS.ProcessEnv {
-  return { ...process.env, SCRANTON_HQ_HOME: dir, CLAUDE_CONFIG_DIR: join(dir, 'claude') };
+  return { ...process.env, HOPPER_HQ_HOME: dir, CLAUDE_CONFIG_DIR: join(dir, 'claude') };
 }
 
 /** Runs `node dist/bin.js demo` until it prints its sign-in link. Null when the port was taken. */
@@ -68,7 +68,7 @@ function runDemo(port: number, dir: string): Promise<{ child: ChildProcess; logi
 async function startDemo(): Promise<Demo> {
   for (let attempt = 0; attempt < 8; attempt++) {
     const port = 17000 + Math.floor(Math.random() * 1000);
-    const dir = await mkdtemp(join(tmpdir(), 'scranton-hq-e2e-'));
+    const dir = await mkdtemp(join(tmpdir(), 'hopper-hq-e2e-'));
     const started = await runDemo(port, dir).catch(async (err: unknown) => {
       await rm(dir, { recursive: true, force: true });
       throw err;
@@ -79,7 +79,7 @@ async function startDemo(): Promise<Demo> {
   throw new Error('Found no free port for the demo daemon in 17000-17999.');
 }
 
-/** Another one-time sign-in link to the demo's building, from `scranton-hq ui --no-open`: the demo's own is spent. */
+/** Another one-time sign-in link to the demo's building, from `hopper-hq ui --no-open`: the demo's own is spent. */
 async function signInLink(demo: Demo): Promise<string> {
   const { stdout } = await promisify(execFile)(process.execPath, [BIN, 'ui', '--no-open', '--data-dir', demo.dir], { env: demoEnv(demo.dir) });
   const login = LOGIN.exec(stdout)?.[0];

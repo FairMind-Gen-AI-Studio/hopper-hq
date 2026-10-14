@@ -74,7 +74,7 @@ describe('the mod fixtures through the collector', () => {
 describe('agent ids through the collector to the floor', () => {
   it('shows one intern for subagent starts whose ids differ only in what no id may hold', async () => {
     const c = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: 'orders-api', worktree: false, branch: 'main' }), now: () => NOW, saveDelayMs: 0 });
-    const start = (agent_id: string) => ({ session_id: SID, cwd: CWD, hook_event_name: 'SubagentStart', agent_id, agent_type: 'Explore', _scranton_ts: NOW });
+    const start = (agent_id: string) => ({ session_id: SID, cwd: CWD, hook_event_name: 'SubagentStart', agent_id, agent_type: 'Explore', _hopper_ts: NOW });
     for (const id of ['a58cb74ebedcc3070', 'a58cb74ebedcc3070 ', 'a58cb74e\u0000bedcc3070', 'a'.repeat(301)]) for (const e of mapHookPayload(start(id), NOW)) await c.ingest(e);
     expect(c.view(SID)!.children.map((child) => child.id)).toEqual(['a58cb74ebedcc3070']);
     const floor = c.floor(c.scene().floors[0]!.key)!;

@@ -277,7 +277,7 @@ export class Summarizer {
     p.backoffUntil = now + Math.min(BACKOFF_MAX_MS, MINUTE * 2 ** (p.failures - 1));
     this.lastError = { at: now, message };
     this.failedWith = keyOf(provider);
-    this.log(`scranton-hq summary failed: ${message}`);
+    this.log(`hopper-hq summary failed: ${message}`);
     if (++this.failures >= PAUSE_AFTER_FAILURES) {
       this.pausedUntil = now + PAUSE_MS;
       this.failures = 0;

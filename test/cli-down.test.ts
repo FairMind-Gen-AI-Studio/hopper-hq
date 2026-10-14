@@ -23,7 +23,7 @@ function fakeClock(): Clock & { slept: () => number } {
   return { now: () => now, sleep: async (ms) => void (now += ms), slept: () => now };
 }
 
-/** `scranton-hq start` in this process, on a fresh data directory. `stop` ends it the way a signal would. */
+/** `hopper-hq start` in this process, on a fresh data directory. `stop` ends it the way a signal would. */
 async function started() {
   const dataDir = await tmp('shq-down-');
   let stop!: () => void;
@@ -52,7 +52,7 @@ describe('down', () => {
     try {
       const c = capture();
       expect(await main(['down', '--data-dir', d.dataDir], c.io)).toBe(0);
-      expect(c.err).toEqual(['scranton-hq has stopped.']);
+      expect(c.err).toEqual(['hopper-hq has stopped.']);
       expect(await readDaemonFile(d.dataDir)).toBeNull();
       expect(await dataDirInUse(d.dataDir)).toBe(false);
       expect(await d.run).toBe(0);
@@ -65,14 +65,14 @@ describe('down', () => {
   it('says so when nothing runs', async () => {
     const c = capture();
     expect(await main(['down', '--data-dir', await tmp('shq-none-')], c.io)).toBe(0);
-    expect(c.err).toEqual(['scranton-hq is not running.']);
+    expect(c.err).toEqual(['hopper-hq is not running.']);
   });
 
   it('takes a daemon file that nothing answers for, and no daemon holds, as left over', async () => {
     const d = await pointedAt(null);
     const c = capture();
     expect(await main(['down', '--data-dir', d.dataDir], c.io)).toBe(0);
-    expect(c.err).toEqual(['scranton-hq is not running.']);
+    expect(c.err).toEqual(['hopper-hq is not running.']);
   });
 
   it('names the process, and leaves it alone, when a daemon holds the directory but does not answer', async () => {
@@ -81,7 +81,7 @@ describe('down', () => {
     try {
       const c = capture();
       expect(await main(['down', '--data-dir', d.dataDir], c.io)).toBe(1);
-      expect(c.err).toEqual([`scranton-hq does not answer, but it still holds ${d.dataDir}. Its daemon file names process 4242.`]);
+      expect(c.err).toEqual([`hopper-hq does not answer, but it still holds ${d.dataDir}. Its daemon file names process 4242.`]);
       expect(await readDaemonFile(d.dataDir)).not.toBeNull();
     } finally {
       lock.release();
@@ -101,7 +101,7 @@ describe('down', () => {
     try {
       const c = capture();
       expect(await main(['down', '--data-dir', d.dataDir], c.io)).toBe(1);
-      expect(c.err).toEqual(['This scranton-hq daemon (process 4242) is older than the down command. Stop it with Ctrl-C where it runs.']);
+      expect(c.err).toEqual(['This hopper-hq daemon (process 4242) is older than the down command. Stop it with Ctrl-C where it runs.']);
     } finally {
       await d.done();
     }
@@ -113,7 +113,7 @@ describe('down', () => {
       const c = capture();
       const clock = fakeClock();
       expect(await main(['down', '--data-dir', d.dataDir], { ...c.io, clock })).toBe(1);
-      expect(c.err).toEqual([`scranton-hq is still stopping. Check again with: scranton-hq status --data-dir ${d.dataDir}`]);
+      expect(c.err).toEqual([`hopper-hq is still stopping. Check again with: hopper-hq status --data-dir ${d.dataDir}`]);
       expect(clock.slept()).toBe(10_000);
     } finally {
       await d.done();
@@ -123,6 +123,6 @@ describe('down', () => {
   it('is listed in the help', async () => {
     const h = capture();
     await main(['--help'], h.io);
-    expect(h.out[0]).toContain('scranton-hq down [--data-dir DIR]');
+    expect(h.out[0]).toContain('hopper-hq down [--data-dir DIR]');
   });
 });

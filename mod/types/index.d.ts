@@ -15,6 +15,6 @@ export type Attention = { needsYou: number; done: number; items: AttentionItem[]
 
 declare module 'claude-code' {
   interface PluginState {
-    'scranton-hq': { attention: Attention | null }
+    'hopper-hq': { attention: Attention | null }
   }
 }

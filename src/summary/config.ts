@@ -18,7 +18,7 @@ export function isProviderName(value: unknown): value is ProviderName {
   return PROVIDER_NAMES.includes(value as ProviderName);
 }
 
-/** scranton-hq's settings file: `{ "summaries": { ... } }`, beside other keys it keeps. */
+/** hopper-hq's settings file: `{ "summaries": { ... } }`, beside other keys it keeps. */
 export function configPath(dataDir: string): string {
   return join(dataDir, 'config.json');
 }

@@ -35,7 +35,7 @@ export interface Io {
   untilStopped?(): Promise<void>;
   /** For the commands that wait (up, down). Default: the real clock. */
   clock?: Clock;
-  /** Starts `scranton-hq start ARGS` in the background, its output appended to `log`. Default: a detached process. */
+  /** Starts `hopper-hq start ARGS` in the background, its output appended to `log`. Default: a detached process. */
   spawnDaemon?(args: string[], log: string): Promise<Background>;
   /** The environment `summaries on` looks for ANTHROPIC_API_KEY in. Default: this process's. */
   env?: NodeJS.ProcessEnv;
@@ -68,7 +68,7 @@ const realClock: Clock = { now: Date.now, sleep: (ms) => new Promise((resolve) =
 const BIN = fileURLToPath(new URL('./bin.js', import.meta.url));
 
 /**
- * Runs `scranton-hq start ARGS` detached, in a session of its own, with its output appended to `log` and its working
+ * Runs `hopper-hq start ARGS` detached, in a session of its own, with its output appended to `log` and its working
  * directory the log's. It outlives this command and the terminal, and shares no pipe with this process: whoever reads
  * this command's output to its end, as the mod does, gets that end when this command exits.
  */
@@ -102,19 +102,19 @@ const stdio: Io = {
   untilStopped: untilSignal,
 };
 
-export const HELP = `scranton-hq: watch your coding-agent sessions work
+export const HELP = `hopper-hq: watch your coding-agent sessions work
 
 Usage:
-  scranton-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR]
-  scranton-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch]
-  scranton-hq down [--data-dir DIR]
-  scranton-hq status [--format text|tmux|json] [--data-dir DIR]
-  scranton-hq ls [--data-dir DIR]
-  scranton-hq ack [SESSION_ID] [--data-dir DIR]
-  scranton-hq ui [--no-open] [--data-dir DIR]
-  scranton-hq summaries [status|on|off] [--provider claude-cli|anthropic-api] [--model ID] [--data-dir DIR]
-  scranton-hq demo [--showcase] [--port N] [--data-dir DIR]
-  scranton-hq --version`;
+  hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR]
+  hopper-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch]
+  hopper-hq down [--data-dir DIR]
+  hopper-hq status [--format text|tmux|json] [--data-dir DIR]
+  hopper-hq ls [--data-dir DIR]
+  hopper-hq ack [SESSION_ID] [--data-dir DIR]
+  hopper-hq ui [--no-open] [--data-dir DIR]
+  hopper-hq summaries [status|on|off] [--provider claude-cli|anthropic-api] [--model ID] [--data-dir DIR]
+  hopper-hq demo [--showcase] [--port N] [--data-dir DIR]
+  hopper-hq --version`;
 
 class UsageError extends Error {}
 
@@ -206,7 +206,7 @@ async function cmdUp(args: string[], io: Io): Promise<number> {
   const { callDaemon } = await import('./client.js');
   const answers = async () => (await callDaemon<unknown>(dataDir, 'GET', '/api/health', 500))?.ok === true;
   if (await answers()) {
-    io.err('scranton-hq is already running.');
+    io.err('hopper-hq is already running.');
     return signIn(dataDir, openLink, io, 'up');
   }
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
@@ -222,15 +222,15 @@ async function cmdUp(args: string[], io: Io): Promise<number> {
   const until = clock.now() + WAIT_MS;
   while (!(await answers())) {
     // When another up started a daemon first, this one's exits, while the other holds the directory as it starts.
-    if (ended && !(await held(dataDir))) return failed(io, 'scranton-hq stopped while starting.', log, from);
+    if (ended && !(await held(dataDir))) return failed(io, 'hopper-hq stopped while starting.', log, from);
     if (clock.now() >= until) {
       if (!ended) daemon.stop();
-      return failed(io, 'scranton-hq did not answer within 10 seconds.', log, from);
+      return failed(io, 'hopper-hq did not answer within 10 seconds.', log, from);
     }
     await clock.sleep(POLL_MS);
   }
-  io.err(`Started scranton-hq in the background. Its log is ${log}`);
-  io.err(`Stop it with: scranton-hq down${dataDirFlag(values['data-dir'] === undefined ? undefined : dataDir)}`);
+  io.err(`Started hopper-hq in the background. Its log is ${log}`);
+  io.err(`Stop it with: hopper-hq down${dataDirFlag(values['data-dir'] === undefined ? undefined : dataDir)}`);
   return signIn(dataDir, openLink, io, 'up');
 }
 
@@ -269,21 +269,21 @@ async function cmdStart(args: string[], io: Io): Promise<number> {
     daemon = await startDaemon({ port, claudeDir: values['claude-dir'], dataDir: values['data-dir'], watchFiles: !values['no-watch'], log: io.err });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
-      io.err(`Port ${port ?? 7337} is already in use. Is scranton-hq already running? Check with: scranton-hq status`);
+      io.err(`Port ${port ?? 7337} is already in use. Is hopper-hq already running? Check with: hopper-hq status`);
       return 1;
     }
     if (err instanceof DataDirInUseError) {
       const flag = dataDirFlag(values['data-dir']);
       io.err(
         err.withoutLock
-          ? `scranton-hq is already running on this data directory${err.pid === null ? '' : ` (process ${err.pid})`}. Stop it with Ctrl-C where it runs.`
-          : `scranton-hq is already running${err.pid === null ? '' : ` (process ${err.pid})`}. Check with: scranton-hq status${flag}`,
+          ? `hopper-hq is already running on this data directory${err.pid === null ? '' : ` (process ${err.pid})`}. Stop it with Ctrl-C where it runs.`
+          : `hopper-hq is already running${err.pid === null ? '' : ` (process ${err.pid})`}. Check with: hopper-hq status${flag}`,
       );
       return 1;
     }
     throw err;
   }
-  io.err('Open the building in your browser with: scranton-hq ui');
+  io.err('Open the building in your browser with: hopper-hq ui');
   await Promise.race([(io.untilStopped ?? untilSignal)(), daemon.stopRequested]);
   await daemon.stop();
   return 0;
@@ -311,7 +311,7 @@ async function cmdDown(args: string[], io: Io): Promise<number> {
   const { dataDir } = resolvePaths({ dataDir: values['data-dir'] });
   const info = await readDaemonFile(dataDir);
   if (!info) {
-    io.err('scranton-hq is not running.');
+    io.err('hopper-hq is not running.');
     return 0;
   }
   const { callDaemon } = await import('./client.js');
@@ -319,14 +319,14 @@ async function cmdDown(args: string[], io: Io): Promise<number> {
   if (!r) {
     // Nothing answers: the file is left over, unless a daemon still holds the directory.
     if (!(await held(dataDir))) {
-      io.err('scranton-hq is not running.');
+      io.err('hopper-hq is not running.');
       return 0;
     }
-    io.err(`scranton-hq does not answer, but it still holds ${dataDir}. Its daemon file names process ${info.pid}.`);
+    io.err(`hopper-hq does not answer, but it still holds ${dataDir}. Its daemon file names process ${info.pid}.`);
     return 1;
   }
   if (r.status === 404) {
-    io.err(`This scranton-hq daemon (process ${info.pid}) is older than the down command. Stop it with Ctrl-C where it runs.`);
+    io.err(`This hopper-hq daemon (process ${info.pid}) is older than the down command. Stop it with Ctrl-C where it runs.`);
     return 1;
   }
   if (!r.ok) {
@@ -338,12 +338,12 @@ async function cmdDown(args: string[], io: Io): Promise<number> {
   const until = clock.now() + WAIT_MS;
   while ((await readDaemonFile(dataDir))?.pid === info.pid) {
     if (clock.now() >= until) {
-      io.err(`scranton-hq is still stopping. Check again with: scranton-hq status${dataDirFlag(values['data-dir'])}`);
+      io.err(`hopper-hq is still stopping. Check again with: hopper-hq status${dataDirFlag(values['data-dir'])}`);
       return 1;
     }
     await clock.sleep(POLL_MS);
   }
-  io.err('scranton-hq has stopped.');
+  io.err('hopper-hq has stopped.');
   return 0;
 }
 
@@ -360,7 +360,7 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
     return 0;
   }
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq up');
+    io.err('hopper-hq is not running. Start it with: hopper-hq up');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -377,7 +377,7 @@ async function cmdLs(args: string[], io: Io): Promise<number> {
   const { callDaemon } = await import('./client.js');
   const r = await callDaemon<Snapshot>(dataDir, 'GET', '/api/building');
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq up');
+    io.err('hopper-hq is not running. Start it with: hopper-hq up');
     return 1;
   }
   if (!r.ok || !r.data) {
@@ -397,7 +397,7 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   if (id) {
     const r = await callDaemon<unknown>(dataDir, 'POST', `/api/sessions/${encodeURIComponent(id)}/seen`);
     if (!r) {
-      io.err('scranton-hq is not running. Start it with: scranton-hq up');
+      io.err('hopper-hq is not running. Start it with: hopper-hq up');
       return 1;
     }
     if (r.status === 404) {
@@ -409,7 +409,7 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
   }
   const r = await callDaemon<{ marked: number }>(dataDir, 'POST', '/api/seen');
   if (!r || !r.data) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq up');
+    io.err('hopper-hq is not running. Start it with: hopper-hq up');
     return 1;
   }
   const n = r.data.marked;
@@ -437,7 +437,7 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
     }
     throw err;
   }
-  io.err(`Demo running. In another terminal: scranton-hq ls --data-dir ${dataDir}`);
+  io.err(`Demo running. In another terminal: hopper-hq ls --data-dir ${dataDir}`);
   io.err(`Open the building (this link works once, for 10 minutes): ${daemon.loginUrl()}`);
   if (values.showcase) io.err('The showcase starts in 20 seconds, plays once for about two minutes, and does not repeat.');
   await Promise.race([(io.untilStopped ?? untilSignal)(), daemon.stopRequested]);
@@ -537,19 +537,19 @@ async function signIn(dataDir: string, openLink: boolean, io: Io, command: 'up' 
   const { callDaemon } = await import('./client.js');
   const r = await callDaemon<{ url?: unknown; expiresAt?: unknown }>(dataDir, 'POST', '/api/ui/login-code');
   if (!r) {
-    io.err('scranton-hq is not running. Start it with: scranton-hq up');
+    io.err('hopper-hq is not running. Start it with: hopper-hq up');
     return 1;
   }
   if (r.status === 404) {
     const pid = (await readDaemonFile(dataDir))?.pid;
-    io.err(`This scranton-hq daemon${pid === undefined ? '' : ` (process ${pid})`} is older than the ${command} command. Stop it with Ctrl-C where it runs, then run scranton-hq up again.`);
+    io.err(`This hopper-hq daemon${pid === undefined ? '' : ` (process ${pid})`} is older than the ${command} command. Stop it with Ctrl-C where it runs, then run hopper-hq up again.`);
     return 1;
   }
   if (!r.ok || !r.data) {
     io.err(`The daemon answered with status ${r.status}.`);
     return 1;
   }
-  // Whatever listens on the daemon's port answers here: print and open only what scranton-hq would send.
+  // Whatever listens on the daemon's port answers here: print and open only what hopper-hq would send.
   const { url, expiresAt } = r.data;
   if (typeof url !== 'string' || !LOGIN_URL.test(url) || typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) {
     io.err('The daemon did not answer with a sign-in link.');

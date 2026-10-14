@@ -38,7 +38,7 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
   const name = str(p.hook_event_name);
   if (!isSessionId(sessionId) || !name) return [];
 
-  const ts = typeof p._scranton_ts === 'number' && Number.isFinite(p._scranton_ts) ? p._scranton_ts : receivedAt;
+  const ts = typeof p._hopper_ts === 'number' && Number.isFinite(p._hopper_ts) ? p._hopper_ts : receivedAt;
   const cwd = str(p.cwd);
   const agentId = str(p.agent_id) || null;
   // An agent id that is not one names no agent: the payload is dropped, not taken as the session's.

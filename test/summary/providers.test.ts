@@ -20,7 +20,7 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (c) => (input += c));
 process.stdin.on('end', () => {
-  const env = { SCRANTON_HQ_SUMMARIZER: process.env.SCRANTON_HQ_SUMMARIZER, STANDIN_MARKER: process.env.STANDIN_MARKER };
+  const env = { HOPPER_HQ_SUMMARIZER: process.env.HOPPER_HQ_SUMMARIZER, STANDIN_MARKER: process.env.STANDIN_MARKER };
   writeFileSync(join(__dirname, 'call.json'), JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), env, input }));
   writeFileSync(join(__dirname, 'names.json'), JSON.stringify(Object.keys(process.env).sort()));
   if (mode === 'ok') process.stdout.write('\\n   \\nTests pass;   the PR is open.\\nA second line\\n');
@@ -81,7 +81,7 @@ describe('claudeCliProvider', () => {
     expect(await s.call()).toEqual({
       argv: claudeCliArgs(null),
       cwd: await realpath(cwd),
-      env: { SCRANTON_HQ_SUMMARIZER: '1', STANDIN_MARKER: 'm1' },
+      env: { HOPPER_HQ_SUMMARIZER: '1', STANDIN_MARKER: 'm1' },
       input: 'Title: Fix the login form\nState: done',
     });
     expect((await s.call()).argv[6]).toBe('');
@@ -107,12 +107,12 @@ describe('claudeCliProvider', () => {
     };
     await claudeCliProvider({ command: s.command, model: null, cwd: s.dir, env }).summarize('notes', live());
     const names: string[] = JSON.parse(await readFile(join(s.dir, 'names.json'), 'utf8'));
-    expect(names.filter((n) => n in env || n === 'SCRANTON_HQ_SUMMARIZER')).toEqual([
+    expect(names.filter((n) => n in env || n === 'HOPPER_HQ_SUMMARIZER')).toEqual([
       'CLAUDE_CODE_API_KEY_HELPER_TTL_MS', 'CLAUDE_CODE_CERT_STORE', 'CLAUDE_CODE_CLIENT_CERT', 'CLAUDE_CODE_CLIENT_KEY',
       'CLAUDE_CODE_OAUTH_REFRESH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_PROXY_RESOLVES_HOSTS',
-      'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CONFIG_DIR', 'HOME', 'PATH', 'SCRANTON_HQ_SUMMARIZER', 'STANDIN_MARKER',
+      'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CONFIG_DIR', 'HOME', 'HOPPER_HQ_SUMMARIZER', 'PATH', 'STANDIN_MARKER',
     ]);
-    expect((await s.call()).env).toEqual({ SCRANTON_HQ_SUMMARIZER: '1', STANDIN_MARKER: 'm2' });
+    expect((await s.call()).env).toEqual({ HOPPER_HQ_SUMMARIZER: '1', STANDIN_MARKER: 'm2' });
   });
 
   it('kills a claude that does not stop when told to, five seconds after', async () => {

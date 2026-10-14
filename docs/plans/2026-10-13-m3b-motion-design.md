@@ -1,8 +1,8 @@
-# Scranton HQ — M3b "Motion" design
+# Hopper HQ — M3b "Motion" design
 
 Date: 2026-10-13
 Status: validated design, pre-implementation
-Builds on: `2026-10-09-scranton-hq-design.md` (§10 scene, §13 testing) and `2026-10-13-m3a-detail-design.md` (§4 scene v2)
+Builds on: `2026-10-09-hopper-hq-design.md` (§10 scene, §13 testing) and `2026-10-13-m3a-detail-design.md` (§4 scene v2)
 
 ## 1. Scope
 

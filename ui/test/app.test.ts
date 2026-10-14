@@ -123,8 +123,8 @@ describe('App shell', () => {
     const store = fakeStore({ connection: 'signed_out' });
     const { target } = app(store);
     const notice = target.querySelector('[role="alert"]');
-    expect(text(notice)).toBe('You are signed out. Run scranton-hq ui in a terminal: it opens a new sign-in link.');
-    expect(notice?.querySelector('code')?.textContent).toBe('scranton-hq ui');
+    expect(text(notice)).toBe('You are signed out. Run hopper-hq ui in a terminal: it opens a new sign-in link.');
+    expect(notice?.querySelector('code')?.textContent).toBe('hopper-hq ui');
     store.set({ connection: 'retrying' });
     flushSync();
     expect(target.querySelector('[role="alert"]')).toBeNull();
@@ -332,7 +332,7 @@ describe('App shell', () => {
   });
 
   it('says how to sign in again when Go or Mark as seen finds the browser signed out', async () => {
-    const focusSession = vi.fn(async () => ({ ok: false as const, status: 401, error: 'Signed out: run scranton-hq ui again' }));
+    const focusSession = vi.fn(async () => ({ ok: false as const, status: 401, error: 'Signed out: run hopper-hq ui again' }));
     const markSeen = vi.fn(async (_id: string, _fetch?: unknown, signedOut?: () => void) => {
       signedOut?.();
       return false;
@@ -344,7 +344,7 @@ describe('App shell', () => {
     click([...target.querySelectorAll('aside .actions button')].find((b) => text(b) === 'Mark as seen'));
     await settle();
     const toasts = [...target.querySelectorAll('.toast')];
-    expect(toasts.map((t) => text(t.querySelector('span')))).toEqual(['Signed out: run scranton-hq ui again', 'Signed out: run scranton-hq ui again']);
+    expect(toasts.map((t) => text(t.querySelector('span')))).toEqual(['Signed out: run hopper-hq ui again', 'Signed out: run hopper-hq ui again']);
     expect(toasts.every((t) => t.classList.contains('error'))).toBe(true);
   });
 

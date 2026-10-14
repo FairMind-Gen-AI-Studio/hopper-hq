@@ -3,7 +3,7 @@ import type { EngineInterface, ProcessRunResult, Register } from 'claude-code'
 
 import type { Attention } from '../types'
 
-// scranton-hq for Claude Code: forwards what the session does to the local scranton-hq daemon,
+// hopper-hq for Claude Code: forwards what the session does to the local hopper-hq daemon,
 // and shows above the prompt who else is waiting for you. Payloads use the field names of
 // Claude Code's settings hooks, so the daemon reads them with one mapper.
 
@@ -13,15 +13,15 @@ const MAX_ANSWER = 2000
 const MAX_QUEUE = 500
 const FLUSH_MS = 500
 const POLL_MS = 3000
-// `scranton-hq up` returns once the building is open: in at most about 20 seconds, when the daemon is slow to start.
+// `hopper-hq up` returns once the building is open: in at most about 20 seconds, when the daemon is slow to start.
 const UP_TIMEOUT_MS = 30_000
 // A run that fails this close to the timeout was cut off by it: the binary did start.
 const TIMEOUT_MARGIN_MS = 1000
-const NOT_INSTALLED = 'scranton-hq is not installed, or not on your PATH'
+const NOT_INSTALLED = 'hopper-hq is not installed, or not on your PATH'
 // C0 and C1 control characters, except tab and line feed.
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g
 
-const attention = atom({ plugin: 'scranton-hq', key: 'attention' } as const, null)
+const attention = atom({ plugin: 'hopper-hq', key: 'attention' } as const, null)
 
 type Daemon = { port: number; token: string }
 type Payload = Record<string, unknown>
@@ -47,7 +47,7 @@ function slim(value: unknown, depth = 0): unknown {
 
 async function enqueue($: EngineInterface, fields: Payload) {
   if (summarizer) return
-  const body: Payload = { _scranton_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
+  const body: Payload = { _hopper_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined) continue
     body[k] = k === 'last_assistant_message' && typeof v === 'string' ? v.slice(0, MAX_ANSWER) : slim(v)
@@ -57,7 +57,7 @@ async function enqueue($: EngineInterface, fields: Payload) {
 }
 
 async function locate($: EngineInterface): Promise<Daemon | null> {
-  const dir = (await $.env.get('SCRANTON_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.scranton-hq`
+  const dir = (await $.env.get('HOPPER_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.hopper-hq`
   try {
     const d = JSON.parse(await $.fs.read(`${dir}/daemon.json`)) as Partial<Daemon>
     return typeof d.port === 'number' && typeof d.token === 'string' ? { port: d.port, token: d.token } : null
@@ -144,36 +144,36 @@ async function inSession($: EngineInterface, pane: string, session: string): Pro
   }
 }
 
-// Opens the building in the browser with `scranton-hq up`, which starts the daemon in the background when it is not
-// running. Resolves what to tell the person, or null when scranton-hq could not start. Never the sign-in link up prints:
+// Opens the building in the browser with `hopper-hq up`, which starts the daemon in the background when it is not
+// running. Resolves what to tell the person, or null when hopper-hq could not start. Never the sign-in link up prints:
 // a command's output is in the transcript, and the transcript reaches the model.
 async function openBuilding($: EngineInterface): Promise<string | null> {
   let r: ProcessRunResult
   const startedAt = await $.clock.now()
   try {
-    r = await $.process.run(['scranton-hq', 'up'], { timeoutMs: UP_TIMEOUT_MS })
+    r = await $.process.run(['hopper-hq', 'up'], { timeoutMs: UP_TIMEOUT_MS })
   } catch {
     // The run rejects both when the binary cannot start and when it is still running at the timeout.
-    return (await $.clock.now()) - startedAt >= UP_TIMEOUT_MS - TIMEOUT_MARGIN_MS ? `scranton-hq up did not finish in ${UP_TIMEOUT_MS / 1000} seconds.` : null
+    return (await $.clock.now()) - startedAt >= UP_TIMEOUT_MS - TIMEOUT_MARGIN_MS ? `hopper-hq up did not finish in ${UP_TIMEOUT_MS / 1000} seconds.` : null
   }
   if (r.exitCode === 0) return 'Opened the building in your browser.'
   const why = r.stderr.replace(CONTROL, '').trim().slice(0, 2000)
-  return why ? `scranton-hq could not open the building:\n${why}` : 'scranton-hq could not open the building.'
+  return why ? `hopper-hq could not open the building:\n${why}` : 'hopper-hq could not open the building.'
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     sessionCwd = e.cwd
     // Read once, as the session starts: the summarizer's own runs never post, never poll and draw nothing.
-    summarizer = await $.env.get('SCRANTON_HQ_SUMMARIZER').then(v => v !== undefined, () => false)
+    summarizer = await $.env.get('HOPPER_HQ_SUMMARIZER').then(v => v !== undefined, () => false)
     if (!summarizer) {
       $.clock.every(FLUSH_MS, () => void flush($))
       $.clock.every(POLL_MS, () => void poll($))
     }
     try {
       await $.command.register({
-        name: 'scranton-hq',
-        description: 'Open the scranton-hq building in your browser, starting its daemon if needed',
+        name: 'hopper-hq',
+        description: 'Open the hopper-hq building in your browser, starting its daemon if needed',
         immediate: true,
       })
     } catch {
@@ -182,12 +182,12 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // /scranton-hq answers itself: no model turn, and nothing it could refuse.
-  on('command.run', { command: 'scranton-hq' }, async $ => {
+  // /hopper-hq answers itself: no model turn, and nothing it could refuse.
+  on('command.run', { command: 'hopper-hq' }, async $ => {
     const said = await openBuilding($)
     if (said === null) $.ui.toast(NOT_INSTALLED)
     return { text: said ?? `${NOT_INSTALLED}.` }
-  }).catch(() => ({ text: 'scranton-hq could not open the building.' }))
+  }).catch(() => ({ text: 'hopper-hq could not open the building.' }))
 
   on('prompt.submit', async ($, e, next) => {
     await enqueue($, { hook_event_name: 'UserPromptSubmit', prompt: e.text })

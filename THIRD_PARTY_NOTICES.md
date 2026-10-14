@@ -1,6 +1,6 @@
 # Third-party notices
 
-scranton-hq has no runtime dependencies. Its browser UI bundles three typefaces and three JavaScript libraries, which the local daemon serves from `dist/ui/assets/`; nothing is fetched from a font service.
+hopper-hq has no runtime dependencies. Its browser UI bundles three typefaces and three JavaScript libraries, which the local daemon serves from `dist/ui/assets/`; nothing is fetched from a font service.
 
 Each typeface is licensed under the SIL Open Font License, Version 1.1. The licence text, with each family's copyright notice, is in `licenses/`, copied unchanged from the package the files come from.
 

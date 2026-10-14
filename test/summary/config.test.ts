@@ -18,8 +18,8 @@ const json = async (dir: string) => JSON.parse(await readFile(configPath(dir), '
 
 describe('the summaries config', () => {
   it('lives in config.json, with the summarizer in its own directory beside it', () => {
-    expect(configPath('/home/dev/.scranton-hq')).toBe('/home/dev/.scranton-hq/config.json');
-    expect(summarizerDir('/home/dev/.scranton-hq')).toBe('/home/dev/.scranton-hq/summarizer');
+    expect(configPath('/home/dev/.hopper-hq')).toBe('/home/dev/.hopper-hq/config.json');
+    expect(summarizerDir('/home/dev/.hopper-hq')).toBe('/home/dev/.hopper-hq/summarizer');
     expect(DEFAULT_SUMMARY_CONFIG).toEqual({ enabled: false, provider: 'claude-cli', model: null });
     expect(['haiku', 'claude-haiku-5-5', 'us.anthropic.claude:1', 'a'.repeat(64)].every((m) => MODEL_PATTERN.test(m))).toBe(true);
     expect(['', 'a b', 'a/b', 'a=b', 'a'.repeat(65)].some((m) => MODEL_PATTERN.test(m))).toBe(false);

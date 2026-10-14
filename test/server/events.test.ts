@@ -347,7 +347,7 @@ describe('scene code that throws', () => {
     state.failing = true;
     expect(() => hub.flush()).not.toThrow();
     await until(() => log.mock.calls.length >= 2);
-    expect(log).toHaveBeenCalledWith('scranton-hq could not build the live view: scene broke');
+    expect(log).toHaveBeenCalledWith('hopper-hq could not build the live view: scene broke');
     expect(hub.size).toBe(1);
     state.failing = false;
     expect(json((await reader.take(isEvent('scene'))).data).reads).toBeGreaterThan(0);

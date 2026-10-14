@@ -12,7 +12,7 @@ import { close, listen } from './helpers/http.js';
 const tmp = (prefix: string) => mkdtemp(join(tmpdir(), prefix));
 const MIN = 60_000;
 
-/** Runs `scranton-hq summaries ARGS` with the given environment, never this process's. */
+/** Runs `hopper-hq summaries ARGS` with the given environment, never this process's. */
 async function summaries(args: string[], env: NodeJS.ProcessEnv = {}) {
   const out: string[] = [];
   const err: string[] = [];
@@ -35,7 +35,7 @@ async function fakeDaemon(dataDir: string, status: number, body: unknown) {
   return server;
 }
 
-describe('scranton-hq summaries', () => {
+describe('hopper-hq summaries', () => {
   it('turns summaries on and off in a private config file, and says what goes where', async () => {
     const dir = await tmp('shq-sum-');
     expect(await summaries(['on', '--data-dir', dir])).toEqual({ code: 0, out: [ON_CLI], err: [] });
@@ -143,6 +143,6 @@ describe('scranton-hq summaries', () => {
   });
 
   it('is listed in the help', () => {
-    expect(HELP).toContain('scranton-hq summaries [status|on|off] [--provider claude-cli|anthropic-api] [--model ID] [--data-dir DIR]');
+    expect(HELP).toContain('hopper-hq summaries [status|on|off] [--provider claude-cli|anthropic-api] [--model ID] [--data-dir DIR]');
   });
 });

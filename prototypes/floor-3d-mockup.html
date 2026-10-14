@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<title>Scranton HQ 3D</title>
+<title>Hopper HQ 3D</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -261,7 +261,7 @@ code { font-family: var(--font-mono); font-size: .92em; }
 
 <div class="app">
   <header class="topbar">
-    <h1 class="brand">Scranton HQ</h1>
+    <h1 class="brand">Hopper HQ</h1>
     <nav class="crumbs" aria-label="Location">
       <span class="soon" title="The building view comes in the next mockup">Building</span><span class="sep">/</span><span class="here">4 · checkout-v2</span>
     </nav>
@@ -759,7 +759,7 @@ function buildBadgeTextures() {
 // One shared rig (hip, shoulder and neck pivots); each style dresses it with different primitives.
 const CHAR_STYLES = { figures: 'Figures', bots: 'Bots', blocks: 'Blocks' };
 let charStyle = 'bots';
-try { const v = localStorage.getItem('scranton-hq.characters'); if (CHAR_STYLES[v]) charStyle = v; } catch (err) { /* storage unavailable */ }
+try { const v = localStorage.getItem('hopper-hq.characters'); if (CHAR_STYLES[v]) charStyle = v; } catch (err) { /* storage unavailable */ }
 const SPEC = {
   figures: { hip: 0.40, torso: 0.42, sx: 0.19, lx: 0.075, arm: 0.36 },
   bots: { hip: 0.34, torso: 0.36, sx: 0.22, lx: 0.09, arm: 0.32 },
@@ -1018,7 +1018,7 @@ const GESTURE = { working: 'type', no_signal: 'still', needs_you: 'raise', done:
 function setCharStyle(style) {
   if (!CHAR_STYLES[style] || style === charStyle) return;
   charStyle = style;
-  try { localStorage.setItem('scranton-hq.characters', style); } catch (err) { /* storage unavailable */ }
+  try { localStorage.setItem('hopper-hq.characters', style); } catch (err) { /* storage unavailable */ }
   const keep = ['path', 'target', 'arrived', 'pose', 'gesture', 'seatY', 'facing', 'targetFacing', 'spawnT', 'leaving', 'leaveT'];
   for (const m of [...mascots.values()]) {
     const snap = {};

@@ -94,7 +94,7 @@ describe('startDaemon and the sessions it saved', () => {
     const dataDir = await tmp('shq-data-');
     const claudeDir = await tmp('shq-claude-');
     await mkdir(join(claudeDir, 'sessions'));
-    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const store = await Store.open(join(dataDir, 'hopper.db'));
     const cwd = '/w/alpha';
     store.saveSessions([{ ...newSession('S1', Date.now() - 60 * 60_000, { cwd, repoRoot: cwd, repoName: 'alpha', worktree: false, branch: 'main' }), state: 'working', pid: 4242 }], Date.now());
     store.close();
@@ -129,7 +129,7 @@ describe('startDaemon and the sessions it saved', () => {
     const hourAgo = (Date.now() - 60 * 60_000) / 1000;
     await utimes(join(runDir, 'journal.jsonl'), hourAgo, hourAgo);
     const run = { id: 'wf_0000aaaa-001', name: 'checkout-verify', summary: null, phases: [], currentPhase: null, status: 'running' as const, onDisk: true, startedAt: Date.now() - 120_000, endedAt: null, agents: [], agentsFinished: 0 };
-    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const store = await Store.open(join(dataDir, 'hopper.db'));
     store.saveSessions([{ ...newSession('S1', Date.now() - 60 * 60_000, { cwd, repoRoot: cwd, repoName: 'payments-svc', worktree: false, branch: 'main' }), state: 'in_meeting', pid: process.pid, runs: [run] }], Date.now());
     store.close();
     const d = await startDaemon({ port: 0, dataDir, claudeDir, log: quiet });
@@ -156,7 +156,7 @@ describe('startDaemon and the browser', () => {
   it('serves the UI bundle from uiDir', async () => {
     const uiDir = await tmp('shq-ui-');
     await mkdir(join(uiDir, 'assets'));
-    await writeFile(join(uiDir, 'index.html'), '<!doctype html><title>scranton-hq</title>');
+    await writeFile(join(uiDir, 'index.html'), '<!doctype html><title>hopper-hq</title>');
     await writeFile(join(uiDir, 'assets', 'index-abc.js'), 'export {};\n');
     const d = await startDaemon({ port: 0, dataDir: await tmp('shq-data-'), claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet, uiDir });
     const index = await call(d.port, { path: '/ui/' });
@@ -335,7 +335,7 @@ describe('startDaemon and summaries', () => {
       pid: process.pid, title: 'Verify the checkout', lastPrompt: 'Verify the checkout', lastAnswer: 'The checkout is verified.',
       state: 'done', stateSince: doneAt, seenAt, runs: held ? [run] : [],
     };
-    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const store = await Store.open(join(dataDir, 'hopper.db'));
     store.saveSessions([row], Date.now());
     store.close();
     await writeSummaryConfig(dataDir, { enabled: true });
@@ -393,7 +393,7 @@ describe('startDaemon and summaries', () => {
     // S4's process is gone, and so is its session file: it ends once the first scan is over.
     const shop = '/home/dev/shop';
     rows.push({ ...newSession('S4', meetingAt, { cwd: shop, repoRoot: shop, repoName: 'shop', worktree: false, branch: 'main' }), pid: process.pid, state: 'done', stateSince: meetingAt, seenAt: meetingAt });
-    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const store = await Store.open(join(dataDir, 'hopper.db'));
     store.saveSessions(rows, Date.now());
     store.close();
     await writeSummaryConfig(dataDir, { enabled: true });
@@ -424,7 +424,7 @@ describe('startDaemon and summaries', () => {
     const dataDir = await tmp('shq-data-');
     const cwd = '/home/dev/billing-svc';
     const now = Date.now();
-    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const store = await Store.open(join(dataDir, 'hopper.db'));
     store.saveSessions([{
       ...newSession('S1', now - 60_000, { cwd, repoRoot: cwd, repoName: 'billing-svc', worktree: false, branch: 'main' }),
       pid: process.pid, state: 'in_meeting', stateSince: now - 30_000, lastEventAt: now - 30_000,
@@ -468,7 +468,7 @@ describe('startDaemon and seating', () => {
     const rows: Session[] = Array.from({ length: 9 }, (_, i) => ({ ...newSession(`S${i + 1}`, now - 60_000 + i, ws), state: 'working' as const, stateSince: now - 1000, lastEventAt: now - 1000 }));
     rows[0] = { ...rows[0]!, runs: [run] };
     rows.push({ ...newSession('S10', now - 50_000, ws), state: 'done', stateSince: now - 30_000, seenAt: now - 20_000 });
-    const store = await Store.open(join(dataDir, 'scranton.db'));
+    const store = await Store.open(join(dataDir, 'hopper.db'));
     store.saveSessions(rows, now);
     store.close();
 

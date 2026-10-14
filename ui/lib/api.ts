@@ -8,7 +8,7 @@ import { cleanText, isSessionId } from '../../src/scene/text';
 export type FocusResult = { ok: true; pane: string; simulated: boolean } | { ok: false; status: number; error: string };
 
 /** What to do when the daemon answers 401: the browser's sign-in cookie is missing, expired, or another daemon's. */
-export const SIGNED_OUT = 'Signed out: run scranton-hq ui again';
+export const SIGNED_OUT = 'Signed out: run hopper-hq ui again';
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 

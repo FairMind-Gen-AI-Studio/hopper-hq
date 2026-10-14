@@ -179,7 +179,7 @@ describe('cli ui', () => {
   it('is listed in the help', async () => {
     const h = capture();
     await main(['--help'], h.io);
-    expect(h.out[0]).toContain('scranton-hq ui [--no-open] [--data-dir DIR]');
+    expect(h.out[0]).toContain('hopper-hq ui [--no-open] [--data-dir DIR]');
   });
 });
 
@@ -189,7 +189,7 @@ describe('cli start and demo', () => {
     const c = capture();
     const run = main(['start', '--port', '0', '--no-watch', '--data-dir', await mkdtemp(join(tmpdir(), 'shq-start-')), '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))], { ...c.io, untilStopped: s.untilStopped });
     await s.started;
-    expect(c.err.join('\n')).toContain('scranton-hq ui');
+    expect(c.err.join('\n')).toContain('hopper-hq ui');
     s.stop();
     expect(await run).toBe(0);
   });
@@ -198,7 +198,7 @@ describe('cli start and demo', () => {
     const c = capture();
     const args = ['start', '--port', '0', '--no-watch', '--data-dir', dataDir, '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))];
     expect(await main(args, { ...c.io, untilStopped: async () => {} })).toBe(1);
-    expect(c.err).toEqual([`scranton-hq is already running (process ${process.pid}). Check with: scranton-hq status --data-dir ${dataDir}`]);
+    expect(c.err).toEqual([`hopper-hq is already running (process ${process.pid}). Check with: hopper-hq status --data-dir ${dataDir}`]);
     expect(await main(['status', '--format', 'json', '--data-dir', dataDir], capture().io)).toBe(0);
   });
 
@@ -215,7 +215,7 @@ describe('cli start and demo', () => {
       const c = capture();
       const args = ['start', '--port', '0', '--no-watch', '--data-dir', older, '--claude-dir', await mkdtemp(join(tmpdir(), 'shq-claude-'))];
       expect(await main(args, { ...c.io, untilStopped: async () => {} })).toBe(1);
-      expect(c.err).toEqual([`scranton-hq is already running on this data directory (process 4242). Stop it with Ctrl-C where it runs.`]);
+      expect(c.err).toEqual([`hopper-hq is already running on this data directory (process 4242). Stop it with Ctrl-C where it runs.`]);
     } finally {
       await close(server);
     }

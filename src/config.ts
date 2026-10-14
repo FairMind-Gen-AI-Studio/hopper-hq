@@ -4,7 +4,7 @@ import { join } from 'node:path';
 export interface Paths {
   /** Claude Code's config directory (sessions/, projects/, settings.json). */
   claudeDir: string;
-  /** scranton-hq's own data directory (token, daemon.json, database). */
+  /** hopper-hq's own data directory (token, daemon.json, database). */
   dataDir: string;
 }
 
@@ -14,7 +14,7 @@ export function resolvePaths(
 ): Paths {
   return {
     claudeDir: opts.claudeDir ?? env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'),
-    dataDir: opts.dataDir ?? env.SCRANTON_HQ_HOME ?? join(homedir(), '.scranton-hq'),
+    dataDir: opts.dataDir ?? env.HOPPER_HQ_HOME ?? join(homedir(), '.hopper-hq'),
   };
 }
 
