@@ -162,7 +162,7 @@ describe('picking', () => {
   it('picks the session of an intern hovering over its desk', () => {
     const fs = new FloorScene(dayTheme());
     const checkouts = checkoutSpecs();
-    checkouts[0]!.desks[0]!.interns = [{ agentId: 'i1', type: 'Explore', label: null, running: true }];
+    checkouts[0]!.desks[0]!.interns = [{ agentId: 'i1', type: 'Explore', label: null, running: true, inRoom: false }];
     const floor = makeFloor(checkouts);
     fs.apply(floor);
     fs.scene.updateMatrixWorld(true);

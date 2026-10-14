@@ -83,8 +83,9 @@ describe('the demo workflow run', () => {
     clock.now = BASE + 100;
     const floor = c.floor(CHECKOUT)!;
     const look = { body: slotOf('/demo/payments-svc', REPO_SLOTS), tie: slotOf('checkout-v2', FEATURE_SLOTS) };
-    expect(floor.rooms).toEqual([
+    expect(floor.rooms.filter((r) => r.kind === 'workflow')).toEqual([
       {
+        kind: 'workflow',
         runId: 'wf_demo-checkout',
         hostSessionId: 'demo-ps-d4',
         name: 'checkout-verify',
@@ -97,6 +98,8 @@ describe('the demo workflow run', () => {
         slot: 0,
       },
     ]);
+    // The checkout desk's subagents meet in a room of their own, after the run's.
+    expect(floor.rooms.filter((r) => r.kind === 'crew').map((r) => [r.runId, r.hostSessionId, r.name, r.slot])).toEqual([['crew:demo-sw-a1', 'demo-sw-a1', 'Subagents', 1]]);
     expect([floor.roomsMore, floor.size]).toEqual([0, { w: 28, h: 20 }]);
   });
 
@@ -131,7 +134,7 @@ describe('the demo workflow run', () => {
     await play(0, BASE, () => c.floor(CHECKOUT));
     clock.now = BASE + DEMO_LOOP_MS;
     for (const e of demoScript(1)[0]!.events(clock.now)) await c.ingest(e);
-    expect(c.floor(CHECKOUT)!.rooms.map((r) => [r.runId, r.agents.map((a) => a.agentId), r.slot])).toEqual([
+    expect(c.floor(CHECKOUT)!.rooms.filter((r) => r.kind === 'workflow').map((r) => [r.runId, r.agents.map((a) => a.agentId), r.slot])).toEqual([
       ['wf_demo-checkout-2', ['demo-wf-0-2'], 0],
       ['wf_demo-replay', ['demo-rp-1', 'demo-rp-2', 'demo-rp-0'], 1],
     ]);
@@ -156,7 +159,7 @@ describe('the demo workflow run', () => {
         c.floor(CHECKOUT);
       }
       clock.now = BASE + second * 1000 + 500;
-      const rooms = c.floor(CHECKOUT)!.rooms;
+      const rooms = c.floor(CHECKOUT)!.rooms.filter((r) => r.kind === 'workflow');
       if (rooms.length === 0) empty.push(second);
       const now = [rooms.map((r) => `${r.runId} ${r.slot}`), desk('demo-oa-c3').at.kind];
       if (JSON.stringify(seen.at(-1)?.slice(1)) !== JSON.stringify(now)) seen.push([second, ...now]);
@@ -164,18 +167,15 @@ describe('the demo workflow run', () => {
     expect(empty).toEqual([]);
     expect(seen).toEqual([
       [0, ['wf_demo-checkout 0'], 'desk'],
-      [44, ['wf_demo-checkout 0', 'wf_demo-replay 1'], 'desk'],
-      [50, ['wf_demo-checkout 0', 'wf_demo-replay 1'], 'room'],
+      [44, ['wf_demo-checkout 0', 'wf_demo-replay 1'], 'room'],
       [52, ['wf_demo-replay 1'], 'room'],
       [60, ['wf_demo-checkout-2 0', 'wf_demo-replay 1'], 'desk'],
       [67, ['wf_demo-checkout-2 0'], 'desk'],
-      [104, ['wf_demo-checkout-2 0', 'wf_demo-replay-2 1'], 'desk'],
-      [110, ['wf_demo-checkout-2 0', 'wf_demo-replay-2 1'], 'room'],
+      [104, ['wf_demo-checkout-2 0', 'wf_demo-replay-2 1'], 'room'],
       [112, ['wf_demo-replay-2 1'], 'room'],
       [120, ['wf_demo-checkout-3 0', 'wf_demo-replay-2 1'], 'desk'],
       [127, ['wf_demo-checkout-3 0'], 'desk'],
-      [164, ['wf_demo-checkout-3 0', 'wf_demo-replay-3 1'], 'desk'],
-      [170, ['wf_demo-checkout-3 0', 'wf_demo-replay-3 1'], 'room'],
+      [164, ['wf_demo-checkout-3 0', 'wf_demo-replay-3 1'], 'room'],
       [172, ['wf_demo-replay-3 1'], 'room'],
     ]);
     expect(desk('demo-oa-c3').runs.map((r) => [r.runId, r.status, r.counts])).toEqual([
@@ -368,7 +368,7 @@ describe('demo daemon', () => {
       const ids = ['demo-sw-b2', 'demo-oa-c3', 'demo-ps-d4', 'demo-oa-g7'];
       const lines = ids.map((id) => DEMO_SESSIONS.find((s) => s.id === id)!.summary);
       await vi.waitFor(() => expect(ids.map((id) => d.collector.session(id)?.summary?.text ?? null)).toEqual(lines), { timeout: 5000 });
-      expect(d.collector.floor(CHECKOUT)!.rooms.map((r) => [r.runId, r.hostSessionId])).toEqual([['wf_demo-checkout', 'demo-ps-d4']]);
+      expect(d.collector.floor(CHECKOUT)!.rooms.map((r) => [r.runId, r.hostSessionId])).toEqual([['wf_demo-checkout', 'demo-ps-d4'], ['crew:demo-sw-a1', 'demo-sw-a1']]);
     } finally {
       await d.stop();
     }

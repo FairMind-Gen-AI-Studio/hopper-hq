@@ -7,7 +7,7 @@ import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { INTERNS_MAX, layoutPlan, LOUNGE_SEATS, MEETING_AGENTS_MAX, POD_DESKS, RUNS_SHOWN, UNSEATED_MAX } from './layout.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
-import { roomRunsOf, seatFloor, type RoomRun, type Seating } from './seating.js';
+import { CREW_PREFIX, roomRunsOf, seatFloor, type RoomRun, type Seating } from './seating.js';
 import { capKey, cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
 import {
   SCENE_VERSION,
@@ -119,7 +119,7 @@ function deskSummaryOf(v: SessionView): DeskSummary | null {
  * The session's plain subagents: running ones in the order they started (the order the reducer first saw them), then
  * finished ones, the latest to finish first; one per id once cleaned; at most INTERNS_MAX, and how many more there are.
  */
-function internsOf(v: SessionView): { interns: Intern[]; internsMore: number } {
+function internsOf(v: SessionView, inRoom: boolean): { interns: Intern[]; internsMore: number } {
   const finished = v.children
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => !c.running)
@@ -128,7 +128,7 @@ function internsOf(v: SessionView): { interns: Intern[]; internsMore: number } {
   const all = firstOfEach([...v.children.filter((c) => c.running), ...finished], (c) => c.id);
   const shown = all.slice(0, INTERNS_MAX);
   return {
-    interns: shown.map((c) => ({ agentId: capKey(c.id), type: typeOf(c.type), label: cleanOrNull(c.description), running: c.running })),
+    interns: shown.map((c) => ({ agentId: capKey(c.id), type: typeOf(c.type), label: cleanOrNull(c.description), running: c.running, inRoom: inRoom && c.running })),
     internsMore: all.length - shown.length,
   };
 }
@@ -244,7 +244,7 @@ function checkoutOf(v: SessionView, label: (v: SessionView) => string): Checkout
 }
 
 /** A session on the floor, its robot at `at`, in its own repository's and feature's colours. */
-function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place): Occupant {
+function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place, crewSeated = false): Occupant {
   const state = v.effectiveState as ShownState;
   return {
     sessionId: idOf(v),
@@ -256,7 +256,7 @@ function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place
     activity: activityOf(v),
     agentsRunning: v.children.filter((c) => c.running).length + v.runs.reduce((n, r) => n + countsOf(r).running, 0),
     summary: deskSummaryOf(v),
-    ...internsOf(v),
+    ...internsOf(v, crewSeated),
     runs: runsOf(v),
     location: v.location,
     pane: cleanOrNull(v.tmuxPane),
@@ -282,8 +282,9 @@ function podLook(views: SessionView[], label: (v: SessionView) => string): Pick<
 }
 
 /** The room of a live run in its slot. */
-function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect): MeetingRoom {
+function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect): MeetingRoom {
   return {
+    kind: crew ? 'crew' : 'workflow',
     runId: capKey(run.id),
     hostSessionId: idOf(host),
     name: cleanOrNull(run.name, RUN_NAME_MAX),
@@ -301,9 +302,10 @@ function roomOf({ run, host }: RoomRun, slot: number, rect: GridRect): MeetingRo
  * One floor on its plan, filled from its seating: every desk of every pod with its occupant, the lounge, every room slot,
  * a room for each live run that holds a slot (in slot order), and the sessions without a desk, the first UNSEATED_MAX
  * of them in start order, counting the rest. Each occupant's `at` is,
- * first match: gone when it has no desk or is dormant; the head of its first room run that holds a slot while it is
- * in_meeting; its lounge seat; its desk. The floor counts the live runs without a room, every host's: a run two hosts
- * name counts twice.
+ * first match: gone when it has no desk or is dormant; the head of its first room that holds a slot while it is
+ * working, has no signal or is in_meeting (a room is a workflow run's, or the crew of its running subagents); its lounge
+ * seat; its desk. The crew's subagents show as interns over the desk only while the crew has no room. The floor counts
+ * the live runs and crews without a room, every host's: a run two hosts name counts twice.
  */
 function detailOf(floor: Floor, number: number, label: (v: SessionView) => string, seating: Seating): FloorDetail {
   const plan = layoutPlan(seating);
@@ -315,7 +317,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
   };
   const placeOf = (v: SessionView): Place => {
     if (v.effectiveState === 'dormant') return { kind: 'gone' };
-    if (v.effectiveState === 'in_meeting') {
+    if (v.effectiveState === 'in_meeting' || v.effectiveState === 'working' || v.effectiveState === 'no_signal') {
       const slot = runs.filter((r) => r.host.id === v.id).map((r) => slotOfKey(r.key)).find((s) => s !== -1);
       if (slot !== undefined) return { kind: 'room', slot };
     }
@@ -328,7 +330,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     p.desks.map((_, n) => {
       const v = on.get(seating.desks[i * POD_DESKS + n] ?? '');
       if (!v || seated.has(v.id)) return null;
-      seated.set(v.id, occupantOf(v, label, placeOf(v)));
+      seated.set(v.id, occupantOf(v, label, placeOf(v), slotOfKey(capKey(CREW_PREFIX + v.id)) !== -1));
       return v;
     }),
   );
@@ -351,7 +353,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     .filter(({ slot }) => slot !== -1)
     .sort((a, b) => a.slot - b.slot)
     .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!));
-  const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length, 0);
+  const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length + (v.children.some((c) => c.running) ? 1 : 0), 0);
 
   const { windows: _windows, ...summary } = summaryOf(floor, number, seating);
   return {

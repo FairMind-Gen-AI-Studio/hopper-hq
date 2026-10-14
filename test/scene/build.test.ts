@@ -453,12 +453,12 @@ describe('wait reasons', () => {
   });
 });
 
-describe('version 3', () => {
+describe('version 4', () => {
   it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
     const views = [view('a', ws('/w/api', 'main'), 'done')];
     const floor = buildFloorDetail(views, 'repo:/w/api')!;
-    expect(SCENE_VERSION).toBe(3);
-    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([3, [], 0, []]);
+    expect(SCENE_VERSION).toBe(4);
+    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([4, [], 0, []]);
     const desk = occupants(floor)[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.at, desk.runs]).toEqual([null, [], 0, { kind: 'desk' }, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();
@@ -476,9 +476,9 @@ describe('interns', () => {
     ];
     const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children })], 'repo:/w/api')!)[0]!;
     expect(desk.interns).toEqual([
-      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true },
-      { agentId: 'r2', type: null, label: null, running: true },
-      { agentId: 'f3', type: 'Explore', label: null, running: false },
+      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: true },
+      { agentId: 'r2', type: null, label: null, running: true, inRoom: true },
+      { agentId: 'f3', type: 'Explore', label: null, running: false, inRoom: false },
     ]);
     expect(desk.internsMore).toBe(2);
     const few = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: children.slice(0, 2) })], 'repo:/w/api')!)[0]!;
@@ -615,7 +615,7 @@ describe('meeting rooms', () => {
     expect(r.agents[6]).toEqual({ agentId: 'f19', label: null, phase: null, type: 'workflow-subagent', running: false });
   });
 
-  it('seats an in_meeting host at the head of its first room, keeping its robot', () => {
+  it('seats a working or in_meeting host at the head of its first room, keeping its robot', () => {
     const views = [
       view('meet', ws('/w/api', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-002', NOW - 5 * MIN), live('wf_0000aaaa-001', NOW - 9 * MIN)] }),
       view('busy', ws('/w/web', 'feat/rooms'), 'working', { runs: [live('wf_0000aaaa-003', NOW - 4 * MIN)] }),
@@ -629,15 +629,17 @@ describe('meeting rooms', () => {
       ['wf_0000aaaa-001', 0, { body: api, tie }],
       ['wf_0000aaaa-002', 1, { body: api, tie }],
       ['wf_0000aaaa-003', 2, { body: web, tie }],
+      // The running subagent of `helped` meets in a room of its own, after the runs..
+      ['crew:helped', 3, { body: web, tie }],
     ]);
     expect(Object.fromEntries(occupants(floor).map((d) => [d.sessionId, [d.at, d.robot]]))).toEqual({
       meet: [{ kind: 'room', slot: 0 }, { pose: 'still', badge: 'meeting', body: api, tie }],
-      busy: [{ kind: 'desk' }, { pose: 'typing', badge: 'typing', body: web, tie }],
-      helped: [{ kind: 'desk' }, { pose: 'still', badge: 'meeting', body: web, tie }],
+      busy: [{ kind: 'room', slot: 2 }, { pose: 'typing', badge: 'typing', body: web, tie }],
+      helped: [{ kind: 'room', slot: 3 }, { pose: 'still', badge: 'meeting', body: web, tie }],
     });
   });
 
-  it('leaves at its desk an in_meeting host whose run got no room', () => {
+  it('leaves at its desk a host whose run got no room, and seats one whose runs got rooms in the first', () => {
     const views = [
       view('busy', ws('/w/web', 'feat/rooms'), 'working', { runs: [1, 2, 3, 4].map((n) => live(`wf_0000aaaa-00${n}`, NOW - 10 * MIN + n)) }),
       view('late', ws('/w/api', 'feat/rooms'), 'in_meeting', { runs: [live('wf_0000aaaa-005', NOW - MIN)] }),
@@ -647,7 +649,7 @@ describe('meeting rooms', () => {
       [['wf_0000aaaa-001', 0], ['wf_0000aaaa-002', 1], ['wf_0000aaaa-003', 2], ['wf_0000aaaa-004', 3]],
       1,
     ]);
-    expect(occupants(floor).map((d) => [d.sessionId, d.at])).toEqual([['busy', { kind: 'desk' }], ['late', { kind: 'desk' }]]);
+    expect(occupants(floor).map((d) => [d.sessionId, d.at])).toEqual([['busy', { kind: 'room', slot: 0 }], ['late', { kind: 'desk' }]]);
   });
 
   it('gives the same rooms, byte for byte, whatever the order of the sessions', () => {
@@ -672,7 +674,7 @@ describe('meeting rooms', () => {
       [['wf_0000aaaa-003', 'm3', 0], ['wf_0000aaaa-000', 'm3', 1], ['wf_0000aaaa-001', 'm1', 2], ['wf_0000aaaa-002', 'm1', 3]],
       1,
     ]);
-    expect(Object.fromEntries(occupants(floor).map((o) => [o.sessionId, o.at]))).toEqual({ m1: { kind: 'room', slot: 2 }, m2: { kind: 'desk' }, m3: { kind: 'desk' } });
+    expect(Object.fromEntries(occupants(floor).map((o) => [o.sessionId, o.at]))).toEqual({ m1: { kind: 'room', slot: 2 }, m2: { kind: 'desk' }, m3: { kind: 'room', slot: 0 } });
   });
 
   it('gives a run id that two sessions name one room on the floor: that of the host that started first', () => {
@@ -686,6 +688,40 @@ describe('meeting rooms', () => {
     expect(Object.fromEntries(occupants(floor).map((d) => [d.sessionId, d.at.kind]))).toEqual({ m0: 'desk', m1: 'room', m2: 'desk' });
   });
 
+  it('opens a room for the running subagents of a host, and seats the host there while it works', () => {
+    const children = [child('f1', 'Plan', false), child('r1', 'Explore')];
+    const floor = buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children })], 'repo:/w/api')!;
+    expect(floor.rooms.map((r) => [r.kind, r.runId, r.hostSessionId, r.name, r.slot, r.counts, r.agents.map((a) => [a.agentId, a.type, a.running])])).toEqual([
+      ['crew', 'crew:a', 'a', 'Subagents', 0, { running: 1, finished: 0 }, [['r1', 'Explore', true], ['f1', 'Plan', false]]],
+    ]);
+    const desk = occupants(floor)[0]!;
+    expect([desk.at, desk.interns.map((i) => [i.agentId, i.inRoom])]).toEqual([{ kind: 'room', slot: 0 }, [['r1', true], ['f1', false]]]);
+    // With nothing running, the room closes and the host goes back to its desk.
+    const idle = buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: [child('f1', 'Plan', false)] })], 'repo:/w/api')!;
+    expect([idle.rooms, occupants(idle)[0]!.at]).toEqual([[], { kind: 'desk' }]);
+  });
+
+  it('keeps a host that needs you, or is done, at its desk while its subagents meet', () => {
+    const children = [child('r1', 'Explore')];
+    for (const state of ['needs_you', 'done'] as const) {
+      const floor = buildFloorDetail([view('a', ws('/w/api', 'main'), state, { children })], 'repo:/w/api')!;
+      expect([state, floor.rooms.map((r) => r.runId), occupants(floor)[0]!.at]).toEqual([state, ['crew:a'], { kind: 'desk' }]);
+    }
+    const dozing = buildFloorDetail([view('a', ws('/w/api', 'main'), 'no_signal', { children })], 'repo:/w/api')!;
+    expect(occupants(dozing)[0]!.at).toEqual({ kind: 'room', slot: 0 });
+  });
+
+  it('gives a crew a room after the runs, leaves its subagents at the desk when no room is left, and counts it among the rooms it lacks', () => {
+    const views = [
+      view('busy', ws('/w/web', 'feat/rooms'), 'working', { runs: [1, 2, 3, 4].map((n) => live(`wf_0000aaaa-00${n}`, NOW - 10 * MIN + n)) }),
+      view('late', ws('/w/api', 'feat/rooms'), 'working', { children: [child('r1', 'Explore')] }),
+    ];
+    const floor = buildFloorDetail(views, 'feature:rooms')!;
+    expect([floor.rooms.map((r) => r.runId), floor.roomsMore]).toEqual([['wf_0000aaaa-001', 'wf_0000aaaa-002', 'wf_0000aaaa-003', 'wf_0000aaaa-004'], 1]);
+    const late = occupants(floor).find((d) => d.sessionId === 'late')!;
+    expect([late.at, late.interns.map((i) => [i.agentId, i.running, i.inRoom])]).toEqual([{ kind: 'desk' }, [['r1', true, false]]]);
+  });
+
   it('keeps two long ids that start alike apart: run agents, interns and runs', () => {
     const long = (n: number) => `${'x'.repeat(300)}${n}`;
     const v = view('h', ws('/w/api', 'main'), 'in_meeting', {
@@ -694,7 +730,8 @@ describe('meeting rooms', () => {
     });
     const floor = buildFloorDetail([v], 'repo:/w/api')!;
     const desk = occupants(floor)[0]!;
-    const ids = [floor.rooms.map((r) => r.runId), floor.rooms[0]!.agents.map((a) => a.agentId), desk.interns.map((i) => i.agentId), desk.runs.map((r) => r.runId)];
+    const crew = floor.rooms.find((r) => r.kind === 'crew')!;
+    const ids = [floor.rooms.filter((r) => r.kind === 'workflow').map((r) => r.runId), floor.rooms[0]!.agents.map((a) => a.agentId), crew.agents.map((a) => a.agentId), desk.interns.map((i) => i.agentId), desk.runs.map((r) => r.runId)];
     for (const pair of ids) expect([pair.length, new Set(pair).size, pair.every((id) => Array.from(id).length === 256)]).toEqual([2, 2, true]);
   });
 });

@@ -67,7 +67,12 @@ export interface RobotRig {
   armR: Group;
   neck: Group;
   paper: Mesh;
+  /** A laptop on the meeting table in front of the robot: shown only while it sits at a room's table. */
+  laptop: Group;
 }
+
+/** Where a seated robot's laptop stands, in metres: on the table (its top, 0.78 high), this far ahead of the robot's seat. */
+export const LAPTOP = { top: 0.78, ahead: 0.6, w: 0.3, d: 0.22, tilt: 0.3 } as const;
 
 export interface RobotObject {
   readonly sessionId: string;
@@ -141,6 +146,8 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
   part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08, cast: false });
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
 
+  const laptop = buildLaptop(group, kind, geo, mats);
+
   const pickables: Mesh[] = [];
   const pick: PickData = { kind: 'desk', id: sessionId };
   group.traverse((o) => {
@@ -150,7 +157,7 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
       pickables.push(o as Mesh);
     }
   });
-  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper }, body: robot.body, tie: robot.tie, pickables };
+  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop }, body: robot.body, tie: robot.tie, pickables };
 }
 
 /**
@@ -177,10 +184,11 @@ export function strideRobot(obj: RobotObject, at: { x: number; z: number; facing
   r.neck.rotation.x = 0;
   r.waist.rotation.x = 0;
   r.paper.visible = false;
+  r.laptop.visible = false;
 }
 
-/** Puts the robot on its spot, facing its way, in the pose of its state. */
-export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>, spot: Spot): void {
+/** Puts the robot on its spot, facing its way, in the pose of its state; with `laptop`, its laptop open before it. */
+export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>, spot: Spot, laptop = false): void {
   const spec = poseOf(robot);
   const r = obj.rig;
   obj.group.position.set(spot.x, rootHeight(robot.pose, obj.kind), spot.z);
@@ -192,6 +200,7 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
   r.neck.rotation.x = spec.neck;
   r.waist.rotation.x = spec.lean;
   r.paper.visible = spec.paper;
+  r.laptop.visible = laptop && !isStanding(robot.pose);
 }
 
 /**
@@ -282,6 +291,32 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
       obj.group.position.y = HOVER_Y + s * LOOPS.hover.bob;
       return;
   }
+}
+
+/**
+ * A laptop, open, with its screen toward the robot, on the table ahead of it. It is placed in the robot's frame from
+ * where the table is in the world, and scaled back up by its robot's size, so that every kind's laptop is the same.
+ */
+function buildLaptop(root: Group, kind: RobotKind, geo: Geometries, mats: Materials): Group {
+  const s = mats.surface;
+  const small = { cast: false };
+  const scale = KIND_SCALE[kind];
+  const laptop = new Group();
+  laptop.name = 'laptop';
+  laptop.scale.setScalar(1 / scale);
+  laptop.position.set(0, (LAPTOP.top - (SEAT_Y - BOT.hip * scale)) / scale, LAPTOP.ahead / scale);
+  laptop.visible = false;
+  root.add(laptop);
+  // An intern flies: it has no table to sit at, and so no laptop.
+  if (kind === 'intern') return laptop;
+  part(laptop, geo.box(LAPTOP.w, 0.02, LAPTOP.d), s.shell, 0, 0.01, 0, small);
+  const lid = new Group();
+  lid.position.set(0, 0.02, LAPTOP.d / 2);
+  lid.rotation.x = LAPTOP.tilt;
+  laptop.add(lid);
+  part(lid, geo.box(LAPTOP.w, 0.2, 0.012), s.shell, 0, 0.1, 0, small);
+  part(lid, geo.box(LAPTOP.w - 0.04, 0.16, 0.004), s.visor, 0, 0.1, -0.007, small);
+  return laptop;
 }
 
 function dome(geo: Geometries) {

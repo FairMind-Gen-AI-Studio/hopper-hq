@@ -37,7 +37,7 @@
 
 <button type="button" class="linkbtn back" onclick={singleClick(onBack)}>← Floor {floor.number} · {floor.name}</button>
 <div>
-  <p class="eyebrow">Workflow run{found ? ` · ${found.host.checkout.repo}` : ''}</p>
+  <p class="eyebrow">{found?.room?.kind === 'crew' ? 'Subagents' : 'Workflow run'}{found ? ` · ${found.host.checkout.repo}` : ''}</p>
   <div class="head-row">
     <h2 tabindex="-1" class="p-title mono">{found ? runName(found, runId) : runId}</h2>
     {#if status}<span class="pill {TONE[status]}">{RUN_STATUS[status]}</span>{/if}

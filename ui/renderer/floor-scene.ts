@@ -108,6 +108,8 @@ interface Cast extends Wanted {
   name: string;
   /** The run whose room a click on it picks; null: it picks its session. */
   run: string | null;
+  /** It sits at a room's table, where its laptop is open before it. */
+  laptop: boolean;
   /** Hands it to what keeps it: its session's entry, or its room's. */
   join(robot: RobotObject): void;
 }
@@ -120,6 +122,8 @@ interface Mover {
   tag: string | null;
   /** On its way: the meshes that cast its shadow at rest, and the disc under it. */
   walking: { casters: Mesh[]; disc: Mesh } | null;
+  /** Its laptop is open at its place, if it sits there. */
+  laptop: boolean;
   /** Where its loop starts (phaseOf its key). */
   phase: number;
   /** In its pose at its place: at rest, or waiting there to set off. */
@@ -477,9 +481,9 @@ export class FloorScene {
     const place = at.kind === 'lounge' ? `lounge ${at.seat}` : at.kind === 'room' ? `room ${at.slot}` : `desk ${desk.id} ${isStanding(robot.pose) ? 'stand' : 'seat'}`;
     const look = at.kind === 'lounge' ? { ...robot, pose: 'resting' as const } : robot;
     const near = at.kind === 'desk' ? `desk ${desk.id}` : undefined;
-    wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, join: (r) => (it.robot = r) });
+    wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, laptop: at.kind === 'room', join: (r) => (it.robot = r) });
     const spots = internSpots(desk);
-    const seats = keepSeats(this.internSeats.get(id) ?? new Map(), occupant.interns.filter((i) => i.running).map((i) => i.agentId), Math.min(INTERNS_MAX, spots.length));
+    const seats = keepSeats(this.internSeats.get(id) ?? new Map(), occupant.interns.filter((i) => i.running && !i.inRoom).map((i) => i.agentId), Math.min(INTERNS_MAX, spots.length));
     this.internSeats.set(id, seats);
     const crew: Robot = { pose: 'still', badge: null, body: robot.body, tie: robot.tie };
     for (const [agentId, seat] of seats) {
@@ -493,6 +497,7 @@ export class FloorScene {
         look: crew,
         name: `intern ${agentId}`,
         run: null,
+        laptop: false,
         join: (r) => it.interns.set(agentId, r),
       });
     }
@@ -521,6 +526,7 @@ export class FloorScene {
         look,
         name: `agent ${agentId}`,
         run: room.runId,
+        laptop: true,
         join: (r) => entry.agents.set(agentId, r),
       });
     }
@@ -542,10 +548,11 @@ export class FloorScene {
         robot.group.name = c.name;
         if (c.run !== null) pickRoom(robot, c.run);
         this.scene.add(robot.group);
-        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null, phase: phaseOf(c.id), posed: false, hover: 0, hoverAt: now };
+        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null, phase: phaseOf(c.id), laptop: c.laptop, posed: false, hover: 0, hoverAt: now };
         this.movers.set(c.id, mover);
       }
       mover.look = { pose: c.look.pose, badge: c.look.badge };
+      mover.laptop = c.laptop;
     }
     for (const [key, mover] of this.movers) if (!this.walkers.has(key)) this.drop(key, mover);
     for (const [key, mover] of this.movers) this.place(mover, this.walkers.get(key)!, now);
@@ -573,7 +580,7 @@ export class FloorScene {
       return false;
     }
     robot.group.visible = true;
-    poseRobot(robot, mover.look, w.to);
+    poseRobot(robot, mover.look, w.to, mover.laptop);
     mover.posed = true;
     this.loop(mover, now);
     return this.land(mover);
