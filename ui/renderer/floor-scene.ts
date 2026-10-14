@@ -12,7 +12,8 @@
  * doors open for each of them. frame() moves them on. Without the time, every robot is put in its place at once.
  *
  * A robot on its way casts no shadow and has a soft disc under it instead (design §6.3): the shadow map then changes only
- * as robots set off, with each floor update, and as they come to rest, which frame() reports. While loops are on, a
+ * as robots set off, with each floor update, and as they come to rest, which frame() reports. A room whose run ends is
+ * dim at once, but keeps its door open until no robot is left in it or in its doorway. While loops are on, a
  * robot at its place runs its loop (robot.ts animateRobot) in every frame, from a phase of its own; the loops never
  * change the shadow map. The scene owns its geometries and materials and frees them all in dispose().
  *
@@ -156,6 +157,8 @@ export class FloorScene {
   private readonly roomEntries = new Map<string, RoomEntry>();
   /** The rooms' keys in the floor's order: a run's first room is the first of these that is its. */
   private roomOrder: string[] = [];
+  /** The slots of the rooms that runs hold. */
+  private openSlots = new Set<number>();
   /** The nameplates on dormant sessions' desks, by desk id. */
   private readonly plates = new Map<string, Nameplate>();
   /** Seen from far: the nameplates hide. */
@@ -274,6 +277,8 @@ export class FloorScene {
     setDoors(shell.doors, floor.core, doorOpen(this.passes, now ?? 0));
     const heads = new Set([...this.entries.values()].flatMap((e) => (e.robot && e.occupant.at.kind === 'room' ? [e.occupant.at.slot] : [])));
     for (const obj of shell.rooms) updateRoom(obj, open.get(obj.slot) ?? null, heads.has(obj.slot), this.mats);
+    this.openSlots = new Set(open.keys());
+    this.shutDoors();
     this.placeRing();
     return rebuild;
   }
@@ -319,16 +324,19 @@ export class FloorScene {
 
   /**
    * Moves every robot on to `now`: along its trip, or at its place once it is there; one that has walked out of the
-   * elevator goes. Every robot takes its part of the frame, at rest too. The doors and the selection ring follow.
+   * elevator goes. Every robot takes its part of the frame, at rest too. The doors, the rooms' doors when a robot moved,
+   * and the selection ring follow.
    */
   frame(now: number): FrameStep {
     this.clock = now;
     let moving = false;
+    let moved = false;
     let shadows = false;
     let ambient = false;
     const tags = new Map<string, Point3>();
     for (const [key, w] of this.walkers) {
       const mover = this.movers.get(key)!;
+      if (w.trip) moved = true;
       const next = advance(w, now);
       if (next === null) {
         this.walkers.delete(key);
@@ -343,6 +351,7 @@ export class FloorScene {
     }
     this.passes = this.passes.filter((pass) => now < pass + DOOR_HOLD_MS + DOOR_MS);
     if (this.shellPart && this.floor) setDoors(this.shellPart.doors, this.floor.core, doorOpen(this.passes, now));
+    if (moved) this.shutDoors();
     this.placeRing();
     const still = !moving && !doorsMoving(this.passes, now);
     return { moving: !still, wake: still ? doorsNext(this.passes, now) : null, shadows, tags, ambient };
@@ -369,6 +378,7 @@ export class FloorScene {
       this.passes = [];
       if (this.shellPart && this.floor) setDoors(this.shellPart.doors, this.floor.core, 0);
     }
+    this.shutDoors();
     this.placeRing();
     return moved;
   }
@@ -582,6 +592,28 @@ export class FloorScene {
     }
     const at = walkerAt(w, now);
     return { x: at.x, y: LABEL_Y.standing, z: at.z };
+  }
+
+  /**
+   * Shuts the door of each room that no run holds once no robot it can be seen stands in the room, or within CONTACT_R
+   * of it, in its doorway: the robots of a run that ends walk out through the open door. The door casts no shadow, so
+   * shutting it needs no new shadow map.
+   */
+  private shutDoors(): void {
+    if (!this.shellPart || !this.floor) return;
+    for (const obj of this.shellPart.rooms) {
+      if (this.openSlots.has(obj.slot)) continue;
+      const rect = this.floor.roomSlots[obj.slot]!;
+      let inside = false;
+      for (const { robot } of this.movers.values()) {
+        const { x, z } = robot.group.position;
+        if (robot.group.visible && x > rect.x - CONTACT_R && x < rect.x + rect.w + CONTACT_R && z > rect.y - CONTACT_R && z < rect.y + rect.h + CONTACT_R) {
+          inside = true;
+          break;
+        }
+      }
+      obj.door.visible = !inside;
+    }
   }
 
   private drop(key: string, mover: Mover): void {

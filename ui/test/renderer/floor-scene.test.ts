@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Color, Matrix4, Mesh, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
-import { CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
+import { CONTACT_R, CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
 import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
@@ -889,6 +889,61 @@ describe('walking', () => {
     expect([xz(a0!), xz(a1!), xz(a2!)]).toEqual([along(outs[0]!, 30_000 + BURST_GAP_MS), along(outs[1]!, 30_000 + BURST_GAP_MS), [seats[2]!.x, seats[2]!.z]]);
     fs.frame(tripEnd(outs[2]!));
     expect([a0!.group.parent, a1!.group.parent, a2!.group.parent]).toEqual([null, null, null]);
+  });
+
+  it("keeps the door of a room whose run ends open while its agents and its host walk out of it, and shuts it once they are out, with no new shadow map", () => {
+    const fs = sceneOf(roomFloor());
+    const [room, other] = fs.shell!.rooms;
+    const rect = roomFloor().roomSlots[0]!;
+    // Inside the room, or near enough to its edge to stand in its doorway.
+    const near = (x: number, z: number) => x > rect.x - CONTACT_R && x < rect.x + rect.w + CONTACT_R && z > rect.y - CONTACT_R && z < rect.y + rect.h + CONTACT_R;
+    const robots = () => fs.scene.children.filter((o) => /^(robot|agent|intern) /.test(o.name) && o.visible);
+    // Both runs end: ps-d4 leaves the head of the first room's table for its desk, and every agent leaves.
+    const specs = checkoutSpecs();
+    specs[2]!.desks[0] = { id: 'ps-d4', state: 'working' };
+    const ended = makeFloor(specs);
+    fs.apply(ended, 1000);
+    expect([room!.door.visible, other!.door.visible, room!.door.castShadow]).toEqual([false, false, false]);
+    expect([room!.floor.material, other!.floor.material]).toEqual([fs.mats.surface.roomDim, fs.mats.surface.roomDim]);
+    expect(fs.pickables().some((m) => room!.pickables.includes(m as Mesh))).toBe(false);
+    let t = 1000;
+    let shut: number | null = null;
+    while (t < 60_000) {
+      t += 16;
+      const step = fs.frame(t);
+      const inside = robots().filter((o) => near(o.position.x, o.position.z));
+      if (room!.door.visible) expect(inside.map((o) => o.name), `at ${t}`).toEqual([]);
+      else expect(inside.length, `at ${t}`).toBeGreaterThan(0);
+      if (shut === null && room!.door.visible) {
+        shut = t;
+        expect(step.shadows, 'the frame that shuts the door').toBe(false);
+      }
+      if (!step.moving && step.wake === null) break;
+    }
+    expect(shut).toBeGreaterThan(1016);
+    expect([room!.door.visible, other!.door.visible]).toEqual([true, true]);
+    // Still: nothing more to draw.
+    expect(fs.frame(t + 1000)).toMatchObject({ moving: false, wake: null, shadows: false });
+  });
+
+  it('shuts the door of a room that closes empty at once, and of every closed room when robots are put in their places', () => {
+    const empty = roomFloor([{ runId: 'wf_0000aaaa-003', host: 'sw-b2', running: 0 }]);
+    const fs = sceneOf(empty);
+    const room = fs.shell!.rooms[0]!;
+    expect(room.door.visible).toBe(false);
+    fs.apply(checkoutFloor(), 1000);
+    expect(room.door.visible).toBe(true);
+    // A run with agents ends: its door stays open while they walk out, and shuts as they are put in their places.
+    fs.apply(roomFloor(), 2000);
+    fs.frame(20_000);
+    fs.apply(checkoutFloor(), 30_000);
+    expect(room.door.visible).toBe(false);
+    fs.settle();
+    expect(room.door.visible).toBe(true);
+    fs.apply(roomFloor(), 40_000);
+    fs.frame(60_000);
+    fs.apply(checkoutFloor());
+    expect(room.door.visible).toBe(true);
   });
 
   it('opens the elevator doors for each robot that comes or goes and shuts them DOOR_HOLD_MS after it, moving only as they open and close', () => {
