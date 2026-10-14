@@ -113,7 +113,7 @@ Usage:
   scranton-hq ack [SESSION_ID] [--data-dir DIR]
   scranton-hq ui [--no-open] [--data-dir DIR]
   scranton-hq summaries [status|on|off] [--provider claude-cli|anthropic-api] [--model ID] [--data-dir DIR]
-  scranton-hq demo [--port N] [--data-dir DIR]
+  scranton-hq demo [--showcase] [--port N] [--data-dir DIR]
   scranton-hq --version`;
 
 class UsageError extends Error {}
@@ -418,14 +418,14 @@ async function cmdAck(args: string[], io: Io): Promise<number> {
 }
 
 async function cmdDemo(args: string[], io: Io): Promise<number> {
-  const { values } = parseArgs({ args, options: { port: { type: 'string', default: '7338' }, ...dataDirOption } });
+  const { values } = parseArgs({ args, options: { port: { type: 'string', default: '7338' }, showcase: { type: 'boolean', default: false }, ...dataDirOption } });
   const port = Number(values.port);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError(`Invalid port: ${values.port}`);
   const dataDir = values['data-dir'] ?? join(resolvePaths().dataDir, 'demo');
   const { startDaemon } = await import('./daemon.js');
   let daemon;
   try {
-    daemon = await startDaemon({ demo: true, port, dataDir, log: io.err });
+    daemon = await startDaemon({ demo: true, showcase: values.showcase, port, dataDir, log: io.err });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       io.err(`Port ${port} is already in use. Pick another with --port.`);
@@ -439,6 +439,7 @@ async function cmdDemo(args: string[], io: Io): Promise<number> {
   }
   io.err(`Demo running. In another terminal: scranton-hq ls --data-dir ${dataDir}`);
   io.err(`Open the building (this link works once, for 10 minutes): ${daemon.loginUrl()}`);
+  if (values.showcase) io.err('The showcase starts in 20 seconds, plays once for about two minutes, and does not repeat.');
   await Promise.race([(io.untilStopped ?? untilSignal)(), daemon.stopRequested]);
   await daemon.stop();
   return 0;

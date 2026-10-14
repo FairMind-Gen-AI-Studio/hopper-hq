@@ -237,7 +237,7 @@ Each summary is one call to the model, a small one by default. A session gets at
 | `scranton-hq ack` | Marks finished sessions as seen. |
 | `scranton-hq ui` | Opens the building in your browser, signed in through a one-time link. Use `--no-open` to print the link only. |
 | `scranton-hq summaries` | Turns the one-line summaries `on` or `off`, or prints how they stand (`status`). See [Summaries](#summaries). |
-| `scranton-hq demo` | Runs a daemon with synthetic sessions, and prints a sign-in link for its building. |
+| `scranton-hq demo` | Runs a daemon with synthetic sessions, and prints a sign-in link for its building. With `--showcase`, it plays once a longer scenario of twelve sessions on one floor, for about two minutes after a twenty-second lead. |
 
 ## How it works
 

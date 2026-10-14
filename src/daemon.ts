@@ -31,6 +31,8 @@ export interface DaemonOptions {
   log?: (line: string) => void;
   /** Serve scripted demo sessions from memory; ignore hooks and files. */
   demo?: boolean;
+  /** With `demo`: play the showcase, a longer scenario of many sessions that plays once, instead of the demo's loop. */
+  showcase?: boolean;
   /** The built browser UI (default: dist/ui, next to this module once built). */
   uiDir?: string;
   /** For tests: the summary provider for a config (default: the claude CLI or the Anthropic API; the demo's own lines), and how long a turn settles. */
@@ -196,7 +198,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
         openRuns: (id) => collector.session(id)?.runs.filter((r) => r.status === 'running' && r.onDisk).map((r) => r.id) ?? [],
       });
   fsAdapter?.start();
-  const demo = opts.demo ? startDemo((e) => void collector.ingest(e)) : null;
+  const demo = opts.demo ? startDemo((e) => void collector.ingest(e), { showcase: opts.showcase }) : null;
   log(`scranton-hq is listening on http://127.0.0.1:${port}`);
 
   return {
