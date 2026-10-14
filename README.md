@@ -22,7 +22,9 @@ Early. The collector, the CLI, the tmux counter and the building in the browser 
 
 ## Install
 
-Node 22.13 or later is required.
+Node 22.13 or later is required. scranton-hq reads the sessions of [Claude Code](https://claude.com/claude-code); tmux is optional, and only needed for the status line and the `Go` buttons.
+
+To see the building before you have any sessions, run `scranton-hq demo` once it is installed: it plays synthetic sessions, and `scranton-hq demo --showcase` plays a longer scenario.
 
 scranton-hq is not on npm yet. Install it from a clone of this repository:
 
@@ -72,12 +74,13 @@ Click a floor to go inside. Each session has a desk and a robot, whose pose and 
 
 A desk's panel also lists the session's interns and its latest workflow runs, with how long each has run and how it ended. With [summaries](#summaries) on, it says in one line where the session stands, and so do the desk's row in the floor's side panel and its entry in the bar at the top.
 
-Subagents that a session starts outside a workflow run are its interns: small robots that hover on jetpacks over its desk while they run, three at most.
+Subagents that a session starts outside a workflow run are its interns: small robots that hover on jetpacks over its desk while they run, three at most. While a session has subagents running, they meet in a room of their own, named Subagents, with the session at the head of the table; the interns hover over the desk only when no room is free.
 
-Each workflow run that is going on has a meeting room, in a wing east of the desks on its session's floor:
+Each workflow run that is going on, and each session whose subagents run, has a meeting room, in a wing east of the desks on its session's floor:
 
 - its agents sit at the table as robots in hard hats, eight at most;
-- the robot of the session that started the run sits at the head of the table while the session waits for the run;
+- the robot of the session that started the run sits at the head of the table while the session works with the run, or waits for it; a session that needs you stays at its desk, where it waves;
+- everyone at the table, the session's robot and the agents, has a laptop open in front of them;
 - a tag over the door names the run, and adds its current phase and its counts up close or when the room is selected;
 - up close, the whiteboard lists the run's phases (✓ done, ● current, ○ upcoming) and how many agents run and have finished.
 
@@ -155,7 +158,7 @@ Type `/scranton-hq` in any session to open the building. It runs `scranton-hq up
 Install it from a shell:
 
 ```sh
-claude plugin marketplace add <owner>/<repo>
+claude plugin marketplace add FairMind-Gen-AI-Studio/scranton-hq
 claude plugin install scranton-hq@scranton-hq
 ```
 
