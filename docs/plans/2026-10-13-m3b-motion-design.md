@@ -147,7 +147,8 @@ The server says where each robot should be. The renderer works out how it gets t
   - An empty slot has its door closed and its lights dimmed. The door is closed only visually: the walk grid treats every door as open, so it does not change when rooms open and close.
   - `MeetingRoom.host` is dropped. The host's robot is the desk occupant's robot, with `at` pointing at the room.
 - `roomsMore` (as in v2).
-- `unseated: Occupant[]`: the floor's sessions without a desk. These are a dormant session whose desk another session took, and sessions waiting at the cap (§3.2). They have no robot on the floor. The floor panel lists them, and the façade counts them in `counts`, but they have no window.
+- `unseated: Occupant[]`: the floor's sessions without a desk, at most 24 (`UNSEATED_MAX`), in start order. These are a dormant session whose desk another session took, and sessions waiting at the cap (§3.2). They have no robot on the floor. The floor panel lists them, and the façade counts them in `counts`, but they have no window.
+- `unseatedMore`: the unseated sessions beyond the listed ones. The floor panel says "+k more without a desk".
 
 **Façade**:
 - One window per desk of the plan. `FacadeWindow` becomes `{ sessionId: string | null, state: ShownState | null }`.
@@ -171,9 +172,9 @@ All of it lives in the renderer, as pure modules with their own tests plus a thi
 ### 5.1 Grid and paths
 
 - **Walk grid**: built from `FloorDetail` at half-cell resolution, as in `prototypes/floor-3d-mockup.html`.
-  - Blocked: desks, outer walls, room glass (not doors), room tables, lounge furniture and plants.
+  - Blocked: desks, every seat (desk chairs, room seats, couch seats, beanbags), the couches with their arms, the coffee table, outer walls, room glass (not doors), room tables and plants. The free cells form one connected area at every plan size.
   - It is rebuilt only when the layout signature changes, which now means only when the plan grows.
-- **Path**: A* over 8 neighbours, with no corner cutting and an octile heuristic. The path is then string-pulled into straight runs by line-of-sight checks.
+- **Path**: A* over 8 neighbours, with no corner cutting and an octile heuristic. The path is then string-pulled into straight runs that keep a clearance from every blocked cell. Only its first segment (getting up from a seat) and its last (sitting down) may cross one. Standing up from a desk chair, or sitting back down, is one straight step.
   - When a target changes mid-walk, the robot re-paths from where it stands.
   - When the plan grows mid-walk, every walker re-paths on the new grid.
   - Robots do not avoid each other.
@@ -190,15 +191,16 @@ All of it lives in the renderer, as pure modules with their own tests plus a thi
 | `idle` with a lounge seat | Walks to the seat; back to its desk at the next prompt. |
 | `dormant`, `ended`, a floor change | Walks to the elevator and leaves. |
 | A workflow agent starts or finishes | Walks from the elevator to its seat, and back. Departures in a burst are spaced about 150 ms apart. |
+| A run ends | Its room closes, but its door stays open until every robot has left the room and its doorway. |
 | An intern starts or finishes | Flies in a straight line at hover height from the elevator to its desk, and back. |
 
 **Interns' hover spot**: behind a back-to-back desk is the other desk, so interns hover higher, above the desk's back edge, clear of the monitors.
 
-**Elevator**: the doors open for each arrival or departure and close about 1.2 s after the last one.
+**Elevator**: the doors open for each arrival or departure and close about 1.2 s after the last one; they open only for robots that still come or go. A burst comes out in three lanes across the elevator, so robots do not pile up at its doors.
 
 **Speed**:
 - About 1.6 m/s walking and 2.2 m/s flying.
-- A trip lasts at most about 5 s, so long paths are walked faster.
+- Long paths are walked faster so that a trip lasts about 5 s, but a robot goes at most three times its speed. On large floors a long trip takes longer.
 
 **One robot per session.**
 - Today a host in a meeting is two objects: a hidden desk robot and a separate host robot in the room. In M3b each session has exactly one robot, keyed by session id, and it walks between desk, room, lounge and elevator.
@@ -276,10 +278,12 @@ It counts visible meshes, draw calls and shadow casters, and the JSON size of th
 ### 7.3 Tags
 
 - **Priority**: selected, then `needs_you`, then `done`, then room names, then `working`, then other states, then pod placards.
-- **Zoomed out** (below a pixels-per-metre threshold): only the selected tag, `needs_you`, `done` and room names show.
-- **Zoomed in**: every tag shows. When two tags' screen rectangles overlap, the lower-priority one hides. The check runs only when labels move, over a few dozen tags at most.
+- **Zoomed out** (below a pixels-per-metre threshold, as the home view of most floors is): every desk tag shows its state dot. Names show only on the selected tag, `needs_you`, `done` and room tags. Pod placards hide.
+- **Zoomed in**: every tag shows in full.
+- **Overlaps, at every zoom**: when two tags' screen rectangles overlap, the lower-priority one hides. From far, a named tag that gives way keeps its dot where the dot is clear. The check runs only when labels move, over a few dozen tags at most, on the tags' resting sizes.
+- **Focus and pointer**: a focused or hovered tag shows whole, on top, and hides none of the others.
 - **Free desks** have no tag.
-- **Dormant desks** have no tag either, only the nameplate on the desk (a small canvas-texture plate, drawn when zoomed in).
+- **Dormant desks** have no tag either, only the nameplate on the desk: a canvas-texture plate on the monitor, drawn when zoomed in, with the name cut at 14 characters as the eye counts them. A click on it selects the session.
 
 ## 8. Demo
 

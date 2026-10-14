@@ -103,7 +103,7 @@ A floor's plan is fixed: desks, meeting rooms and a lounge that sessions take an
 - Desks come in pods of four, back to back on a rug, and pods in blocks of two: eight desks to a block.
 - A new session sits in a pod where a session of its checkout sits, else at an empty pod, else at the first free desk. It keeps its desk until it ends or moves to another floor.
 - A pod's rug takes its repository's colour while all its sessions share one repository. Its placard names their checkout, or only the repository when that is all they share.
-- With no desk free, a new session takes the desk of the session that has been dormant longest, which takes a desk again when one frees up or it wakes. With none dormant, the floor grows by a block, up to four blocks: 32 desks. Further sessions wait for a desk: the side panel lists them, marked "no desk", and the façade counts them.
+- With no desk free, a new session takes the desk of the session that has been dormant longest, which takes a desk again when one frees up or it wakes. With none dormant, the floor grows by a block, up to four blocks: 32 desks. Further sessions wait for a desk: the side panel lists the first 24, marked "no desk", and counts the rest; the façade counts them all.
 - A floor never shrinks while it has sessions. Once the last one leaves, it starts again from one block.
 - A dormant session's robot goes home. Its desk stays its own, dimmed, with its name on a nameplate that shows closer in. A click on the nameplate selects the session.
 - The lounge runs along the south wall, with eight seats on couches and beanbags. An idle session rests there until its next prompt; with the lounge full, it rests at its desk.
