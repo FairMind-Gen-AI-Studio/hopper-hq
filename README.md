@@ -6,11 +6,11 @@
 
 An isometric office building where every Claude Code session gets a desk, and a red window means someone is waiting for you.
 
-[![npm version](https://img.shields.io/npm/v/@fairmind/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind/scranton-hq)
-[![npm downloads](https://img.shields.io/npm/dm/@fairmind/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind/scranton-hq)
+[![npm version](https://img.shields.io/npm/v/@fairmind-ai/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/scranton-hq)
+[![npm downloads](https://img.shields.io/npm/dm/@fairmind-ai/scranton-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/scranton-hq)
 [![CI](https://img.shields.io/github/actions/workflow/status/FairMind-Gen-AI-Studio/scranton-hq/ci.yml?branch=main&logo=github&label=CI)](https://github.com/FairMind-Gen-AI-Studio/scranton-hq/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/node/v/@fairmind/scranton-hq?logo=nodedotjs&logoColor=white&color=5fa04e)](https://nodejs.org)
+[![Node.js](https://img.shields.io/node/v/@fairmind-ai/scranton-hq?logo=nodedotjs&logoColor=white&color=5fa04e)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Svelte](https://img.shields.io/badge/Svelte-5-ff3e00?logo=svelte&logoColor=white)](https://svelte.dev)
 [![three.js](https://img.shields.io/badge/three.js-WebGL-black?logo=threedotjs&logoColor=white)](https://threejs.org)
@@ -43,7 +43,7 @@ Built for Claude Code (local and cloud) first, with an adapter interface meant t
 You need Node 22.13 or later and [Claude Code](https://claude.com/claude-code). Install the CLI and the mod:
 
 ```sh
-npm install -g @fairmind/scranton-hq
+npm install -g @fairmind-ai/scranton-hq
 claude plugin marketplace add FairMind-Gen-AI-Studio/scranton-hq
 claude plugin install scranton-hq@scranton-hq
 ```
@@ -79,14 +79,14 @@ To see the building before you have any sessions, run `scranton-hq demo` once it
 Install it from npm:
 
 ```sh
-npm install -g @fairmind/scranton-hq
+npm install -g @fairmind-ai/scranton-hq
 ```
 
 The command is `scranton-hq`. To work from a clone of this repository instead, run `npm install && npm run build && npm link` in it.
 
 ### Upgrading
 
-Run `npm install -g @fairmind/scranton-hq@latest` (from a clone: pull, then `npm install && npm run build`). Then:
+Run `npm install -g @fairmind-ai/scranton-hq@latest` (from a clone: pull, then `npm install && npm run build`). Then:
 
 1. Restart the daemon: `scranton-hq down`, then `scranton-hq up`. If it runs in the foreground (`scranton-hq start`), stop it with Ctrl-C and start it again.
 2. Update the mod: with `/plugin` in Claude Code, or install it again as in [The Claude Code mod](#the-claude-code-mod-recommended).
