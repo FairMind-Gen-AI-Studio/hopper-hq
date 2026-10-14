@@ -5,12 +5,28 @@
   "license": "Apache-2.0",
   "author": "FairMind (https://fairmind.ai)",
   "homepage": "https://github.com/FairMind-Gen-AI-Studio/scranton-hq#readme",
-  "repository": { "type": "git", "url": "git+https://github.com/FairMind-Gen-AI-Studio/scranton-hq.git" },
-  "bugs": { "url": "https://github.com/FairMind-Gen-AI-Studio/scranton-hq/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairMind-Gen-AI-Studio/scranton-hq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FairMind-Gen-AI-Studio/scranton-hq/issues"
+  },
   "type": "module",
-  "bin": { "scranton-hq": "dist/bin.js" },
-  "files": ["dist", "README.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "licenses"],
-  "engines": { "node": ">=22.13" },
+  "bin": {
+    "scranton-hq": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES.md",
+    "licenses"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "build": "npm run build:server && npm run build:ui",
     "build:server": "tsc -p tsconfig.build.json",
@@ -20,7 +36,8 @@
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
     "test:mod": "claude plugin validate mod && claude plugin validate . && claude plugin test mod",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "@fontsource-variable/archivo": "5.3.0",
