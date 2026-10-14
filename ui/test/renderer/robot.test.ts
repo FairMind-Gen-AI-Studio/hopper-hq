@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Mesh, type Object3D } from 'three';
+import { Box3, Mesh, Vector3, type Object3D } from 'three';
 import type { Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
@@ -24,7 +24,7 @@ import {
   type RobotObject,
 } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { SEAT_Y, labelAnchor, placeSpot } from '../../renderer/world';
+import { DESK_CHAIR, SEAT_Y, deskAnchor, labelAnchor, placeSpot, seatSpot, standSpot } from '../../renderer/world';
 import { checkoutFloor, seatsOf } from './fixtures';
 
 function kit() {
@@ -305,7 +305,7 @@ describe('loops at rest', () => {
   const looks = (): Array<[look: Look, kind: RobotKind, moves: Record<string, number>]> => [
     [{ pose: 'typing', badge: 'typing' }, 'session', { 'armL rotation.x': LOOPS.type.arm, 'armR rotation.x': LOOPS.type.arm }],
     [{ pose: 'typing', badge: null }, 'workflow', { 'armL rotation.x': LOOPS.type.arm, 'armR rotation.x': LOOPS.type.arm }],
-    [{ pose: 'waving', badge: 'needs' }, 'session', { 'armR rotation.z': LOOPS.wave.arm }],
+    [{ pose: 'waving', badge: 'needs' }, 'session', { 'armR rotation.x': LOOPS.wave.arm }],
     [{ pose: 'holding', badge: 'done' }, 'session', { 'armL rotation.x': LOOPS.sway.arm, 'armR rotation.x': LOOPS.sway.arm }],
     [{ pose: 'still', badge: 'clock' }, 'session', { 'waist rotation.x': LOOPS.doze.lean, 'neck rotation.x': LOOPS.doze.neck }],
     [{ pose: 'resting', badge: null }, 'session', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
@@ -390,6 +390,67 @@ describe('loops at rest', () => {
     }
     // Posing allocates nothing: a look's pose is one object, a robot's without a signal too.
     expect(poseOf({ pose: 'still', badge: 'clock' })).toBe(poseOf({ pose: 'still', badge: 'clock' }));
+  });
+
+  /** A desk with its chair on this edge, and its chair's back as buildDesk sets it, behind the seat. */
+  function deskWith(chair: 'north' | 'south') {
+    const desk = { rect: { x: 2, y: 7, w: 2, h: 2 }, chair };
+    const a = deskAnchor(desk);
+    const back = new Box3().setFromCenterAndSize(new Vector3(a.x, 0.75, a.z + (chair === 'north' ? -1 : 1) * DESK_CHAIR.backZ), new Vector3(DESK_CHAIR.w, 0.5, DESK_CHAIR.back));
+    return { desk, back };
+  }
+  /** The corners of the head's box, in the world: rbox 0.38 x 0.28 x 0.26 at 0.2 m up the neck. */
+  const headCorners = (obj: RobotObject) =>
+    [-1, 1].flatMap((x) => [-1, 1].flatMap((y) => [-1, 1].map((z) => new Vector3(0.19 * x, 0.2 + 0.14 * y, 0.13 * z).applyMatrix4(obj.rig.neck.matrixWorld))));
+
+  it("waves its raised hand forward and back, clear of its head and of its chair's back over a whole period, whichever side its chair is on", () => {
+    const look: Look = { pose: 'waving', badge: 'needs' };
+    const obj = rested(look);
+    /** How far a point in the neck's frame is outside the head's rounded box (radius 0.04): negative inside. */
+    const fromHead = (p: Vector3) => {
+      const q = new Vector3(Math.abs(p.x) - 0.15, Math.abs(p.y - 0.2) - 0.1, Math.abs(p.z) - 0.09);
+      return new Vector3(Math.max(q.x, 0), Math.max(q.y, 0), Math.max(q.z, 0)).length() + Math.min(Math.max(q.x, q.y, q.z), 0) - 0.04;
+    };
+    const period = (2 * Math.PI) / LOOPS.wave.rate;
+    for (const chair of ['north', 'south'] as const) {
+      const { desk, back } = deskWith(chair);
+      for (let k = 0; k < 96; k++) {
+        poseRobot(obj, look, standSpot(desk));
+        animateRobot(obj, look, (k * period) / 96, 0);
+        obj.group.updateMatrixWorld(true);
+        // The hand: a ball of 0.05 m at the end of the arm.
+        const hand = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armR.matrixWorld);
+        expect(fromHead(hand.clone().applyMatrix4(obj.rig.neck.matrixWorld.clone().invert())), `${chair} ${k}: off the head`).toBeGreaterThanOrEqual(0.05);
+        expect(back.distanceToPoint(hand), `${chair} ${k}: off the chair's back`).toBeGreaterThanOrEqual(0.05);
+      }
+    }
+  });
+
+  it("breathes forward from its resting pose and back to it, its head reaching no further back toward its chair's back than at rest", () => {
+    const look: Look = { pose: 'resting', badge: null };
+    const obj = rested(look);
+    const period = (2 * Math.PI) / LOOPS.breathe.rate;
+    for (const chair of ['north', 'south'] as const) {
+      const { desk, back } = deskWith(chair);
+      // How far the head's box reaches toward the chair's back, past the back's near face.
+      const reach = () => {
+        obj.group.updateMatrixWorld(true);
+        const z = headCorners(obj).map((p) => p.z);
+        return chair === 'north' ? back.max.z - Math.min(...z) : Math.max(...z) - back.min.z;
+      };
+      poseRobot(obj, look, seatSpot(desk));
+      const rest = reach();
+      let least = Infinity;
+      for (let k = 0; k < 96; k++) {
+        poseRobot(obj, look, seatSpot(desk));
+        animateRobot(obj, look, (k * period) / 96, 0.7);
+        const d = reach();
+        expect(d, `${chair} ${k}`).toBeLessThanOrEqual(rest + 1e-12);
+        least = Math.min(least, d);
+      }
+      // It does breathe: forward, away from the back.
+      expect(least).toBeLessThan(rest - 0.005);
+    }
   });
 
   it('keeps two robots in the same loop out of step by their phases, the later one where the other was before', () => {

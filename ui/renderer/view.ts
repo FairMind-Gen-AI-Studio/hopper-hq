@@ -122,8 +122,8 @@ export const DOUBLE_CLICK_MS = 400;
 /** The longest step a held arrow takes in one frame, in milliseconds: a late frame does not jump the camera. */
 export const KEY_STEP_MS = 50;
 /**
- * How much sooner than AMBIENT_MS after a frame the next ambient frame is asked for: the display's frame it lands on is
- * then the one AMBIENT_MS on, at 60 Hz and faster, rather than the one after it.
+ * How much sooner than AMBIENT_MS after a frame the next ambient frame is asked for: it then lands within a display frame
+ * of AMBIENT_MS, rather than a whole frame after it.
  */
 export const AMBIENT_EARLY_MS = 8;
 /** What each arrow adds to the move while it is held. */

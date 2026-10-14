@@ -196,8 +196,9 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
 
 /**
  * The loops robots run at their places (design §6.2), each a sine of `rate` radians a second: the forearms typing in
- * turn; the raised hand waving side to side; both arms swaying the held paper; breathing, the upper body leaning and the
- * head nodding with it, relaxed, or slower with the head down; an intern bobbing on its jetpack. Amplitudes are in
+ * turn; the raised arm waving forward and back, clear of the head and of the chair; both arms swaying the held paper;
+ * breathing, the upper body leaning and the head nodding with it, relaxed and only forward from the pose, an idle robot
+ * leaning on its chair's back, or slower with the head down; an intern bobbing on its jetpack. Amplitudes are in
  * radians, the bob's in metres.
  */
 export const LOOPS = {
@@ -245,8 +246,8 @@ export function phaseOf(id: string): number {
 
 /**
  * Runs the robot's loop at its place, `t` seconds on, from `phase`: the pivots its loop moves are set to the pose's
- * (poseRobot) plus the loop's offset, and nothing else changes. Where the loop's sine is zero, as at t = 0 from phase 0,
- * the robot is in its pose; a robot that runs no loop stays in it. It allocates nothing.
+ * (poseRobot) plus the loop's offset, and nothing else changes. At t = 0 from phase 0 the robot is in its pose; a robot
+ * that runs no loop stays in it. It allocates nothing.
  */
 export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>, t: number, phase: number): void {
   const loop = loopOf(robot, obj.kind);
@@ -260,16 +261,22 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
       r.armR.rotation.x = spec.armR[0] - s * LOOPS.type.arm;
       return;
     case 'wave':
-      r.armR.rotation.z = spec.armR[1] + s * LOOPS.wave.arm;
+      r.armR.rotation.x = spec.armR[0] + s * LOOPS.wave.arm;
       return;
     case 'sway':
       r.armL.rotation.x = spec.armL[0] + s * LOOPS.sway.arm;
       r.armR.rotation.x = spec.armR[0] + s * LOOPS.sway.arm;
       return;
-    case 'breathe':
+    case 'breathe': {
+      // From the pose forward and back to it, never further back: the pose already leans on the chair's back.
+      const forward = (1 - Math.cos(t * LOOPS.breathe.rate + phase)) / 2;
+      r.waist.rotation.x = spec.lean + forward * LOOPS.breathe.lean;
+      r.neck.rotation.x = spec.neck + forward * LOOPS.breathe.neck;
+      return;
+    }
     case 'doze':
-      r.waist.rotation.x = spec.lean + s * LOOPS[loop].lean;
-      r.neck.rotation.x = spec.neck + s * LOOPS[loop].neck;
+      r.waist.rotation.x = spec.lean + s * LOOPS.doze.lean;
+      r.neck.rotation.x = spec.neck + s * LOOPS.doze.neck;
       return;
     case 'hover':
       obj.group.position.y = HOVER_Y + s * LOOPS.hover.bob;

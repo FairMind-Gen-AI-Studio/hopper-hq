@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Color, Matrix4, Mesh, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
-import { CONTACT_R, CONTACT_Y, FloorScene, layoutSignature } from '../../renderer/floor-scene';
+import { CONTACT_R, CONTACT_Y, FloorScene, HOVER_BLEND_MS, layoutSignature } from '../../renderer/floor-scene';
 import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
 import { DOOR_PANEL, DOOR_SLIDE, Geometries } from '../../renderer/props';
-import { HOVER_Y, KIND_SCALE, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
+import { HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
 import type { Intern, Robot } from '../../../src/scene/types';
@@ -1192,6 +1192,50 @@ describe('loops at rest', () => {
       quiet.loops = true;
       expect(quiet.frame(1000).ambient).toBe(false);
     }
+  });
+
+  it('keeps a robot that waits for its turn to leave in its loop at its place, until it sets off', () => {
+    const fs = sceneOf();
+    fs.loops = true;
+    const robot = fs.sessions.get('sw-b2')!.robot!;
+    const look: Look = { pose: 'holding', badge: 'done' };
+    const phase = phaseOf(JSON.stringify(['session', 'sw-b2']));
+    // sw-a1 and sw-b2 leave: sw-a1 sets off at once, sw-b2 BURST_GAP_MS later.
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks.splice(0, 2);
+    fs.apply(makeFloor(checkouts), 1000);
+    for (const t of [1016, 1080, 1144]) {
+      fs.frame(t);
+      expect(limbs(robot), `at ${t}`).toEqual(expected(robot, look, { t: t / 1000, phase }));
+    }
+    fs.frame(1000 + BURST_GAP_MS + 200);
+    expect(robot.rig.paper.visible).toBe(false);
+  });
+
+  it('lands an intern and sets it off again with no jump in its height: its bob grows over HOVER_BLEND_MS at its spot, and dies away as it goes', () => {
+    const fs = sceneOf();
+    fs.loops = true;
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: [intern('i4')] };
+    fs.apply(makeFloor(checkouts), 1000);
+    const robot = fs.sessions.get('sw-a1')!.interns.get('i4')!;
+    const heights: number[] = [];
+    let t = 1000;
+    const run = (until: number) => {
+      for (; t <= until; t += 16) {
+        fs.frame(t);
+        if (robot.group.parent && robot.group.visible) heights.push(robot.group.position.y);
+      }
+    };
+    run(8000);
+    // It flies back out as it finishes.
+    fs.apply(checkoutFloor(), t);
+    run(t + 8000);
+    expect(robot.group.parent).toBeNull();
+    const steps = heights.slice(1).map((y, i) => Math.abs(y - heights[i]!));
+    expect(Math.max(...steps)).toBeLessThan(0.004);
+    expect([Math.min(...heights), Math.max(...heights)]).toEqual([expect.closeTo(HOVER_Y - LOOPS.hover.bob, 2), expect.closeTo(HOVER_Y + LOOPS.hover.bob, 2)]);
+    expect(HOVER_BLEND_MS).toBe(300);
   });
 
   it('keeps the tag anchor of a robot at its place from frame to frame, and works it out again with each floor update', () => {

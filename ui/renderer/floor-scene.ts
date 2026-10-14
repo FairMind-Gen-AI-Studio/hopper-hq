@@ -15,7 +15,9 @@
  * as robots set off, with each floor update, and as they come to rest, which frame() reports. A room whose run ends is
  * dim at once, but keeps its door open until no robot is left in it or in its doorway. While loops are on, a
  * robot at its place runs its loop (robot.ts animateRobot) in every frame, from a phase of its own; the loops never
- * change the shadow map. The scene owns its geometries and materials and frees them all in dispose().
+ * change the shadow map. A robot that waits at its place for its turn to leave runs its loop until it sets off, and an
+ * intern's bob grows as it comes to rest and dies away as it sets off, so that its height never jumps. The scene owns
+ * its geometries and materials and frees them all in dispose().
  *
  * A dormant session's desk has a nameplate with its name instead of a tag (design §7.3). Nameplates hide while the floor
  * is seen from far (setCompact), and each goes, with its texture, when its desk frees or its session wakes.
@@ -27,7 +29,7 @@ import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
 import { Geometries, buildNameplate, buildShell, setDoors, updateDesk, updatePod, updateRoom, type Nameplate, type PickData, type Shell } from './props';
-import { KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
+import { HOVER_Y, KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
 import { keepSeats } from './seats';
 import type { ThemeTokens } from './theme';
 import { walkGrid } from './walk';
@@ -92,6 +94,8 @@ export interface FrameStep {
 /** The disc under a robot on its way: its radius at a session robot's size, and its height over the floor. */
 export const CONTACT_R = 0.3;
 export const CONTACT_Y = 0.015;
+/** How long an intern's bob takes to grow as it comes to rest, and to die away as it sets off. */
+export const HOVER_BLEND_MS = 300;
 
 /** A robot the floor wants: its walker's place, and what it is built as. */
 interface Cast extends Wanted {
@@ -117,6 +121,11 @@ interface Mover {
   walking: { casters: Mesh[]; disc: Mesh } | null;
   /** Where its loop starts (phaseOf its key). */
   phase: number;
+  /** In its pose at its place: at rest, or waiting there to set off. */
+  posed: boolean;
+  /** How much of its bob an intern shows, 0 to 1, as of `hoverAt`: it grows at its place and dies away on its way. */
+  hover: number;
+  hoverAt: number;
 }
 
 /** The keys walkers go by: a session's robot, a room's agent, a session's intern. */
@@ -528,7 +537,7 @@ export class FloorScene {
         robot.group.name = c.name;
         if (c.run !== null) pickRoom(robot, c.run);
         this.scene.add(robot.group);
-        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null, phase: phaseOf(c.id) };
+        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null, phase: phaseOf(c.id), posed: false, hover: 0, hoverAt: now };
         this.movers.set(c.id, mover);
       }
       mover.look = { pose: c.look.pose, badge: c.look.badge };
@@ -540,15 +549,19 @@ export class FloorScene {
   /**
    * Puts a robot where its walker is at `now`: striding along its trip, its legs keeping pace with its speed, inside the
    * elevator out of sight until it sets off, or in its pose at its place, running its loop there while loops are on. One
-   * that waits to set off from where it stands stays as it is. Under way, it casts no shadow and the disc under it follows
-   * it. Returns true when it has come to rest and casts its shadow again.
+   * that waits to set off from where it stands stays as it is, running its loop on while it waits at its place. Under way,
+   * it casts no shadow and the disc under it follows it. Returns true when it has come to rest and casts its shadow again.
    */
   private place(mover: Mover, w: Walker, now: number): boolean {
     const robot = mover.robot;
     if (w.trip && now < tripEnd(w.trip)) {
       const at = walkerAt(w, now);
       robot.group.visible = at.shown;
-      if (at.walking || !at.shown) strideRobot(robot, at, ((Math.max(0, now - w.trip.start) / 1000) * w.trip.speed) / WALK_SPEED);
+      if (at.walking || !at.shown) {
+        strideRobot(robot, at, ((Math.max(0, now - w.trip.start) / 1000) * w.trip.speed) / WALK_SPEED);
+        mover.posed = false;
+      }
+      this.loop(mover, now);
       mover.walking ??= this.lift(robot);
       mover.walking.disc.visible = at.shown;
       mover.walking.disc.position.set(at.x, CONTACT_Y, at.z);
@@ -556,8 +569,26 @@ export class FloorScene {
     }
     robot.group.visible = true;
     poseRobot(robot, mover.look, w.to);
-    if (this.loops) animateRobot(robot, mover.look, now / 1000, mover.phase);
+    mover.posed = true;
+    this.loop(mover, now);
     return this.land(mover);
+  }
+
+  /**
+   * Runs a robot's loop while loops are on: in its pose at its place, at rest or waiting there to set off. An intern's
+   * bob grows over HOVER_BLEND_MS in its pose and dies away over as long on its way, so that its height never jumps.
+   */
+  private loop(mover: Mover, now: number): void {
+    const robot = mover.robot;
+    const intern = robot.kind === 'intern';
+    if (intern) {
+      const step = Math.max(0, now - mover.hoverAt) / HOVER_BLEND_MS;
+      mover.hover = mover.posed ? Math.min(1, mover.hover + step) : Math.max(0, mover.hover - step);
+      mover.hoverAt = now;
+    }
+    if (!this.loops || !(mover.posed || (intern && mover.hover > 0))) return;
+    animateRobot(robot, mover.look, now / 1000, mover.phase);
+    if (intern) robot.group.position.y = HOVER_Y + (robot.group.position.y - HOVER_Y) * mover.hover;
   }
 
   /** A robot sets off: it stops casting its shadow, and a disc lies on the floor under it instead. */
