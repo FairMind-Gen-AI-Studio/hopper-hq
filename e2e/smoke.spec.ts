@@ -159,13 +159,13 @@ async function centre(tag: Locator): Promise<{ x: number; y: number }> {
 /**
  * What the floor's labels show now, read in one go: the placards and the desks' tags shown, the names shown on desks'
  * tags that are neither selected nor of a desk that needs you or is done, and the shown labels that overlap a later one
- * by more than a pixel of rounding.
+ * by more than a pixel of rounding, but for a tag with the pointer or the focus, which shows on top of the others.
  */
 async function labelsShown(page: Page): Promise<{ signs: number; desks: number; otherNames: number; overlaps: number }> {
   return page.evaluate(() => {
     const shown = [...document.querySelectorAll('.fv-tag, .fv-sign')].filter((el) => getComputedStyle(el).visibility === 'visible');
     const desks = shown.filter((el) => el.matches('.fv-tag[data-session]'));
-    const boxes = shown.map((el) => el.getBoundingClientRect());
+    const boxes = shown.filter((el) => !el.matches(':hover, :focus')).map((el) => el.getBoundingClientRect());
     return {
       signs: shown.filter((el) => el.matches('.fv-sign')).length,
       desks: desks.length,
@@ -313,7 +313,7 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
         return page.locator('.fv-labels.fv-compact').count();
       })
       .toBe(0);
-    await expect(page.locator('.fv-sign').first()).toBeAttached();
+    await expect.poll(async () => (await labelsShown(page)).signs).toBeGreaterThan(0);
     await expect.poll(async () => (await labelsShown(page)).overlaps).toBe(0);
     // The renderer and three.js arrive with the first floor, not with the building.
     expect(seen.scripts.length).toBeGreaterThan(1);

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrthographicCamera } from 'three';
 import type { ShownState } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
-import { COMPACT_PX, LabelLayer, RANK, declutter, projectToScreen, roomTitle, tagRank, tagTitle, type LabelBox, type LabelEvents } from '../../renderer/labels';
+import { COMPACT_PX, DOT_PX, LabelLayer, RANK, declutter, projectToScreen, roomTitle, tagRank, tagTitle, type LabelBox, type LabelEvents } from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
 import { LABEL_Y, boardAnchor, headSpot, labelAnchor, loungeSpots, roomTagAnchor } from '../../renderer/world';
 import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec } from './fixtures';
@@ -874,7 +874,131 @@ describe('which tags show', () => {
     expect(shown(root)).toEqual(['sw-a1']);
   });
 
-  it('takes a hidden tag out of the tab order and the arrow keys, as one off the view, the floor panel listing every session', () => {
+  /** Each tag's size as drawn: named tags `named` px wide, the others and a named tag drawn as its dot DOT_PX; a grown tag `grown` wide. */
+  function drawn(sizes: { named: number; grown: number; isGrown: (el: HTMLElement) => boolean }) {
+    const isNamed = (el: HTMLElement) => el.matches('.fv-st-needs_you, .fv-st-done, .fv-room, .fv-sel') && !el.classList.contains('fv-dot-only');
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return sizes.isGrown(this) ? sizes.grown : isNamed(this) ? sizes.named : DOT_PX;
+    });
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return isNamed(this) || sizes.isGrown(this) ? 20 : DOT_PX;
+    });
+  }
+  /** Moves the in-meeting ps-d4 somewhere else in the corner and places the labels: a frame in which a label moved. */
+  let nudge = 0;
+  function frameWithAMove(labels: LabelLayer, camera: OrthographicCamera) {
+    labels.moveTag('ps-d4', { x: -23 + (nudge++ % 2) * 0.1, y: 1, z: -22 });
+    labels.position(camera, 800, 400);
+  }
+
+  it('keeps a focused tag shown and its focus where it is while other labels move, even where it would be culled, and lets it hide no one', () => {
+    drawn({ named: 80, grown: 160, isGrown: (el) => el === document.activeElement });
+    const { root, labels } = layer();
+    labels.sync(floorWith({ 'sw-a1': 'needs_you', 'sw-b2': 'needs_you', 'sw-c3': 'needs_you' }, []));
+    labels.setScale(COMPACT_PX - 1);
+    const camera = corner();
+    // Three tags that need you, a metre (80 px) apart, as wide as that: they touch, and all show.
+    for (const [id, x] of [['sw-a1', -21], ['sw-b2', -20], ['sw-c3', -19]] as const) labels.moveTag(id, { x, y: 1, z: -20 });
+    frameWithAMove(labels, camera);
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2', 'sw-c3', 'ps-d4']);
+    // Focused, the last grows to 160 px over the middle one, which ranks alike and comes first.
+    const last = labels.tag('sw-c3')!;
+    last.focus();
+    for (let k = 0; k < 3; k++) {
+      frameWithAMove(labels, camera);
+      expect(document.activeElement, `frame ${k}`).toBe(last);
+      expect(shown(root), `frame ${k}`).toEqual(['sw-a1', 'sw-b2', 'sw-c3', 'ps-d4']);
+    }
+    // The selected tag shows too, under the focused one.
+    labels.setSelected(deskTarget('sw-b2'));
+    frameWithAMove(labels, camera);
+    expect([document.activeElement === last, shown(root)]).toEqual([true, ['sw-a1', 'sw-b2', 'sw-c3', 'ps-d4']]);
+  });
+
+  it('keeps the tag that the arrow keys give the focus to shown, where the tag losing the focus would hide it', () => {
+    drawn({ named: 80, grown: 80, isGrown: () => false });
+    // As in a browser, the tag losing the focus is told first, and a hidden element takes no focus.
+    const focus = HTMLElement.prototype.focus;
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement) {
+      const had = document.activeElement;
+      if (had instanceof HTMLElement && had !== this) had.blur();
+      if (this.style.visibility !== 'hidden') focus.call(this);
+    });
+    const { root, labels } = layer();
+    labels.sync(floorWith({ 'sw-a1': 'needs_you', 'sw-b2': 'needs_you' }, []));
+    const camera = corner();
+    // Half a metre (40 px) apart and 80 px wide: at rest, sw-b2 hides under sw-a1, which ranks alike and comes first.
+    labels.moveTag('sw-a1', { x: -20, y: 1, z: -20 });
+    labels.moveTag('sw-b2', { x: -19.5, y: 1, z: -20 });
+    frameWithAMove(labels, camera);
+    expect(shown(root)).toEqual(['sw-a1', 'ps-d4']);
+    // Focused, sw-a1 hides no one: sw-b2 shows. The right arrow gives sw-b2 the focus, and both still show.
+    labels.tag('sw-a1')!.focus();
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2', 'ps-d4']);
+    labels.tag('sw-a1')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect([(document.activeElement as HTMLElement).dataset.session, shown(root)]).toEqual(['sw-b2', ['sw-a1', 'sw-b2', 'ps-d4']]);
+  });
+
+  it('keeps a hovered tag shown while other labels move, hiding no one, and works out again as the pointer leaves it', () => {
+    const hovered = new Set<HTMLElement>();
+    drawn({ named: 80, grown: 160, isGrown: (el) => hovered.has(el) });
+    const { root, labels } = layer();
+    labels.sync(floorWith({ 'sw-a1': 'needs_you', 'sw-b2': 'needs_you' }, []));
+    const camera = corner();
+    labels.moveTag('sw-a1', { x: -21, y: 1, z: -20 });
+    labels.moveTag('sw-b2', { x: -20, y: 1, z: -20 });
+    frameWithAMove(labels, camera);
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2', 'ps-d4']);
+    const tag = labels.tag('sw-b2')!;
+    hovered.add(tag);
+    tag.dispatchEvent(new Event('pointerenter'));
+    // Grown over sw-a1, which ranks alike and comes first, it still shows, frame after frame, and so does sw-a1.
+    for (let k = 0; k < 3; k++) {
+      frameWithAMove(labels, camera);
+      expect(shown(root), `frame ${k}`).toEqual(['sw-a1', 'sw-b2', 'ps-d4']);
+    }
+    // Hovered, it moves half a metre closer: at rest it would be culled, but it shows until the pointer leaves it.
+    labels.moveTag('sw-b2', { x: -20.5, y: 1, z: -20 });
+    labels.position(camera, 800, 400);
+    expect(shown(root)).toEqual(['sw-a1', 'sw-b2', 'ps-d4']);
+    hovered.delete(tag);
+    tag.dispatchEvent(new Event('pointerleave'));
+    expect(shown(root)).toEqual(['sw-a1', 'ps-d4']);
+  });
+
+  it('shows, from far, a named tag that another covers as its dot where the dot is clear, and culls dots only under labels that show, the same frame after frame', () => {
+    drawn({ named: 80, grown: 80, isGrown: () => false });
+    const { root, labels } = layer();
+    labels.sync(floorWith({ 'sw-a1': 'needs_you' }, []));
+    labels.setScale(COMPACT_PX - 1);
+    const camera = corner();
+    // sw-a1 needs you, at 400 px; oa-c3 needs you too, 50 px east; sw-b2 is done, 50 px west. Their names overlap
+    // sw-a1's, but their dots are clear of it. sw-c3's dot lies under sw-a1's name; oa-d5's only under oa-c3's name.
+    const at = (px: number) => ({ x: -20 + px / 80, y: 1, z: -20 });
+    labels.moveTag('sw-a1', at(0));
+    labels.moveTag('oa-c3', at(50));
+    labels.moveTag('sw-b2', at(-50));
+    labels.moveTag('sw-c3', at(10));
+    labels.moveTag('oa-d5', at(75));
+    for (let k = 0; k < 3; k++) {
+      frameWithAMove(labels, camera);
+      expect(shown(root), `frame ${k}`).toEqual(['sw-a1', 'sw-b2', 'oa-c3', 'oa-d5', 'ps-d4']);
+      expect(['sw-a1', 'sw-b2', 'oa-c3'].map((id) => labels.tag(id)!.classList.contains('fv-dot-only')), `frame ${k}`).toEqual([false, true, true]);
+    }
+    // Closer in, nothing falls back to its dot: the tag that ranks lower hides.
+    labels.setScale(COMPACT_PX);
+    frameWithAMove(labels, camera);
+    expect(root.querySelectorAll('.fv-dot-only')).toHaveLength(0);
+    expect(shown(root)).not.toContain('oa-c3');
+    // As drawn from far, a tag shown as its dot is a dot alone: dot, padding and border make DOT_PX.
+    const dotOnly = css.slice(css.indexOf('\n.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) {'));
+    expect(dotOnly).toMatch(/^\n\.fv-compact \.fv-tag\.fv-dot-only:not\(:hover\):not\(:focus-visible\) \{\n {2}gap: 0;\n {2}padding: 3px;\n\}/);
+    expect(css).toContain('\n.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) > :not(.fv-dot) {\n  position: absolute;');
+    expect([rule('.fv-dot'), rule('.fv-tag')]).toEqual([expect.stringContaining('width: 7px;'), expect.stringContaining('border: 1px solid')]);
+    expect(DOT_PX).toBe(7 + 2 * 3 + 2 * 1);
+  });
+
+  it('takes a hidden tag out of the tab order and the arrow keys, as one off the view', () => {
     sized(80, 20);
     const { labels } = layer();
     labels.sync(checkoutFloor());
@@ -885,10 +1009,13 @@ describe('which tags show', () => {
     labels.position(camera, 800, 400);
     // sw-a1, first in floor order, held the tab stop: hidden under sw-b2 (done), it hands it on to sw-b2.
     expect([labels.tag('sw-a1')!.style.visibility, labels.tag('sw-a1')!.tabIndex, labels.tag('sw-b2')!.tabIndex]).toEqual(['hidden', -1, 0]);
-    labels.tag('sw-b2')!.focus();
+    labels.tag('oa-c3')!.focus();
     const press = (key: string) => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    // Home passes the hidden sw-a1 by.
     press('Home');
     expect((document.activeElement as HTMLElement).dataset.session).toBe('sw-b2');
+    // Focused, sw-b2 hides no one: sw-a1 shows under it. The next tag after it is oa-c3.
+    expect(labels.tag('sw-a1')!.style.visibility).toBe('');
     press('ArrowRight');
     expect((document.activeElement as HTMLElement).dataset.session).toBe('oa-c3');
   });

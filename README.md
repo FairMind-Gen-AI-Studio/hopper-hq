@@ -120,8 +120,8 @@ A floor you open, reload or come back to shows everyone already in place: only w
 
 - From far, which is how a floor first shows on most screens, a robot's tag is a dot in its state's colour, named only while it is selected, needs you or is done. Room tags keep their names, and the pods' placards hide.
 - Closer in, every tag and placard shows whole.
-- Where two overlap, the one that ranks lower gives way: the selected tag first, then needs you, done, rooms, working, the other states, and placards last.
-- Hover or focus a tag to read it whole. Free desks and dormant ones have no tag.
+- Where two overlap, the one that ranks lower gives way: the selected tag first, then needs you, done, rooms, working, the other states, and placards last. From far, a named tag that gives way keeps its dot where the dot is clear.
+- Hover or focus a tag to read it whole: it shows on top of the others, and hides none of them, while you do. Free desks and dormant ones have no tag.
 
 ### Signing in
 

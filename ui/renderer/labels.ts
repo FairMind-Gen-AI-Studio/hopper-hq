@@ -8,8 +8,10 @@
  *
  * Free desks and dormant sessions' desks have no tag. Seen from far (compact), every tag shows at least its dot and the
  * placards hide; closer, every tag and placard shows whole. At every zoom, where two overlap on the canvas the one that
- * ranks lower hides (design §7.3). A tag hidden so is like one off the view: out of the tab order, and passed by the
- * arrow keys. The floor panel lists every session and room, whatever the view shows.
+ * ranks lower hides (design §7.3); from far, a named tag that another covers shows its dot alone where the dot is
+ * clear. A tag hidden so is like one off the view: out of the tab order, and passed by the arrow keys. A tag that has
+ * the focus or the pointer always shows, on top, and takes no part: it hides no one. Tags are measured as they rest,
+ * never as a hover or the focus grows them. The floor panel lists every session and room, whatever the view shows.
  */
 import { Vector3, type Camera } from 'three';
 import { STATE_LABEL } from '../../src/scene/text';
@@ -41,6 +43,9 @@ export function projectToScreen(p: Point3, camera: Camera, width: number, height
  * desk needs you or is done, or it names a room (labels.css); the placards and the boards go.
  */
 export const COMPACT_PX = 40;
+
+/** A tag drawn as its dot alone, from far, in CSS pixels: a 7 px dot in 3 px of padding and a 1 px border (labels.css). */
+export const DOT_PX = 15;
 
 /** How labels rank where they overlap: the lower shows (design §7.3). */
 export const RANK = { selected: 0, needs_you: 1, done: 2, room: 3, working: 4, other: 5, placard: 6 } as const;
@@ -118,6 +123,9 @@ interface Label {
 interface Tag extends Label {
   readonly target: Target;
   kind: TagKind;
+  /** It has the focus, or the pointer is on it: it shows, and takes no part in which labels are kept. */
+  focused: boolean;
+  hovered: boolean;
 }
 
 /** A room's board, over its whiteboard. */
@@ -224,11 +232,7 @@ export class LabelLayer {
     if (moved) this.keep();
     for (const label of labels) {
       const p = label.at!;
-      const visible = p.visible && label.kept;
-      if (visible !== label.visible) {
-        label.el.style.visibility = visible ? '' : 'hidden';
-        label.visible = visible;
-      }
+      this.show(label);
       // A hidden label on the view moves too, so that it shows in its place once it is kept again.
       if (p.visible && (p.x !== label.x || p.y !== label.y)) {
         label.el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%)`;
@@ -289,9 +293,26 @@ export class LabelLayer {
     el.tabIndex = -1;
     if (target.kind === 'desk') el.dataset.session = target.id;
     else el.dataset.run = target.id;
+    const tag: Tag = { ...this.add(el), target, kind, focused: false, hovered: false };
     el.addEventListener('click', (e) => this.events.select(target, e.detail));
     el.addEventListener('dblclick', () => this.events.activate(target));
-    el.addEventListener('focus', () => this.rove(key));
+    el.addEventListener('focus', () => {
+      tag.focused = true;
+      this.rove(key);
+      this.recheck();
+    });
+    el.addEventListener('blur', () => {
+      tag.focused = false;
+      this.recheck();
+    });
+    el.addEventListener('pointerenter', () => {
+      tag.hovered = true;
+      this.recheck();
+    });
+    el.addEventListener('pointerleave', () => {
+      tag.hovered = false;
+      this.recheck();
+    });
     el.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && sameTarget(this.selected, target)) {
         e.preventDefault();
@@ -301,7 +322,6 @@ export class LabelLayer {
         this.focusFrom(key, e.key);
       }
     });
-    const tag: Tag = { ...this.add(el), target, kind };
     this.tags.set(key, tag);
     return tag;
   }
@@ -408,31 +428,66 @@ export class LabelLayer {
 
   /**
    * Works out which tags and placards are kept, among those on the view, but no placard at compact zoom: all but those
-   * that overlap one that ranks higher, or one as high earlier in floor order (desk tags, room tags, then placards). Sizes
-   * are read from the page, as the zoom draws them: a compact tag is a dot, or a dot and a name.
+   * that overlap one that ranks higher, or one as high earlier in floor order (desk tags, room tags, then placards). A tag
+   * with the focus or the pointer is kept, and left out. The others' sizes are read from the page as they rest at this
+   * zoom: from far a tag is a dot, or a dot and a name, and one drawn as its dot alone is drawn named again to be read.
+   * From far, the named tags (selected, needs you, done, rooms) are worked out first; then the dots, among the labels
+   * kept: those of the named tags not kept, as DOT_PX squares over their anchors, and the other tags. The result follows
+   * from the anchors and the resting sizes alone, so placing the same labels again keeps the same ones.
    */
   private keep(): void {
     this.stale = false;
     const selected = this.selectedKey();
-    const ranked: Array<[Label, number]> = [
-      ...this.order.map((key): [Label, number] => {
-        const tag = this.tags.get(key)!;
-        return [tag, tagRank(tag.kind, key === selected)];
-      }),
-      ...this.signOrder.map((id): [Label, number] => [this.signs.get(id)!, RANK.placard]),
-    ];
-    const seen = ranked.filter(([label, rank]) => {
-      label.kept = false;
-      return label.at!.visible && !(this.compact && rank === RANK.placard);
+    for (const tag of this.tags.values()) tag.el.classList.remove('fv-dot-only');
+    const seen: Array<{ label: Label; named: boolean; box: LabelBox }> = [];
+    for (const key of this.order) {
+      const tag = this.tags.get(key)!;
+      tag.kept = tag.focused || tag.hovered;
+      if (tag.kept || !tag.at!.visible) continue;
+      const rank = tagRank(tag.kind, key === selected);
+      seen.push({ label: tag, named: rank <= RANK.room, box: resting(tag, rank) });
+    }
+    for (const id of this.signOrder) {
+      const sign = this.signs.get(id)!;
+      sign.kept = false;
+      if (sign.at!.visible && !this.compact) seen.push({ label: sign, named: true, box: resting(sign, RANK.placard) });
+    }
+    if (!this.compact) {
+      declutter(seen.map((s) => s.box)).forEach((kept, i) => (seen[i]!.label.kept = kept));
+      return;
+    }
+    const named = seen.filter((s) => s.named);
+    declutter(named.map((s) => s.box)).forEach((kept, i) => (named[i]!.label.kept = kept));
+    const shown = named.filter((s) => s.label.kept).map((s): LabelBox => ({ ...s.box, rank: -1 }));
+    const dots = seen.filter((s) => !s.label.kept).map((s) => (s.named ? { ...s, box: dotBox(s.label.at!, s.box.rank) } : s));
+    const kept = declutter([...shown, ...dots.map((s) => s.box)]);
+    dots.forEach((s, i) => {
+      s.label.kept = kept[shown.length + i]!;
+      if (s.named && s.label.kept) s.label.el.classList.add('fv-dot-only');
     });
-    const kept = declutter(
-      seen.map(([label, rank]) => {
-        const w = label.el.offsetWidth;
-        const h = label.el.offsetHeight;
-        return { x: label.at!.x - w / 2, y: label.at!.y - h, w, h, rank };
-      }),
-    );
-    seen.forEach(([label], i) => (label.kept = kept[i]!));
+  }
+
+  /** Shows a label while it is on the view and kept, and hides it otherwise. */
+  private show(label: Label): void {
+    const visible = label.at!.visible && label.kept;
+    if (visible === label.visible) return;
+    label.el.style.visibility = visible ? '' : 'hidden';
+    label.visible = visible;
+  }
+
+  /**
+   * Works out again which labels are kept, where they are placed now, as a tag gains or loses the focus or the pointer.
+   * Before every label is placed, it leaves it to the next position().
+   */
+  private recheck(): void {
+    const labels = [...this.signs.values(), ...this.boards.values(), ...this.tags.values()];
+    if (labels.some((label) => label.at === null)) {
+      this.stale = true;
+      return;
+    }
+    this.keep();
+    for (const label of labels) this.show(label);
+    this.keepStopOnView();
   }
 
   /** Marks the tag of the selected key only: one room of a run is outlined, and one tag says so. */
@@ -477,7 +532,7 @@ export class LabelLayer {
       return;
     }
     this.rove(next);
-    if (had) this.tags.get(next)!.el.focus();
+    if (had) this.focusTag(next);
   }
 
   /** Focuses the tag a key leads to from this one, among the tags on the view, in floor order. */
@@ -486,7 +541,20 @@ export class LabelLayer {
     const at = shown.indexOf(key);
     const to = move === 'Home' ? 0 : move === 'End' ? shown.length - 1 : at + (move === 'ArrowRight' || move === 'ArrowDown' ? 1 : -1);
     const next = shown[Math.max(0, Math.min(shown.length - 1, to))];
-    if (next !== undefined) this.tags.get(next)!.el.focus();
+    if (next !== undefined) this.focusTag(next);
+  }
+
+  /**
+   * Gives a tag the focus, keeping it shown from the moment the tag losing the focus is worked out again, which could
+   * otherwise hide it: a hidden element takes no focus.
+   */
+  private focusTag(key: string): void {
+    const tag = this.tags.get(key)!;
+    tag.focused = true;
+    tag.el.focus();
+    if (document.activeElement === tag.el) return;
+    tag.focused = false;
+    this.recheck();
   }
 
   /** A label for `el`, hidden until it is placed. */
@@ -500,6 +568,18 @@ export class LabelLayer {
     label.el.remove();
     map.delete(key);
   }
+}
+
+/** A label's box as it rests on the page, hanging from its point: its element's size as the page draws it now. */
+function resting(label: Label, rank: number): LabelBox {
+  const w = label.el.offsetWidth;
+  const h = label.el.offsetHeight;
+  return { x: label.at!.x - w / 2, y: label.at!.y - h, w, h, rank };
+}
+
+/** A tag's box as its dot alone, hanging from its point. */
+function dotBox(at: ScreenPoint, rank: number): LabelBox {
+  return { x: at.x - DOT_PX / 2, y: at.y - DOT_PX, w: DOT_PX, h: DOT_PX, rank };
 }
 
 /** The keys that move the focus between tags. */

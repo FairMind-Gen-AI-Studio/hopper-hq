@@ -111,6 +111,24 @@
   white-space: nowrap;
 }
 
+/*
+ * From far, a tag that is selected, needs you, is done or names a room, but that a tag ranking higher covers, shows its
+ * dot alone (labels.ts), until it is hovered or focused.
+ */
+.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) {
+  gap: 0;
+  padding: 3px;
+}
+
+.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) > :not(.fv-dot) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .fv-badge-needs .fv-dot {
   animation: fv-pulse 1.2s ease-in-out infinite;
 }
