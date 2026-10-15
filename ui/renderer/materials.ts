@@ -100,6 +100,10 @@ const SURFACES = {
    * two strongest cues.
    */
   straw: { color: 's-needs', mix: ['scene-paper', 0.1], roughness: 0.35 },
+  /** The biliardino table's two teams of little players, in colours clearly apart at a glance: the "needs you" red
+   * and the accent blue, already in every theme, so no new token is needed for a pair of jerseys. */
+  foosballA: { color: 's-needs', roughness: 0.6 },
+  foosballB: { color: 'accent', roughness: 0.6 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;

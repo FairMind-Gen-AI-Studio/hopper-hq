@@ -61,24 +61,70 @@ export const POSES: Record<Pose, PoseSpec> = {
    * before the rest of the glass's own height is even added on top of the anchor.
    */
   gintonic: { armL: [-0.3, -0.25], armR: [-0.8, 0.45], legs: 0, neck: -0.1, lean: -0.15, paper: false },
-  /** Leaning over the foosball table's handle, both forearms down and forward; the table's rods are T5's furniture. */
-  biliardino: { armL: [-1.3, 0.12], armR: [-1.3, -0.12], legs: 0, neck: 0.15, lean: 0.3, paper: false },
+  /**
+   * Leaning over the foosball table's handle, both forearms reaching out and down; the table's rods are props.ts's
+   * furniture, at world.ts's FOOSBALL_ROD_Y. A session's hand lands there at this bend, and an intern's (floating
+   * at FOOSBALL_HOVER_Y below, rather than standing) matches it too — checked by forward kinematics, not
+   * eyeballed: bending the forearm further, past this, would only lower the hand again. A workflow robot, smaller
+   * (KIND_SCALE.workflow), needs a deeper bend of its own (BILIARDINO_BY_KIND, below) to reach the same height;
+   * every kind's remaining horizontal gap to the handle is closed separately, by BILIARDINO_REACH.
+   */
+  biliardino: { armL: [-1.6, 0.14], armR: [-1.6, -0.14], legs: 0, neck: 0.1, lean: 0.12, paper: false },
   /** At the coffee machine: standing, its cup in its right hand. */
   coffee: { armL: [-0.25, -0.2], armR: [-0.9, -0.15], legs: 0, neck: -0.08, lean: -0.1, paper: false },
+};
+
+/**
+ * The biliardino pose, per kind. Session and intern reach `FOOSBALL_ROD_Y` with `POSES.biliardino`'s own bend
+ * (`armX` -1.6 rad) unchanged: intern plays from `FOOSBALL_HOVER_Y` instead of standing (`rootHeight`, below), so
+ * at its own scale the same bend lands its hand at the same height session's does, standing. A workflow robot, at
+ * `KIND_SCALE.workflow` = 0.8, cannot reach as high with that bend — the same rotation swings a shorter arm a
+ * shorter vertical distance — so it bends further still, to -2.104 rad (reaching further overhead, not further
+ * down): checked by forward kinematics against `FOOSBALL_ROD_Y` (robot.test.ts), not eyeballed, for every kind,
+ * not just session as the pose's own comment used to claim. `BILIARDINO_REACH` (below) separately closes each
+ * kind's remaining horizontal gap; this table only closes the vertical one.
+ */
+const BILIARDINO_BY_KIND: Readonly<Record<RobotKind, PoseSpec>> = {
+  session: POSES.biliardino,
+  intern: POSES.biliardino,
+  workflow: { ...POSES.biliardino, armL: [-2.104, POSES.biliardino.armL[1]], armR: [-2.104, POSES.biliardino.armR[1]] },
 };
 
 /** A still robot with no signal (the clock badge) hangs its head; one in a meeting does not. */
 export const HEAD_DOWN = 0.3;
 const DOZING: PoseSpec = { ...POSES.still, neck: HEAD_DOWN };
 
-/** The pose of a robot's look: one object per look, so that posing a robot in every frame allocates nothing. */
-export function poseOf(robot: Pick<Robot, 'pose' | 'badge'>): PoseSpec {
-  return robot.pose === 'still' && robot.badge === 'clock' ? DOZING : POSES[robot.pose];
+/**
+ * The pose of a robot's look: one object per look (and, at the biliardino pose, per kind too), so that posing a
+ * robot in every frame allocates nothing.
+ */
+export function poseOf(robot: Pick<Robot, 'pose' | 'badge'>, kind: RobotKind = 'session'): PoseSpec {
+  if (robot.pose === 'still' && robot.badge === 'clock') return DOZING;
+  return robot.pose === 'biliardino' ? BILIARDINO_BY_KIND[kind] : POSES[robot.pose];
 }
+
+/**
+ * How high an intern floats while it plays foosball: low enough that its hand, at its own small scale and the
+ * biliardino pose's bend, meets the table's rods at FOOSBALL_ROD_Y (world.ts) — nothing like its desk's HOVER_Y,
+ * which would leave its hands a metre above the handles. Measured the same way as the pose itself (by forward
+ * kinematics, not eyeballed): an intern has no legs to stand on, so unlike session and workflow it needs a root
+ * height of its own at this one pose.
+ */
+export const FOOSBALL_HOVER_Y = 0.28;
+
+/**
+ * How far past its stand spot (`foosballSpots`, world.ts) each kind leans in, in z, to put its hand on the near
+ * handle at the biliardino pose: the pose's own bend (`BILIARDINO_BY_KIND`) and a standing kind's floor-level root
+ * both leave a shorter kind further from the handle than a taller one — closing the same vertical gap by bending
+ * the arm further still would, past a point, only lower the hand again (POSES.biliardino's own comment), so the
+ * rest of the gap is closed here instead, by standing closer in. Checked against `FOOSBALL_REACH` (world.ts) by
+ * forward kinematics (robot.test.ts), not eyeballed; zero at every pose but this one.
+ */
+export const BILIARDINO_REACH: Readonly<Record<RobotKind, number>> = { session: 0.072, workflow: 0.163, intern: 0.231 };
 
 /** Height of the robot's feet: a seated robot sinks until its hips, at its size, rest on the chair; an intern hovers. */
 export function rootHeight(pose: Pose, kind: RobotKind = 'session'): number {
-  if (kind === 'intern') return HOVER_Y;
+  if (kind === 'intern') return pose === 'biliardino' ? FOOSBALL_HOVER_Y : HOVER_Y;
   return isStanding(pose) ? 0 : SEAT_Y - BOT.hip * KIND_SCALE[kind];
 }
 
@@ -444,11 +490,16 @@ export function strideRobot(obj: RobotObject, at: { x: number; z: number; facing
   r.cup.visible = false;
 }
 
-/** Puts the robot on its spot, facing its way, in the pose of its state; with `laptop`, its laptop open before it. */
+/**
+ * Puts the robot on its spot, facing its way, in the pose of its state; with `laptop`, its laptop open before it.
+ * At the biliardino pose, it leans `BILIARDINO_REACH` past its spot, toward what it faces, to put its hand on the
+ * handle (the pose's own bend alone falls short, by a different amount for each kind).
+ */
 export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>, spot: Spot, laptop = false): void {
-  const spec = poseOf(robot);
+  const spec = poseOf(robot, obj.kind);
   const r = obj.rig;
-  obj.group.position.set(spot.x, rootHeight(robot.pose, obj.kind), spot.z);
+  const reach = robot.pose === 'biliardino' ? BILIARDINO_REACH[obj.kind] : 0;
+  obj.group.position.set(spot.x + reach * Math.sin(spot.facing), rootHeight(robot.pose, obj.kind), spot.z + reach * Math.cos(spot.facing));
   obj.group.rotation.y = spot.facing;
   r.armL.rotation.set(spec.armL[0], 0, spec.armL[1]);
   r.armR.rotation.set(spec.armR[0], 0, spec.armR[1]);
@@ -484,11 +535,12 @@ export type Loop = keyof typeof LOOPS;
 
 /**
  * The loop a robot runs at its place: working sessions and workflow agents type, one that needs you waves, one that is
- * done sways its paper, one without a signal dozes, an idle one breathes, and an intern hovers. A host in a meeting
- * runs none.
+ * done sways its paper, one without a signal dozes, an idle one breathes, and an intern hovers — except at the
+ * foosball table, where it floats low over its handle (rootHeight, FOOSBALL_HOVER_Y) and plays like any other
+ * kind. A host in a meeting runs none.
  */
 export function loopOf(robot: Pick<Robot, 'pose' | 'badge'>, kind: RobotKind = 'session'): Loop | null {
-  if (kind === 'intern') return 'hover';
+  if (kind === 'intern' && robot.pose !== 'biliardino') return 'hover';
   switch (robot.pose) {
     case 'typing':
       return 'type';
@@ -528,7 +580,7 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
   const loop = loopOf(robot, obj.kind);
   if (loop === null) return;
   const s = Math.sin(t * LOOPS[loop].rate + phase);
-  const spec = poseOf(robot);
+  const spec = poseOf(robot, obj.kind);
   const r = obj.rig;
   if (r.cigar.visible) {
     // The puffs rise PUFF.rise over 1/PUFF.rate seconds and start again, scaled to nothing at either end (puffAt):

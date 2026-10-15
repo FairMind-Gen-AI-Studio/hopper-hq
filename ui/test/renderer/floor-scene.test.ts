@@ -7,7 +7,7 @@ import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, 
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
 import { pickTarget } from '../../renderer/pick';
 import { DOOR_PANEL, DOOR_SLIDE, Geometries, NAMEPLATE } from '../../renderer/props';
-import { HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
+import { BILIARDINO_REACH, FOOSBALL_HOVER_Y, HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
 import type { Intern, Robot } from '../../../src/scene/types';
@@ -60,6 +60,8 @@ const roomTarget = (id: string): Target => ({ kind: 'room', id });
 /** Where a robot stands and the way it faces, as a spot lists them. */
 const at = (o: { group: { position: { x: number; z: number }; rotation: { y: number } } }) => [o.group.position.x, o.group.position.z, o.group.rotation.y];
 const spot = (s: { x: number; z: number; facing: number }) => [s.x, s.z, s.facing];
+/** A stand spot, leaned `reach` m toward what it faces: where poseRobot puts a robot at the biliardino pose. */
+const leanIn = (s: { x: number; z: number; facing: number }, reach: number) => ({ x: s.x + reach * Math.sin(s.facing), z: s.z + reach * Math.cos(s.facing), facing: s.facing });
 /** Where a piece of furniture stands in the world. */
 const matrixOf = (piece: Piece) => new Matrix4().multiplyMatrices(piece.mesh!.matrixWorld, piece.mesh!.getMatrixAt(piece.index, new Matrix4()));
 /** A colour's channels, to the millionth: instanced meshes keep colours in 32-bit floats. */
@@ -732,13 +734,14 @@ describe('leisure', () => {
     expect([bot.kind, bot.rig.drink.visible, bot.rig.cup.visible]).toEqual(['intern', true, false]);
   });
 
-  it('flies a biliardino pair to the foosball table, facing each other across it, holding no prop', () => {
+  it('flies a biliardino pair to the foosball table, leaning in from its own spot toward the handles, facing each other across it, holding no prop', () => {
     const floor = withLeisure([leisureIntern('f1', 'biliardino'), leisureIntern('f2', 'biliardino')]);
     const fs = sceneOf(floor);
     const entry = fs.sessions.get('sw-a1')!;
     const spots = foosballSpots(floor.breakArea);
-    expect(at(entry.interns.get('f1')!)).toEqual(spot(spots[0]!));
-    expect(at(entry.interns.get('f2')!)).toEqual(spot(spots[1]!));
+    // An intern's reach falls shortest of its handle (BILIARDINO_REACH), so it stands this far in from its own spot.
+    expect(at(entry.interns.get('f1')!)).toEqual(spot(leanIn(spots[0]!, BILIARDINO_REACH.intern)));
+    expect(at(entry.interns.get('f2')!)).toEqual(spot(leanIn(spots[1]!, BILIARDINO_REACH.intern)));
     expect(spots[0]!.facing).not.toBe(spots[1]!.facing);
     for (const id of ['f1', 'f2']) {
       const bot = entry.interns.get(id)!;
@@ -1417,12 +1420,33 @@ describe('loops at rest', () => {
   it('jiggles a biliardino intern\'s hands at the foosball table while loops are on, from its own phase', () => {
     const checkouts = checkoutSpecs();
     checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: [leisureIntern('f1', 'biliardino')] };
-    const fs = sceneOf(makeFloor(checkouts));
+    const floor = makeFloor(checkouts);
+    const fs = sceneOf(floor);
     fs.loops = true;
     const robot = fs.sessions.get('sw-a1')!.interns.get('f1')!;
     const look: Look = { pose: 'biliardino', badge: null };
+    const phase = phaseOf(JSON.stringify(['intern', 'sw-a1', 'f1']));
+    const pose = POSES.biliardino;
+    const atRest = limbs(robot);
     fs.frame(5250);
-    expect(limbs(robot)).toEqual(expected(robot, look, { t: 5.25, phase: phaseOf(JSON.stringify(['intern', 'sw-a1', 'f1'])) }));
+    // It really does run the foosball loop, not hover: its forearms are off the pose's rest values (out of step with
+    // each other, LOOPS.foosball's own shape), and it floats at the table's own low height, FOOSBALL_HOVER_Y, nothing
+    // like its desk's HOVER_Y — this is what the "jiggle" and the "meets the handles" in the test's name actually mean.
+    expect(loopOf(look, 'intern')).toBe('foosball');
+    expect(robot.rig.armL.rotation.x).not.toBeCloseTo(pose.armL[0], 6);
+    expect(robot.rig.armR.rotation.x).not.toBeCloseTo(pose.armR[0], 6);
+    // Out of step with each other: one forearm moves off the pose while the other moves the same amount the other way.
+    expect(robot.rig.armL.rotation.x - pose.armL[0]).toBeCloseTo(-(robot.rig.armR.rotation.x - pose.armR[0]), 6);
+    expect(robot.group.position.y).toBe(FOOSBALL_HOVER_Y);
+    expect(robot.group.position.y).toBeLessThan(HOVER_Y);
+    expect(limbs(robot)).not.toEqual(atRest);
+    // Not `expected()`: that helper re-poses a reference robot from the already-posed one's own position, which at
+    // this one pose already leans BILIARDINO_REACH past its canonical spot (poseRobot) — feeding it back in as a
+    // fresh spot would lean the reference robot in twice. Re-pose from the real, un-leaned stand spot instead.
+    const ref = buildRobot('ref', { ...look, body: 0, tie: null }, new Geometries(), new Materials(dayTheme()), robot.kind);
+    poseRobot(ref, look, foosballSpots(floor.breakArea)[0]!);
+    animateRobot(ref, look, 5.25, phase);
+    expect(limbs(robot)).toEqual(limbs(ref));
   });
 
   it('keeps the tag anchor of a robot at its place from frame to frame, and works it out again with each floor update', () => {

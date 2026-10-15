@@ -44,6 +44,9 @@ import {
   DESK_CHAIR,
   DESK_TOP,
   FOOSBALL,
+  FOOSBALL_HANDLE_IN,
+  FOOSBALL_ROD_OUT,
+  FOOSBALL_ROD_Y,
   PARTITION_H,
   PARTITION_T,
   ROOM_SEAT,
@@ -61,6 +64,7 @@ import {
   rectCenter,
   seatSpots,
   tableCenter,
+  type Point,
   type WallSide,
 } from './world';
 
@@ -348,10 +352,11 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
 
 /**
  * The break area (world.ts places its stand spots): a rug, a bar cart near its west edge with a few bottles and
- * glasses, a coffee machine midway between the cart and the table with a cup under its spout, and a biliardino table
- * near its east edge with two rows of little players. Only the cart's counter, its bottles and glasses, the coffee
- * machine's body and its cup, and the table's top, cast a shadow: the legs, its tray and the players are too thin to
- * be worth it.
+ * glasses, a coffee machine midway between the cart and the table with a cup under its spout, and a biliardino
+ * table near its east edge: a box cabinet, a green field marked in white inside a low rim, 8 rods of little
+ * players through the rim's long sides and a ball at the centre spot (buildFoosball). Only the cart's counter,
+ * its bottles and glasses, the coffee machine's body and its cup, and the table's cabinet, cast a shadow: the
+ * legs, its tray, the table's rim, rods and players are too thin to be worth it.
  */
 function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
   const s = mats.surface;
@@ -377,16 +382,86 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
   add(geo.box(COFFEE_MACHINE.w - 0.1, 0.03, 0.14), s.leg, coffee.x, 0.62, coffee.z + COFFEE_MACHINE.d / 2 - 0.02, { cast: false });
   add(geo.rod(0.05, 0.06, 0.09, 12), s.paper, coffee.x, 0.68, coffee.z + COFFEE_MACHINE.d / 2 - 0.08);
 
-  // The biliardino table: a top on four legs, two rows of little player-rods along its long sides.
-  const table = foosballCenter(rect);
-  add(geo.rbox(FOOSBALL.w, 0.06, FOOSBALL.d, 0.02), s.desk, table.x, 0.85, table.z);
+  buildFoosball(foosballCenter(rect), add, geo, mats);
+}
+
+/** The two teams' player counts, rod by rod from west to east: keeper, defence, midfield, attack, mirrored. */
+const FOOSBALL_FORMATION = [1, 2, 5, 3, 3, 5, 2, 1] as const;
+/** How far below FOOSBALL_ROD_Y a cabinet's legs stand, and how tall the box cabinet is above them: the field
+ * (the box's top face) ends up at LEG_H + CABINET_H, a little under the rod — the rod runs through the raised
+ * rim just above the field, where the real rod of a real table does, not buried in the body of the cabinet. */
+const FOOSBALL_LEG_H = 0.12;
+const FOOSBALL_CABINET_H = 0.44;
+/** The field's height: the box cabinet's own top face. */
+const FOOSBALL_FIELD_Y = FOOSBALL_LEG_H + FOOSBALL_CABINET_H;
+/** The raised rim around the field: its height above the field, and its thickness. */
+const FOOSBALL_RIM_H = 0.11;
+const FOOSBALL_RIM_T = 0.035;
+/** The gap left open in the rim at each short end: the goal. */
+const FOOSBALL_GOAL_W = 0.3;
+
+/** `n` player spots evenly spread across a rod, inside the rim's inner edge; one sits at the rod's own centre. */
+function foosballPlayerSpots(n: number): number[] {
+  if (n === 1) return [0];
+  const span = 0.64;
+  return Array.from({ length: n }, (_, k) => -span / 2 + (k * span) / (n - 1));
+}
+
+/**
+ * The biliardino table, centred on `c`: a box cabinet on four short legs with a cross-bar either long side, a
+ * green field marked in white (a centre line and circle, and a line either end, like a 5-a-side pitch's boxes)
+ * inside a low rim, a dark goal mouth at each short end, 8 rods through the rim's long sides — one straight rod
+ * each, so a rod, its players and its handle (poking out for a robot to hold, robot.ts's biliardino pose) all
+ * stand at the same height, FOOSBALL_ROD_Y — carrying the classic 1-2-5-3 formation per team, mirrored and in
+ * two colours (s.foosballA, s.foosballB), and a ball at the centre spot. Every part but the cabinet is too thin
+ * to be worth a shadow.
+ */
+function buildFoosball(c: Point, add: (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => Piece, geo: Geometries, mats: Materials): void {
+  const s = mats.surface;
+  const thin = { cast: false };
+  const { w, d } = FOOSBALL;
+  const legH = FOOSBALL_LEG_H;
+  const fieldY = FOOSBALL_FIELD_Y;
+  const rimH = FOOSBALL_RIM_H;
+  const rimT = FOOSBALL_RIM_T;
+  const goalW = FOOSBALL_GOAL_W;
+
+  // The box cabinet, on four short legs with a cross-bar either long side.
+  add(geo.rbox(w, FOOSBALL_CABINET_H, d, 0.02), s.leg, c.x, legH + FOOSBALL_CABINET_H / 2, c.z);
   for (const lx of [-1, 1]) {
-    for (const lz of [-1, 1]) add(geo.box(0.06, 0.82, 0.06), s.leg, table.x + lx * (FOOSBALL.w / 2 - 0.08), 0.41, table.z + lz * (FOOSBALL.d / 2 - 0.08), { cast: false });
+    for (const lz of [-1, 1]) add(geo.box(0.05, legH, 0.05), s.leg, c.x + lx * (w / 2 - 0.08), legH / 2, c.z + lz * (d / 2 - 0.08), thin);
   }
-  for (const lz of [-1, 1]) {
-    const z = table.z + lz * (FOOSBALL.d / 2 - 0.1);
-    for (const dx of [-0.5, -0.17, 0.17, 0.5]) add(geo.rod(0.02, 0.02, 0.2, 6), s.chair, table.x + dx, 0.98, z, { cast: false });
+  for (const lz of [-1, 1]) add(geo.box(w - 0.2, 0.03, 0.03), s.leg, c.x, legH / 2, c.z + lz * (d / 2 - 0.08), thin);
+
+  // The green field, its white lines (a centre line, two box lines and the centre circle) and the ball.
+  add(geo.box(w - 0.1, 0.004, d - 0.1), s.plant, c.x, fieldY + 0.002, c.z, thin);
+  const lineLen = d - 0.2;
+  for (const dx of [0, -0.5, 0.5]) add(geo.box(0.025, 0.004, lineLen), s.paper, c.x + dx, fieldY + 0.004, c.z, thin);
+  add(geo.ring(0.03, 0.05), s.paper, c.x, fieldY + 0.004, c.z, { rx: -Math.PI / 2, cast: false });
+  add(geo.ball(0.035), s.paper, c.x, fieldY + 0.04, c.z, thin);
+
+  // The raised rim, open a goal's width at each short end, and the dark goal mouth behind each opening.
+  for (const lz of [-1, 1]) add(geo.box(w, rimH, rimT), s.leg, c.x, fieldY + rimH / 2, c.z + lz * (d / 2 - rimT / 2), thin);
+  const endSeg = (d - goalW) / 2;
+  for (const lx of [-1, 1]) {
+    for (const lz of [-1, 1]) add(geo.box(rimT, rimH, endSeg), s.leg, c.x + lx * (w / 2 - rimT / 2), fieldY + rimH / 2, c.z + lz * (goalW / 2 + endSeg / 2), thin);
+    add(geo.box(0.01, rimH, goalW - 0.04), s.monitor, c.x + lx * (w / 2 - 0.005), fieldY + rimH / 2, c.z, thin);
   }
+
+  // The 8 rods, their handles and their players, west to east: FOOSBALL_FORMATION's counts, the west half in
+  // s.foosballA, the east half, mirrored, in s.foosballB.
+  const rodLen = d + 2 * FOOSBALL_ROD_OUT;
+  const span = w - 0.3;
+  FOOSBALL_FORMATION.forEach((n, i) => {
+    const x = c.x + (i + 0.5 - FOOSBALL_FORMATION.length / 2) * (span / FOOSBALL_FORMATION.length);
+    add(geo.rod(0.014, 0.014, rodLen, 8), s.frame, x, FOOSBALL_ROD_Y, c.z, { rx: Math.PI / 2, cast: false });
+    for (const lz of [-1, 1]) add(geo.rod(0.024, 0.024, 0.09, 8), s.leg, x, FOOSBALL_ROD_Y, c.z + lz * (d / 2 + FOOSBALL_ROD_OUT - FOOSBALL_HANDLE_IN), { rx: Math.PI / 2, cast: false });
+    const team = i < FOOSBALL_FORMATION.length / 2 ? s.foosballA : s.foosballB;
+    for (const pz of foosballPlayerSpots(n)) {
+      add(geo.box(0.05, 0.05, 0.022), team, x, FOOSBALL_ROD_Y - 0.03, c.z + pz, thin);
+      add(geo.ball(0.018), team, x, FOOSBALL_ROD_Y + 0.02, c.z + pz, thin);
+    }
+  });
 }
 
 export interface DeskObject {

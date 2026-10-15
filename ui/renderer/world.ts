@@ -177,6 +177,26 @@ export const FOOSBALL = { w: 1.6, d: 0.8 } as const;
 export const FOOSBALL_X = 1.5;
 /** How far a handle spot stands from the table's long edge. */
 export const FOOSBALL_OUT = 0.5;
+/**
+ * How high the table's 8 rods (and so its players and its handles: one straight rod, the same height throughout)
+ * stand above the floor: props.ts's cabinet carries them through its raised rim, just above its own green field,
+ * and robot.ts's biliardino pose (session and workflow kinds, standing) reaches a hand to just this height. An
+ * intern, with no legs to stand on, floats low enough at this pose instead of its desk's HOVER_Y (robot.ts).
+ */
+export const FOOSBALL_ROD_Y = 0.62;
+/** How far a rod (and so its handle, the same straight rod: props.ts) pokes past the rim on either side. */
+export const FOOSBALL_ROD_OUT = 0.12;
+/** How far in from a rod's bare, poked-out tip the handle grip itself sits (props.ts): the short, thicker nub a
+ * robot's hand closes on, not the rod's last few centimetres of bare overhang. */
+export const FOOSBALL_HANDLE_IN = 0.045;
+/**
+ * How far past its stand spot (foosballSpots, below) the near handle sits, in z: the spot already stands
+ * FOOSBALL_OUT out from the table's long edge, and the handle sits FOOSBALL_ROD_OUT out from the rim less
+ * FOOSBALL_HANDLE_IN — the difference is the reach a hand still has to close. robot.ts's BILIARDINO_REACH (per
+ * kind, on top of whatever the pose's own bend already covers) closes exactly this, measured by forward
+ * kinematics (robot.test.ts), not eyeballed.
+ */
+export const FOOSBALL_REACH = FOOSBALL_OUT - (FOOSBALL_ROD_OUT - FOOSBALL_HANDLE_IN);
 
 /** Where the biliardino table stands, centred in the break area's depth. */
 export function foosballCenter(rect: GridRect): Point {
