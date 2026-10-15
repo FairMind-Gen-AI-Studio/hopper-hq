@@ -169,10 +169,12 @@ describe('materials', () => {
     expect(m.surface.bossGold).not.toBe(m.surface.outfitDebugger);
     for (const [name, shade] of [
       ['outfitTechlead', '#5c5f3a'],
+      ['outfitSecurity', '#3a3e4c'],
       ['outfitLibrarian', '#6b2737'],
       ['outfitDesigner', '#e8e4d8'],
       ['outfitExplorer', '#9c8f5e'],
       ['outfitPlanner', '#1f3350'],
+      ['outfitReviewer', '#3a3240'],
     ] as const) {
       expect(hex(m.surface[name].color), name).toBe(shade);
     }
@@ -181,11 +183,16 @@ describe('materials', () => {
     expect(hex(m.surface.bossGold.color)).toBe('#ffd27a');
     for (const [name, shade] of [
       ['outfitTechlead', '#5c5f3a'],
+      ['outfitSecurity', '#3a3e4c'],
       ['outfitLibrarian', '#6b2737'],
       ['outfitDesigner', '#e8e4d8'],
       ['outfitExplorer', '#9c8f5e'],
       ['outfitPlanner', '#1f3350'],
+      ['outfitReviewer', '#3a3240'],
     ] as const) {
+      // Fixed shades never move with the theme — the whole point of outfitSecurity/outfitReviewer replacing the
+      // near-black `monitor`/`leg` tokens they used to reuse (fix-round-2): those crashed to #0e1015/#15181f at
+      // night and read as the torso merging into the floor.
       expect(hex(m.surface[name].color), name).toBe(shade);
     }
   });
@@ -196,9 +203,9 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    // The surfaces (incl. the 6 persona outfits, the boss's gold and the planner's opaque blueprint roll, appended
+    // The surfaces (incl. the 8 persona outfits, the boss's gold and the planner's opaque blueprint roll, appended
     // at the end), a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(43 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
+    expect(m.all().length).toBe(45 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

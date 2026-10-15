@@ -55,13 +55,15 @@ export const PERSONA_MESHES: Record<Persona, number> = {
  * The role colour a persona recolours a sub-agent's torso to (OQ-3): a `Surface` of materials.ts. Absent for `boss`
  * and `none` — their body stays the repo colour (materials.ts `body(slot)`), 'boss' because the session's desk
  * identity is the cue there, 'none' because it is today's plain look. Most personas reuse an existing surface
- * outright, already shared with other furniture and robots; only the five with no close enough token get their own
- * (materials.ts, appended at the end of SURFACES).
+ * outright, already shared with other furniture and robots; the seven with no close enough token — including
+ * security and reviewer, whose nearest tokens (`monitor`, `leg`) go near-black at night and read as the torso
+ * merging into the background — get their own fixed surface instead (materials.ts, appended at the end of
+ * SURFACES).
  */
 export const PERSONA_BODY: Partial<Record<Persona, Surface>> = {
-  security: 'monitor',
+  security: 'outfitSecurity',
   techlead: 'outfitTechlead',
-  reviewer: 'leg',
+  reviewer: 'outfitReviewer',
   qa: 'wood',
   debugger: 'outfitDebugger',
   librarian: 'outfitLibrarian',

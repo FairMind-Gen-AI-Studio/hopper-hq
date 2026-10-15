@@ -77,18 +77,25 @@ const SURFACES = {
   /**
    * Persona outfit colours (ui/renderer/persona.ts, user-decisions.md OQ-3): a role recolours a sub-agent's body,
    * the tie staying in the feature colour. Appended at the end, additive, so as not to disturb the recipes above.
-   * Most personas reuse an existing surface outright (persona.ts's PERSONA_BODY_SURFACE: security->monitor,
-   * reviewer->leg, qa->wood, developer->jet, generalist->chair) rather than a new entry here; these five have no
-   * token close enough to reuse. Debugger's hazmat yellow is the working state's amber, same token, same emissive-free
-   * recipe pattern, still fully theme-aware; the rest are `fixed`, a shade the theme never touches, because nothing in
-   * the existing palette reads as olive drab, burgundy, a pale smock or navy without a theme token dedicated to it.
+   * Most personas reuse an existing surface outright (persona.ts's PERSONA_BODY: qa->wood, developer->jet,
+   * generalist->chair) rather than a new entry here; these seven have no token close enough to reuse — or, for
+   * security/reviewer, the nearest token (`monitor`/`leg`) is one that is *designed* to crash to near-black at
+   * night (a monitor bezel, a robot leg joint), which made both outfits unreadable against the night floor
+   * (fix-round-2, OQ-3's day/night bar). Debugger's hazmat yellow is the working state's amber, same token, same
+   * emissive-free recipe pattern, still fully theme-aware; the rest are `fixed`, a shade the theme never touches,
+   * because nothing in the existing palette reads as a secret agent's black suit, olive drab, a judge's black robe,
+   * burgundy, a pale smock or navy without a theme token dedicated to it, or without one that stays visible at night.
    */
   outfitDebugger: { color: 's-working', roughness: 0.55 },
   outfitTechlead: { fixed: '#5c5f3a', roughness: 0.55 },
+  /** Secret-agent black suit: a fixed charcoal, not the near-black `monitor` token (#0E1015 at night — unreadable). */
+  outfitSecurity: { fixed: '#3A3E4C', roughness: 0.55 },
   outfitLibrarian: { fixed: '#6b2737', roughness: 0.55 },
   outfitDesigner: { fixed: '#e8e4d8', roughness: 0.55 },
   outfitExplorer: { fixed: '#9c8f5e', roughness: 0.55 },
   outfitPlanner: { fixed: '#1f3350', roughness: 0.55 },
+  /** Judge's black robe: a fixed near-black, not the `leg` token (#15181F at night — just as unreadable). */
+  outfitReviewer: { fixed: '#3A3240', roughness: 0.55 },
   /** The boss's mug and watch (user-decisions.md OQ-1): the working state's amber again, shinier, as gold. */
   bossGold: { color: 's-working', roughness: 0.3 },
   /**
