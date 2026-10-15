@@ -144,31 +144,54 @@ export function elevatorSpot(core: GridRect): Spot {
 }
 
 /**
- * The break area (props.ts draws it): a bar cart near its west edge, a coffee machine midway between them, and a
+ * The break area (props.ts draws it): a little bar near its west edge, a coffee machine midway between them, and a
  * biliardino table near its east edge, each with its own stand spot(s), far enough apart that walking between any two
  * never crosses a third's spots.
  */
-export const BAR_CART = { w: 1.0, d: 0.5 } as const;
-/** How far the cart's centre stands from the break area's west edge. */
+/**
+ * The bar's own footprint, blocked in the walk grid like any furniture (walk.ts): wide and deep enough to hold its
+ * back-bar shelf and its counter together, front to back. Grown well past the old bar cart's 1.0 x 0.5 so that a
+ * proper counter and a shelf of bottles both fit, and still clear of the coffee machine to its east.
+ */
+export const BAR_CART = { w: 2.2, d: 0.9 } as const;
+/** How far the bar's centre stands from the break area's west edge. */
 export const BAR_CART_X = 2;
-/** The radius of the ring of stand spots round the cart. */
-export const BAR_CART_R = 0.9;
+/** The back-bar shelf's own footprint, racked against the rear of BAR_CART, away from the customer side. */
+export const BAR_SHELF = { w: 1.9, d: 0.22 } as const;
+/** How far north of the bar's centre the shelf stands: flush with BAR_CART's own rear edge. */
+export const BAR_SHELF_OUT = BAR_CART.d / 2 - BAR_SHELF.d / 2;
+/**
+ * The back-bar rack's own height, posts and all: tall enough that even its top shelf's own bottles stand clear
+ * below `post`, with `cap` (a header plank, props.ts) sat on the posts to close the rack off at the top, so that no
+ * bottle ever pokes out above it like a flagpole.
+ */
+export const BAR_RACK_H = { post: 2.0, cap: 0.05 } as const;
+/** The counter's own footprint (its solid front panel): toward the front of BAR_CART, the customer side. Its top
+ * overhangs this a little on every side (props.ts), the lip of a bancone. */
+export const BAR_COUNTER = { w: 1.9, d: 0.5 } as const;
+/** How far south of the bar's centre the counter stands: flush with BAR_CART's own front edge. */
+export const BAR_COUNTER_OUT = BAR_CART.d / 2 - BAR_COUNTER.d / 2;
+/** How far south of the bar's centre its two stools stand, and how far apart: just past the counter, still inside
+ * BAR_CART's own walk clearance, so a robot's path is never drawn through one. */
+export const BAR_STOOL_OUT = BAR_CART.d / 2 + 0.15;
+export const BAR_STOOL_DX = 0.5;
+/** How far south of the bar's centre its four "standing with a glass" spots stand, clear of the stools, and how they
+ * space across the counter's own width. */
+export const BAR_SPOT_OUT = 1.0;
+export const BAR_SPOT_DX = [-0.75, -0.25, 0.25, 0.75] as const;
 
-/** Where the bar cart stands, centred in the break area's depth. */
+/** Where the bar stands, centred in the break area's depth. */
 export function barCartCenter(rect: GridRect): Point {
   return { x: rect.x + BAR_CART_X, z: rect.y + rect.h / 2 };
 }
 
-/** The 4 "standing with a glass" spots in a ring round the cart, each facing it: north, east, south, west. */
+/**
+ * The 4 "standing with a glass" spots along the counter's front, the customer side, evenly spaced across it and each
+ * facing north, toward the bar (unlike the old cart, which stood free and so had a ring of spots all round it).
+ */
 export function barCartSpots(rect: GridRect): Spot[] {
   const c = barCartCenter(rect);
-  const r = BAR_CART_R;
-  return [
-    { x: c.x, z: c.z - r, facing: 0 },
-    { x: c.x + r, z: c.z, facing: -Math.PI / 2 },
-    { x: c.x, z: c.z + r, facing: Math.PI },
-    { x: c.x - r, z: c.z, facing: Math.PI / 2 },
-  ];
+  return BAR_SPOT_DX.map((dx) => ({ x: c.x + dx, z: c.z + BAR_SPOT_OUT, facing: Math.PI }));
 }
 
 /** The biliardino table: wider east-west than deep, a row of little players along its long north and south sides. */

@@ -253,11 +253,16 @@ describe('the shell', () => {
       ...[n, 4 * n, n, n, n, n, n, n, n, n + 9 * r, n],
       // The lounge: the couches' seats, backs and arms, the coffee table's top, legs and cup, and the two beanbags.
       ...[2, 2, 4, 1, 2, 1, 1, 1],
-      // The break area: the cart's counter, its legs, its bottles and its glasses, and the coffee machine's body, its
-      // tray and its cup; the biliardino table's cabinet, legs and cross-bars, its field, lines, circle and ball, its
-      // rim's long walls and short segments and its two goal mouths, its 8 rods and their handles, and its players'
-      // bodies and heads, in each team's colour.
-      ...[1, 4, 3, 2, 1, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
+      // The break area. The bar's back-bar: its solid back panel, its two posts, its two shelf planks, its header
+      // (closing the rack's top) and its mirror strip, then its gin and its amber bottles (shelf and counter), its
+      // two frame-coloured and its one monitor-dark shelf-only bottles, and its one leg-coloured bottle. The
+      // counter: its panel and its overhanging top, its lime bowl and its rim, its four limes, and its two glasses'
+      // feet, bellies and rims. A stool's seat and its leg.
+      ...[1, 2, 2, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 4, 2, 2, 2, 2, 2],
+      // The coffee machine's body, its tray and its cup; the biliardino table's cabinet, legs and cross-bars, its
+      // field, lines, circle and ball, its rim's long walls and short segments and its two goal mouths, its 8 rods
+      // and their handles, and its players' bodies and heads, in each team's colour.
+      ...[1, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
       // The rooms: each table, its two pedestals, and its nine seats.
       ...[r, 2 * r, 9 * r],
     ]);
@@ -302,20 +307,23 @@ describe('the shell', () => {
     const rect = floor.breakArea;
     const inArea = (b: Box3) => b.min.x > rect.x && b.max.x < rect.x + rect.w && b.min.z > rect.y && b.max.z < rect.y + rect.h;
     const of = (m: Material) => drawn(shell.group, m).filter(inArea);
-    // The cart's counter and its 3 bottles and 2 glasses, apart from the desks (s.leg) and rooms (s.desk) elsewhere on the floor.
-    expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length]).toEqual([1, 3, 2]);
-    // The coffee machine's body and its cup; the cup shares s.paper with the table's own centre line, two box lines,
-    // circle and ball, apart from each other only by which one of the two stands nearer.
+    // The back-bar's own wood (its back panel, two posts, two shelf planks and header) and the counter's panel and
+    // its overhanging top, all s.cart; its two amber bottles; its two balloon glasses' feet, bellies and rims, all
+    // s.glass; and its mirror strip, s.mirror.
+    expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length, of(s.mirror).length]).toEqual([8, 2, 6, 1]);
+    // The coffee machine's body (apart from the elevator doors, which lie outside the break area) and its cup, apart
+    // from the lounge's own coffee-table cup, which also shares s.paper but lies outside the break area.
     const machine = of(s.elevator);
     const paper = of(s.paper);
     expect(machine.length).toBe(1);
     const table = foosballCenter(rect);
     const nearTable = paper.filter((b) => Math.abs(b.getCenter(new Vector3()).x - table.x) < FOOSBALL.w / 2);
     expect([nearTable.length, paper.length - nearTable.length]).toEqual([5, 1]);
-    // Its 8 rods, apart from the window and partition frames elsewhere on the floor, and its two goal mouths, apart
-    // from the desks' and the elevator's own monitors.
-    expect(of(s.frame).length).toBe(8);
-    expect(of(s.monitor).length).toBe(2);
+    // Its 8 rods and the bar's two frame-coloured bottles, apart from the window and partition frames elsewhere on
+    // the floor; its two goal mouths and the bar's one monitor-dark bottle, apart from the desks' and the elevator's
+    // own monitors.
+    expect(of(s.frame).length).toBe(10);
+    expect(of(s.monitor).length).toBe(3);
     // Its two teams of 11 players each (a body and a head apiece), in colours found nowhere else on the floor.
     expect([of(s.foosballA).length, of(s.foosballB).length]).toEqual([22, 22]);
     // Every stand spot of the cart, the coffee machine and the table lies inside the break area, clear of its own

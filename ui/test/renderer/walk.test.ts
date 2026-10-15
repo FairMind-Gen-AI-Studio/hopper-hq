@@ -265,15 +265,17 @@ describe('walkGrid', () => {
     }
   });
 
-  it("blocks only the bar cart's, the coffee machine's and the biliardino table's own footprint in the break area, leaving every stand spot free", () => {
+  it("blocks only the bar's, the coffee machine's and the biliardino table's own footprint in the break area, leaving every stand spot free", () => {
     const floor = fullFloor(1, 1);
     const grid = walkGrid(floor);
     const rect = floor.breakArea;
+    // The bar's own footprint (BAR_CART) touches the coffee machine's in this coarse a grid (their 0.2 m clearances
+    // leave only 0.2 m between the two rects, less than one cell), but neither's footprint grows into the other's.
     expect(picture(grid, rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)).toEqual([
       '................',
       '................',
-      '...##..##..####.',
-      '...##..##..####.',
+      '.########..####.',
+      '.########..####.',
       '................',
       '................',
     ]);
@@ -292,15 +294,15 @@ describe('walkGrid', () => {
     }
   });
 
-  it('blocks nothing else, at every plan size: the walls, 12 cells a desk, 105 a room, 44 in the lounge, 8 in the core and 16 in the break area', () => {
+  it('blocks nothing else, at every plan size: the walls, 12 cells a desk, 105 a room, 44 in the lounge, 8 in the core and 24 in the break area', () => {
     for (const { blocks, roomCols } of SIZES) {
       const grid = walkGrid(fullFloor(blocks, roomCols));
       const walls = 2 * (grid.cols + grid.rows) - 4;
       // A desk: its top and monitor (8) and its chair (4). A room: its glass, the ring of 16 x 12 cells but the 2 of its
       // door (50), its table (30), its north seats (8), its south seats (16) and its head seat (1, the other cell it
       // touches being the table's). The lounge: each couch (12), the coffee table (8) and each beanbag (6). The break
-      // area: the cart (4), the coffee machine (4) and the table (8).
-      const expected = walls + 12 * BLOCK_DESKS * blocks + 105 * ROOMS_PER_COL * roomCols + 44 + 8 + 16;
+      // area: the bar (12, grown from the old cart's 4 along with BAR_CART), the coffee machine (4) and the table (8).
+      const expected = walls + 12 * BLOCK_DESKS * blocks + 105 * ROOMS_PER_COL * roomCols + 44 + 8 + 24;
       expect(grid.blocked.reduce((n, b) => n + b, 0), `${blocks}x${roomCols}`).toBe(expected);
     }
   });

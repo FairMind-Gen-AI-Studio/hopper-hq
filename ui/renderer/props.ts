@@ -29,7 +29,13 @@ import { Furniture, frameAt, type Piece, type PieceOptions } from './furniture';
 import type { Target } from './index';
 import { DESK_OFF, type Materials } from './materials';
 import {
-  BAR_CART,
+  BAR_COUNTER,
+  BAR_COUNTER_OUT,
+  BAR_RACK_H,
+  BAR_SHELF,
+  BAR_SHELF_OUT,
+  BAR_STOOL_DX,
+  BAR_STOOL_OUT,
   BEANBAG_R,
   BEANBAG_SCALE,
   BEANBAG_X,
@@ -351,12 +357,20 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
 }
 
 /**
- * The break area (world.ts places its stand spots): a rug, a bar cart near its west edge with a few bottles and
- * glasses, a coffee machine midway between the cart and the table with a cup under its spout, and a biliardino
- * table near its east edge: a box cabinet, a green field marked in white inside a low rim, 8 rods of little
- * players through the rim's long sides and a ball at the centre spot (buildFoosball). Only the cart's counter,
- * its bottles and glasses, the coffee machine's body and its cup, and the table's cabinet, cast a shadow: the
- * legs, its tray, the table's rim, rods and players are too thin to be worth it.
+ * The break area (world.ts places its stand spots): a rug, a little bar near its west edge — a counter with a solid
+ * front panel and an overhanging top, a warm wooden back-bar racked with bottles behind it, a bowl of limes and a
+ * couple of glasses on the counter, and a stool either side of it, on the customer's side — a coffee machine midway
+ * between the bar and the table with a cup under its spout, and a biliardino table near its east edge: a box cabinet, a green
+ * field marked in white inside a low rim, 8 rods of little players through the rim's long sides and a ball at the
+ * centre spot (buildFoosball).
+ *
+ * The back-bar is a proper bancone fixture, not a lab rack: its two posts and two shelf planks stand in the counter's
+ * own wood tone (not the shelf's old frame grey), backed by a solid wood panel and closed at the top by a header
+ * plank (BAR_RACK_H.cap) so that no bottle, however tall, ever pokes out above the posts — and fronted, between the
+ * two shelf planks, by a glass mirror strip. The bar's panel and top, its shelf planks and header, its bottles, its
+ * lime bowl and its glasses' own bowls, and a stool's seat all cast a shadow; its shelf posts, its back panel and
+ * mirror, its glasses' own feet and a stool's leg are too thin to be worth it, like the coffee machine's tray and the
+ * table's legs, rim, rods and players; the table's cabinet casts one.
  */
 function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
   const s = mats.surface;
@@ -367,14 +381,64 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
   const c = rectCenter(rect);
   part(group, geo.plane(rect.w - 0.4, rect.h - 0.4), s.rug, c.x, 0.004, c.z, { rx: -Math.PI / 2, cast: false });
 
-  // The bar cart: a counter on four thin legs, a few bottles and a couple of glasses on top.
+  // The bar. Its counter stands toward the customer side (south), its back-bar shelf behind it (north): the two read
+  // apart, counter in front, bottles racked behind, the way a real bancone does.
   const cart = barCartCenter(rect);
-  add(geo.rbox(BAR_CART.w, 0.08, BAR_CART.d, 0.02), s.cart, cart.x, 0.9, cart.z);
-  for (const lx of [-1, 1]) {
-    for (const lz of [-1, 1]) add(geo.rod(0.03, 0.03, 0.86, 8), s.leg, cart.x + lx * (BAR_CART.w / 2 - 0.06), 0.43, cart.z + lz * (BAR_CART.d / 2 - 0.06), { cast: false });
+  const shelfZ = cart.z - BAR_SHELF_OUT;
+  const counterZ = cart.z + BAR_COUNTER_OUT;
+
+  // The back-bar: two uprights and two shelf planks, in the counter's own wood tone (not the old frame grey), backed
+  // by a solid wood panel and closed off at the top by a header plank — a proper bancone, not a cold lab rack. The
+  // posts stand tall enough (BAR_RACK_H.post) that even the top shelf's own tallest bottle clears the header with
+  // room to spare, so nothing pokes out above the rack like a flagpole; a glass mirror strip fills the gap between
+  // the two shelf planks. Its bottles stand a few shapes, heights and colours to a shelf — one, tall and green,
+  // unmistakably gin.
+  const rackTop = BAR_RACK_H.post + BAR_RACK_H.cap;
+  add(geo.rbox(BAR_SHELF.w + 0.1, rackTop, 0.04, 0.01), s.cart, cart.x, rackTop / 2, shelfZ - BAR_SHELF.d / 2 - 0.02, { cast: false }); // the solid back panel.
+  for (const side of [-1, 1]) add(geo.box(0.05, BAR_RACK_H.post, 0.05), s.cart, cart.x + side * (BAR_SHELF.w / 2 - 0.05), BAR_RACK_H.post / 2, shelfZ, { cast: false });
+  for (const y of [1.15, 1.55]) add(geo.rbox(BAR_SHELF.w, 0.045, BAR_SHELF.d, 0.015), s.cart, cart.x, y, shelfZ);
+  add(geo.rbox(BAR_SHELF.w, BAR_RACK_H.cap, BAR_SHELF.d, 0.015), s.cart, cart.x, BAR_RACK_H.post + BAR_RACK_H.cap / 2, shelfZ); // the header, closing the rack's top.
+  add(geo.plane(BAR_SHELF.w - 0.1, 0.355), s.mirror, cart.x, 1.35, shelfZ - BAR_SHELF.d / 2 + 0.005, { cast: false }); // the mirror strip, between the two shelf planks.
+  const tall = geo.rod(0.032, 0.038, 0.34, 10);
+  const medium = geo.rod(0.044, 0.05, 0.24, 10);
+  const short = geo.rod(0.05, 0.055, 0.17, 10);
+  const shelfDz = shelfZ - 0.02;
+  add(tall, s.plant, cart.x - 0.7, 1.34, shelfDz); // the gin: the shelf's only green bottle.
+  add(tall, s.bottle, cart.x - 0.3, 1.34, shelfDz);
+  add(medium, s.frame, cart.x + 0.1, 1.29, shelfDz);
+  add(medium, s.frame, cart.x + 0.4, 1.29, shelfDz);
+  add(short, s.monitor, cart.x + 0.7, 1.255, shelfDz);
+  add(medium, s.leg, cart.x - 0.3, 1.6925, shelfDz);
+  add(tall, s.bottle, cart.x + 0.2, 1.7425, shelfDz);
+
+  // The counter: a solid front panel, and a top that overhangs it a little on every side, a bancone's lip. A gin
+  // bottle (the shelf's own green, reused) and a bowl of limes stand on one half, a couple of glasses on the other.
+  const counterTop = 0.85; // the top panel's own top surface (0.815 + 0.07 / 2), where everything on the counter stands.
+  add(geo.rbox(BAR_COUNTER.w, 0.78, BAR_COUNTER.d, 0.03), s.cart, cart.x, 0.39, counterZ);
+  add(geo.rbox(BAR_COUNTER.w + 0.14, 0.07, BAR_COUNTER.d + 0.12, 0.02), s.cart, cart.x, 0.815, counterZ);
+  add(tall, s.plant, cart.x - 0.6, 1.02, counterZ - 0.05);
+  // The lime bowl: a light ceramic dome with a rim, not the old grey puck, with a few bright green limes piled in it.
+  add(geo.ball(0.1), s.bowl, cart.x - 0.2, counterTop + 0.042, counterZ, { scale: [1, 0.42, 1] });
+  add(geo.ring(0.075, 0.1), s.bowl, cart.x - 0.2, counterTop + 0.084, counterZ, { rx: -Math.PI / 2, cast: false });
+  for (const [dx, dz] of [[-0.05, -0.03], [0.03, -0.02], [-0.02, 0.04], [0.05, 0.02]] as const) {
+    add(geo.ball(0.038), s.plant, cart.x - 0.2 + dx, counterTop + 0.1, counterZ + dz, { cast: false });
   }
-  for (const dx of [-0.2, 0, 0.2]) add(geo.rod(0.03, 0.045, 0.26, 10), s.bottle, cart.x + dx, 1.07, cart.z - 0.1);
-  for (const dx of [-0.15, 0.15]) add(geo.ball(0.05), s.glass, cart.x + dx, 0.99, cart.z + 0.1);
+  // The two glasses: a foot tapering into a stem, under a bowl that swells to a belly and pinches back to a rim —
+  // a balloon glass, the gin tonic's own style (robot.ts), standing empty on the counter.
+  const glassBase = geo.rod(0.013, 0.035, 0.045, 10);
+  const glassBelly = geo.rod(0.07, 0.013, 0.05, 10);
+  const glassRim = geo.rod(0.04, 0.07, 0.045, 10);
+  for (const dx of [0.3, 0.5]) {
+    add(glassBase, s.glass, cart.x + dx, counterTop + 0.0225, counterZ + 0.05, { cast: false });
+    add(glassBelly, s.glass, cart.x + dx, counterTop + 0.07, counterZ + 0.05);
+    add(glassRim, s.glass, cart.x + dx, counterTop + 0.1175, counterZ + 0.05);
+  }
+
+  // A stool either side of the counter, on the customer's own side: a round seat on a single thin leg.
+  for (const dx of [-BAR_STOOL_DX, BAR_STOOL_DX]) {
+    add(geo.rod(0.17, 0.17, 0.05, 12), s.key, cart.x + dx, 0.47, cart.z + BAR_STOOL_OUT);
+    add(geo.rod(0.035, 0.035, 0.44, 8), s.leg, cart.x + dx, 0.22, cart.z + BAR_STOOL_OUT, { cast: false });
+  }
 
   // The coffee machine: a floor-standing body, a thin tray sticking out at its front, and a cup under its spout.
   const coffee = coffeeMachineCenter(rect);
