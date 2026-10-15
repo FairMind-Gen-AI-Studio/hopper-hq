@@ -4,6 +4,7 @@ import type { Pose, Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import {
+  BILIARDINO_REACH,
   BOT,
   FOOSBALL_HOVER_Y,
   HEAD_DOWN,
@@ -29,7 +30,7 @@ import {
   type RobotObject,
 } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { DESK_CHAIR, SEAT_Y, deskAnchor, labelAnchor, placeSpot, seatSpot, standSpot } from '../../renderer/world';
+import { DESK_CHAIR, FOOSBALL_REACH, FOOSBALL_ROD_Y, SEAT_Y, deskAnchor, foosballSpots, labelAnchor, placeSpot, seatSpot, standSpot } from '../../renderer/world';
 import { checkoutFloor, seatsOf } from './fixtures';
 
 function kit() {
@@ -129,6 +130,35 @@ describe('robots', () => {
     poseRobot(obj, { pose: 'gintonic', badge: null }, spot);
     strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
     expect([obj.rig.glass.visible, obj.rig.lime.visible, obj.rig.cup.visible]).toEqual([false, false, false]);
+  });
+
+  it('puts every kind\'s hand on the biliardino handle, by forward kinematics against FOOSBALL_ROD_Y and FOOSBALL_REACH, not eyeballed', () => {
+    const { geo, mats } = kit();
+    const rect = { x: 0, y: 0, w: 20, h: 20 };
+    const spot = foosballSpots(rect)[0]!;
+    const look: Pick<Robot, 'pose' | 'badge'> = { pose: 'biliardino', badge: null };
+    // The near handle itself: FOOSBALL_ROD_Y high, FOOSBALL_REACH past the stand spot in z (world.ts) — the exact
+    // same geometry props.ts draws the handle nub at. A tolerance of a centimetre: well inside the hand's own
+    // ~5 cm radius, so "on the handle" means actually touching it, not merely close by.
+    const TOL = 0.01;
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = buildRobot('s1', { ...look, body: 0, tie: null }, geo, mats, kind);
+      poseRobot(obj, look, spot);
+      obj.group.updateMatrixWorld(true);
+      // The hand is the ball joint at the forearm's own end, local (0, -BOT.arm, 0) in the arm pivot's frame —
+      // the same offset buildRobot places it at — carried to world space through the arm's actual posed matrix.
+      const handR = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armR.matrixWorld);
+      const handL = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armL.matrixWorld);
+      for (const [side, hand] of [['R', handR], ['L', handL]] as const) {
+        expect(Math.abs(hand.y - FOOSBALL_ROD_Y), `${kind} ${side} y`).toBeLessThan(TOL);
+        expect(Math.abs(hand.z - (spot.z + FOOSBALL_REACH)), `${kind} ${side} z`).toBeLessThan(TOL);
+      }
+      // BILIARDINO_REACH is positive and kind-specific: a shorter kind leans in further than a taller one, never
+      // less, to close the gap its own shorter reach leaves.
+      expect(BILIARDINO_REACH[kind], kind).toBeGreaterThan(0);
+    }
+    expect(BILIARDINO_REACH.intern).toBeGreaterThan(BILIARDINO_REACH.workflow);
+    expect(BILIARDINO_REACH.workflow).toBeGreaterThan(BILIARDINO_REACH.session);
   });
 
   it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {

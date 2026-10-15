@@ -44,6 +44,8 @@ import {
   DESK_CHAIR,
   DESK_TOP,
   FOOSBALL,
+  FOOSBALL_HANDLE_IN,
+  FOOSBALL_ROD_OUT,
   FOOSBALL_ROD_Y,
   PARTITION_H,
   PARTITION_T,
@@ -397,8 +399,6 @@ const FOOSBALL_RIM_H = 0.11;
 const FOOSBALL_RIM_T = 0.035;
 /** The gap left open in the rim at each short end: the goal. */
 const FOOSBALL_GOAL_W = 0.3;
-/** How far a rod (and so its handle, the same straight rod) pokes past the rim on either side. */
-const FOOSBALL_ROD_OUT = 0.12;
 
 /** `n` player spots evenly spread across a rod, inside the rim's inner edge; one sits at the rod's own centre. */
 function foosballPlayerSpots(n: number): number[] {
@@ -455,7 +455,7 @@ function buildFoosball(c: Point, add: (geometry: BufferGeometry, material: Mater
   FOOSBALL_FORMATION.forEach((n, i) => {
     const x = c.x + (i + 0.5 - FOOSBALL_FORMATION.length / 2) * (span / FOOSBALL_FORMATION.length);
     add(geo.rod(0.014, 0.014, rodLen, 8), s.frame, x, FOOSBALL_ROD_Y, c.z, { rx: Math.PI / 2, cast: false });
-    for (const lz of [-1, 1]) add(geo.rod(0.024, 0.024, 0.09, 8), s.leg, x, FOOSBALL_ROD_Y, c.z + lz * (d / 2 + FOOSBALL_ROD_OUT - 0.045), { rx: Math.PI / 2, cast: false });
+    for (const lz of [-1, 1]) add(geo.rod(0.024, 0.024, 0.09, 8), s.leg, x, FOOSBALL_ROD_Y, c.z + lz * (d / 2 + FOOSBALL_ROD_OUT - FOOSBALL_HANDLE_IN), { rx: Math.PI / 2, cast: false });
     const team = i < FOOSBALL_FORMATION.length / 2 ? s.foosballA : s.foosballB;
     for (const pz of foosballPlayerSpots(n)) {
       add(geo.box(0.05, 0.05, 0.022), team, x, FOOSBALL_ROD_Y - 0.03, c.z + pz, thin);
