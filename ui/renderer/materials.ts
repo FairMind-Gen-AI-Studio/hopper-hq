@@ -68,6 +68,19 @@ const SURFACES = {
   cigarTip: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
   /** The smoke puffs: thick, off-white, smoke signals. Shared by every robot (robot.ts fades it by scale, not opacity). */
   smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.6 },
+  /**
+   * The gin tonic glass's own shell: the window glass token, shinier, and held more opaque than the partition it
+   * shares the token with (`glass`) — at this size, as see-through as a real balloon glass would wash its own
+   * swell-then-pinch silhouette out, the one shape cue that tells it apart from a tumbler or a martini glass.
+   */
+  gtGlass: { color: 'scene-glass', mix: ['scene-paper', 0.15], roughness: 0.1, opacity: 0.5 },
+  /**
+   * The tonic itself: the same pale blue as the glass around it, mixed toward the window's glow for a fizzier tint,
+   * and more opaque still — it has to read as the drink, not as more of the glass.
+   */
+  tonic: { color: 'scene-glass', mix: ['window-glow', 0.25], roughness: 0.2, opacity: 0.82 },
+  /** The lime wheel's pale flesh, next to its green rind (`plant`): the plant token, lightened. */
+  limeFlesh: { color: 'scene-plant', mix: ['scene-paper', 0.55], roughness: 0.55 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;

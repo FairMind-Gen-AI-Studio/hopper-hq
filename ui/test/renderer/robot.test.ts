@@ -109,25 +109,46 @@ describe('robots', () => {
     expect([POSES.gintonic.legs, POSES.biliardino.legs, POSES.coffee.legs]).toEqual([0, 0, 0]);
   });
 
-  it('holds a glass and a lime over a gin tonic, a cup over a coffee, and nothing over a biliardino, never casting their shadow', () => {
+  it('holds its gin tonic over a gin tonic, a cup over a coffee, and nothing over a biliardino, never casting their shadow', () => {
     const { geo, mats } = kit();
     const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null }, geo, mats);
     const spot = { x: 0, z: 0, facing: 0 };
-    const cases: Array<[pose: Pose, glass: boolean, lime: boolean, cup: boolean]> = [
-      ['gintonic', true, true, false],
-      ['coffee', false, false, true],
-      ['biliardino', false, false, false],
-      ['still', false, false, false],
+    const cases: Array<[pose: Pose, drink: boolean, cup: boolean]> = [
+      ['gintonic', true, false],
+      ['coffee', false, true],
+      ['biliardino', false, false],
+      ['still', false, false],
     ];
-    for (const [pose, glass, lime, cup] of cases) {
+    for (const [pose, drink, cup] of cases) {
       poseRobot(obj, { pose, badge: null }, spot);
-      expect([obj.rig.glass.visible, obj.rig.lime.visible, obj.rig.cup.visible], pose).toEqual([glass, lime, cup]);
+      expect([obj.rig.drink.visible, obj.rig.cup.visible], pose).toEqual([drink, cup]);
     }
-    for (const m of [obj.rig.glass, obj.rig.lime, obj.rig.cup]) expect(m.castShadow).toBe(false);
+    expect(obj.rig.cup.castShadow).toBe(false);
+    obj.rig.drink.traverse((o) => expect((o as Mesh).castShadow ?? false).toBe(false));
     // On its way it holds nothing, whatever its pose.
     poseRobot(obj, { pose: 'gintonic', badge: null }, spot);
     strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
-    expect([obj.rig.glass.visible, obj.rig.lime.visible, obj.rig.cup.visible]).toEqual([false, false, false]);
+    expect([obj.rig.drink.visible, obj.rig.cup.visible]).toEqual([false, false]);
+  });
+
+  it('builds the gin tonic as a balloon glass, its tonic, its ice, its lime wheel and its straw, each only in the drink', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'gintonic', badge: null, body: 0, tie: null }, geo, mats);
+    poseRobot(obj, { pose: 'gintonic', badge: null }, { x: 0, z: 0, facing: 0 });
+    const parts = obj.rig.drink.children as Mesh[];
+    // Six shell frustums (the foot, the stem, and the bowl's own four, swelling to the belly and pinching to the
+    // rim), the tonic, two ice cubes, two lime discs and a straw.
+    expect(parts).toHaveLength(12);
+    expect(parts.every((m) => m.isMesh)).toBe(true);
+    expect(parts.filter((m) => m.material === mats.surface.gtGlass)).toHaveLength(6);
+    expect(parts.filter((m) => m.material === mats.surface.tonic)).toHaveLength(1);
+    expect(parts.filter((m) => m.material === mats.surface.paper)).toHaveLength(2);
+    expect(parts.filter((m) => m.material === mats.surface.plant)).toHaveLength(2);
+    expect(parts.filter((m) => m.material === mats.surface.limeFlesh)).toHaveLength(1);
+    // The whole drink is a child of the hand that holds the paper (armR), so it rotates with a raised arm.
+    expect(obj.rig.drink.parent).toBe(obj.rig.armR);
+    // Not one of the drink's own parts is in `pickables` under a different pick: it is picked as the robot is.
+    for (const m of parts) expect(obj.pickables).toContain(m);
   });
 
   it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {

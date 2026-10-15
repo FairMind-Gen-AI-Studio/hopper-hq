@@ -724,12 +724,12 @@ describe('leisure', () => {
     return makeFloor(checkouts);
   };
 
-  it('flies a gintonic intern to a bar cart spot, holding its glass and lime, in its pose', () => {
+  it('flies a gintonic intern to a bar cart spot, holding its drink, in its pose', () => {
     const floor = withLeisure([leisureIntern('g1', 'gintonic')]);
     const fs = sceneOf(floor);
     const bot = fs.sessions.get('sw-a1')!.interns.get('g1')!;
     expect(at(bot)).toEqual(spot(barCartSpots(floor.breakArea)[0]!));
-    expect([bot.kind, bot.rig.glass.visible, bot.rig.lime.visible, bot.rig.cup.visible]).toEqual(['intern', true, true, false]);
+    expect([bot.kind, bot.rig.drink.visible, bot.rig.cup.visible]).toEqual(['intern', true, false]);
   });
 
   it('flies a biliardino pair to the foosball table, facing each other across it, holding no prop', () => {
@@ -742,7 +742,7 @@ describe('leisure', () => {
     expect(spots[0]!.facing).not.toBe(spots[1]!.facing);
     for (const id of ['f1', 'f2']) {
       const bot = entry.interns.get(id)!;
-      expect([bot.rig.glass.visible, bot.rig.cup.visible]).toEqual([false, false]);
+      expect([bot.rig.drink.visible, bot.rig.cup.visible]).toEqual([false, false]);
     }
   });
 
@@ -751,7 +751,7 @@ describe('leisure', () => {
     const fs = sceneOf(floor);
     const bot = fs.sessions.get('sw-a1')!.interns.get('c1')!;
     expect(at(bot)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
-    expect([bot.rig.glass.visible, bot.rig.cup.visible]).toEqual([false, true]);
+    expect([bot.rig.drink.visible, bot.rig.cup.visible]).toEqual([false, true]);
   });
 
   it('walks a room agent that waits for its siblings out to the break area, and still lets it pick its room there', () => {
@@ -788,12 +788,12 @@ describe('leisure', () => {
     const fs = sceneOf(withLeisure([leisureIntern('g1', 'gintonic')]));
     const entry = fs.sessions.get('sw-a1')!;
     const bot = entry.interns.get('g1')!;
-    expect(bot.rig.glass.visible).toBe(true);
+    expect(bot.rig.drink.visible).toBe(true);
     fs.apply(withLeisure([{ ...leisureIntern('g1', 'gintonic'), running: true, leisure: null }]), 1000);
     expect(entry.interns.get('g1')).toBe(bot);
     fs.frame(60_000);
     expect(at(bot)).toEqual(spot(internSpots(entry.desk!)[0]!));
-    expect(bot.rig.glass.visible).toBe(false);
+    expect(bot.rig.drink.visible).toBe(false);
   });
 
   it('walks a room agent back from the coffee machine to the table once its leisure clears and it runs again', () => {

@@ -5,7 +5,7 @@
  * swinging its legs and arms.
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
-import { CylinderGeometry, Group, InstancedMesh, Object3D, SphereGeometry, type Mesh } from 'three';
+import { CylinderGeometry, Euler, Group, InstancedMesh, Object3D, Quaternion, SphereGeometry, type Mesh } from 'three';
 import type { Pose, Robot } from '../../src/scene/types';
 import type { Materials } from './materials';
 import { part, type Geometries, type PickData } from './props';
@@ -51,7 +51,7 @@ export const POSES: Record<Pose, PoseSpec> = {
   still: { armL: [-1.1, -0.1], armR: [-1.1, 0.1], legs: -1.45, neck: 0, lean: 0, paper: false },
   resting: { armL: [-0.3, -0.25], armR: [-0.3, 0.25], legs: -1.45, neck: -0.1, lean: -0.22, paper: false },
   /** At the bar cart (design §7.1, leisure): standing, relaxed, its glass raised in its right hand. */
-  gintonic: { armL: [-0.3, -0.25], armR: [-1, -0.15], legs: 0, neck: -0.1, lean: -0.15, paper: false },
+  gintonic: { armL: [-0.3, -0.25], armR: [-0.3, 0.55], legs: 0, neck: -0.1, lean: -0.15, paper: false },
   /** Leaning over the foosball table's handle, both forearms down and forward; the table's rods are T5's furniture. */
   biliardino: { armL: [-1.3, 0.12], armR: [-1.3, -0.12], legs: 0, neck: 0.15, lean: 0.3, paper: false },
   /** At the coffee machine: standing, its cup in its right hand. */
@@ -88,9 +88,8 @@ export interface RobotRig {
   cigar: Group;
   /** The smoke above the cigar's tip, a column of puffs (PUFF) that rise, grow and vanish (animateRobot) while the cigar shows; a still column otherwise. */
   puff: InstancedMesh;
-  /** Its gin tonic glass and the lime on its rim, in its right hand: shown only in the gintonic pose. */
-  glass: Mesh;
-  lime: Mesh;
+  /** Its gin tonic (buildDrink), in its right hand: shown only in the gintonic pose. */
+  drink: Group;
   /** Its coffee cup, in its right hand: shown only in the coffee pose. */
   cup: Mesh;
 }
@@ -137,6 +136,110 @@ function placePuffs(puff: InstancedMesh, base: number | null): void {
   puff.instanceMatrix.needsUpdate = true;
   puff.boundingBox = null;
   puff.boundingSphere = null;
+}
+
+/**
+ * The gin tonic's glass: a copa de balón, the Spanish balloon glass that tells a gin tonic from any other drink — a
+ * thin stem on a foot, under a bowl that swells out from the stem to a round belly, then pinches in again to a
+ * narrower rim. Oversized like the cigar (CIGAR): a real copa stands about half this tall, but at this size it would
+ * vanish at the orbit camera's floor-view distance. Every radius and height here is local to the stack's own
+ * foot-up frame (glassLevels, bowlRadiusAt); `hand` is where that frame sits in the arm that holds it (robot.ts's
+ * armR), a little above and forward of the fist (the hand's own ball joint, at -BOT.arm).
+ */
+export const GLASS = {
+  hand: { y: -BOT.arm + 0.08, z: 0.1 },
+  footR: 0.05,
+  footH: 0.014,
+  stemR: 0.016,
+  stemH: 0.07,
+  /** The bowl's total height, stem to rim. */
+  bowlH: 0.17,
+  /** The belly: the balloon's widest point, a little over halfway up the bowl. */
+  bellyR: 0.13,
+  /** The rim, narrower than the belly — the pinch that makes this a balloon glass, not a tumbler. */
+  rimR: 0.048,
+} as const;
+/** The bowl's own radius where it meets the stem: a little wider, for a smooth joint. */
+const BOWL_FOOT_R = GLASS.stemR * 1.3;
+/** How thick the glass's wall reads as: the tonic and its ice sit this much inside the shell around them. */
+const GLASS_WALL = 0.014;
+/** How high up the bowl the tonic's level sits, a fraction of `bowlH`: a generous pour, with the bowl's own pinch to
+ * the rim showing clear above it, empty, so the balloon's silhouette reads apart from the liquid inside it. */
+const TONIC_LEVEL = 0.48;
+/**
+ * The bowl's own silhouette, bottom (the stem joint) to the rim, as radius at each fraction of `bowlH`: a swell out
+ * to the belly a little past the middle, then a pinch back in to the rim — four frustums approximating the curve of
+ * a round balloon glass, rounder than the two straight cones either side of the belly alone would read as.
+ */
+const BOWL_PROFILE: ReadonlyArray<readonly [f: number, r: number]> = [
+  [0, BOWL_FOOT_R],
+  [0.3, GLASS.bellyR * 0.9],
+  [0.55, GLASS.bellyR],
+  [0.8, GLASS.bellyR * 0.68],
+  [1, GLASS.rimR],
+];
+
+/** The bowl's own radius at `f` (0 at the stem joint, 1 at the rim), between BOWL_PROFILE's points either side of it. */
+function bowlRadiusAt(f: number): number {
+  for (let i = 1; i < BOWL_PROFILE.length; i++) {
+    const [f0, r0] = BOWL_PROFILE[i - 1]!;
+    const [f1, r1] = BOWL_PROFILE[i]!;
+    if (f <= f1) return r0 + ((r1 - r0) * (f - f0)) / (f1 - f0);
+  }
+  return BOWL_PROFILE[BOWL_PROFILE.length - 1]![1];
+}
+
+/** The y, foot up from 0, of the top of the foot, the stem, and the bowl (its rim). */
+function glassLevels() {
+  const footTop = GLASS.footH;
+  const stemTop = footTop + GLASS.stemH;
+  const rimTop = stemTop + GLASS.bowlH;
+  return { footTop, stemTop, rimTop };
+}
+
+/**
+ * The gin tonic as it stands in the hand (GLASS, glassLevels, BOWL_PROFILE): the glass's shell, the tonic inside it
+ * tinted and short of the rim, two ice cubes breaking its surface, a lime wheel wedged on the rim, and a straw. One
+ * group, so that poseRobot shows or hides the whole drink together, the same as the cigar's body, tip and puff. It
+ * sits at GLASS.hand in the arm that holds it (armR), but counter-rotated against the pose's raised forearm
+ * (POSES.gintonic, the only pose that shows it, and never itself animated — see LOOPS.breathe) so the glass stands
+ * upright in the hand instead of tipping over to point wherever the arm does. None of its parts casts a shadow: at
+ * this size, each would cost a draw for a texel or two of it.
+ */
+function buildDrink(parent: Group, geo: Geometries, mats: Materials): Group {
+  const s = mats.surface;
+  const drink = new Group();
+  drink.name = 'drink';
+  drink.visible = false;
+  drink.position.set(0, GLASS.hand.y, GLASS.hand.z);
+  drink.quaternion.copy(new Quaternion().setFromEuler(new Euler(POSES.gintonic.armR[0], 0, POSES.gintonic.armR[1])).invert());
+  parent.add(drink);
+  const { footTop, stemTop, rimTop } = glassLevels();
+  /** A frustum of the stack, `yTop` up, in the glass's own material unless told otherwise. */
+  const stack = (rt: number, rb: number, h: number, yTop: number, material = s.gtGlass) => part(drink, geo.rod(rt, rb, h), material, 0, yTop - h / 2, 0, { cast: false });
+  // The foot and the stem, then the bowl's own swell to the belly and pinch back to the rim, BOWL_PROFILE's point by point.
+  stack(GLASS.footR, GLASS.footR, GLASS.footH, footTop);
+  stack(GLASS.stemR, GLASS.stemR, GLASS.stemH, stemTop);
+  for (let i = 1; i < BOWL_PROFILE.length; i++) {
+    const [f0, r0] = BOWL_PROFILE[i - 1]!;
+    const [f1, r1] = BOWL_PROFILE[i]!;
+    stack(r1, r0, (f1 - f0) * GLASS.bowlH, stemTop + f1 * GLASS.bowlH);
+  }
+  // The tonic: the bowl's own taper, a size inside its wall, up to its level.
+  const level = stemTop + GLASS.bowlH * TONIC_LEVEL;
+  const levelR = bowlRadiusAt(TONIC_LEVEL) - GLASS_WALL;
+  stack(levelR, BOWL_FOOT_R - GLASS_WALL, level - stemTop, level, s.tonic);
+  // Two ice cubes, breaking the tonic's surface, turned off-square so neither reads as a stray box.
+  for (const [dx, dz, ry] of [[-0.027, -0.013, 0.3], [0.024, 0.017, -0.4]] as const) {
+    part(drink, geo.rbox(0.028, 0.028, 0.028, 0.006), s.paper, dx, level - 0.016, dz, { ry, cast: false });
+  }
+  // The lime wheel, wedged on the rim, overhanging it: its green rind, and a lighter disc of flesh just inside.
+  const rimZ = GLASS.rimR * 0.85;
+  part(drink, geo.rod(GLASS.rimR * 0.95, GLASS.rimR * 0.95, 0.012, 16), s.plant, 0, rimTop, rimZ, { rx: Math.PI / 2, cast: false });
+  part(drink, geo.rod(GLASS.rimR * 0.7, GLASS.rimR * 0.7, 0.014, 16), s.limeFlesh, 0, rimTop, rimZ + 0.002, { rx: Math.PI / 2, cast: false });
+  // A straw, through the rim and down into the tonic, tipped a little away from the glass.
+  part(drink, geo.rod(0.009, 0.009, 0.26, 8), s.plant, 0.025, rimTop + 0.07, -0.02, { rx: 0.18, cast: false });
+  return drink;
 }
 
 /** Where a seated robot's laptop stands, in metres: on the table (its top, 0.78 high), this far ahead of the robot's seat. */
@@ -228,10 +331,9 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
   part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08, cast: false });
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
-  // Leisure props, in the hand that holds the paper: a small glass with a lime on its rim, or a coffee cup. Neither
-  // casts a shadow: at this size they would cost a draw each for a texel or two of it.
-  const glass = part(armR, geo.rod(0.035, 0.03, 0.09), s.glass, 0, -BOT.arm + 0.05, 0.05, small);
-  const lime = part(armR, geo.ball(0.02), s.plant, 0, -BOT.arm + 0.1, 0.05, small);
+  // Leisure props, in the hand that holds the paper: the gin tonic (buildDrink), or a coffee cup. The cup casts no
+  // shadow: at this size it would cost a draw for a texel or two of it; the drink's own parts are built the same way.
+  const drink = buildDrink(armR, geo, mats);
   const cup = part(armR, geo.rod(0.035, 0.03, 0.06), s.paper, 0, -BOT.arm + 0.04, 0.05, small);
 
   const laptop = buildLaptop(group, kind, geo, mats);
@@ -245,7 +347,7 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
       pickables.push(o as Mesh);
     }
   });
-  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff, glass, lime, cup }, body: robot.body, tie: robot.tie, pickables };
+  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff, drink, cup }, body: robot.body, tie: robot.tie, pickables };
 }
 
 /** Shows or hides a robot's cigar (and its tip and puff with it), in any pose, without rebuilding it. */
@@ -280,8 +382,7 @@ export function strideRobot(obj: RobotObject, at: { x: number; z: number; facing
   r.waist.rotation.x = 0;
   r.paper.visible = false;
   r.laptop.visible = false;
-  r.glass.visible = false;
-  r.lime.visible = false;
+  r.drink.visible = false;
   r.cup.visible = false;
 }
 
@@ -299,8 +400,7 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
   r.waist.rotation.x = spec.lean;
   r.paper.visible = spec.paper;
   r.laptop.visible = laptop && !isStanding(robot.pose);
-  r.glass.visible = robot.pose === 'gintonic';
-  r.lime.visible = robot.pose === 'gintonic';
+  r.drink.visible = robot.pose === 'gintonic';
   r.cup.visible = robot.pose === 'coffee';
 }
 
