@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Mesh } from 'three';
+import { Box3, type Mesh } from 'three';
 import { PERSONAS, type Persona } from '../../../src/scene/persona';
 import { Materials } from '../../renderer/materials';
 import { Geometries } from '../../renderer/props';
@@ -81,5 +81,32 @@ describe('persona accessories', () => {
     const obj = buildRobot('s1', { pose: 'typing', badge: null, body: 0, tie: null }, geo, mats);
     expect(obj.persona).toBe('none');
     expect([...obj.rig.persona.headgear, ...obj.rig.persona.held]).toHaveLength(0);
+  });
+
+  it('never lets a persona\'s headgear/held-prop meshes overlap the lit cigar, for every persona, while smoking', () => {
+    // The cigar's own group (robot.ts rig.cigar) also carries the rising smoke puff, whose instanced bounding box
+    // reaches well above the head — real, expected, and irrelevant to a mouth-level mesh collision — so this
+    // isolates the cigar's two solid meshes (its body and its lit tip, robot.ts CIGAR/CIGAR_TIP) by excluding the
+    // child named 'smoke' (robot.ts `puff.name = 'smoke'`) rather than boxing the whole group. Each accessory mesh
+    // is boxed and checked on its own, not as one box per group: a persona with two meshes that each individually
+    // clear the cigar on a different axis (e.g. one clears it in x, the other in y) would otherwise read as a false
+    // collision once their two boxes are merged into a single bounding box that spans both axes.
+    const { geo, mats } = kit();
+    for (const persona of PERSONAS) {
+      const obj = buildRobot('s1', { pose: 'typing', badge: null, body: 0, tie: null, persona, smoking: true }, geo, mats);
+      const cigarBox = new Box3();
+      for (const child of obj.rig.cigar.children) {
+        if (child.name !== 'smoke') cigarBox.expandByObject(child);
+      }
+      for (const [slot, group] of [
+        ['headgear', obj.rig.persona.headgearGroup],
+        ['held', obj.rig.persona.heldGroup],
+      ] as const) {
+        for (const mesh of group.children) {
+          const meshBox = new Box3().setFromObject(mesh);
+          expect(cigarBox.intersectsBox(meshBox), `${persona} ${slot}`).toBe(false);
+        }
+      }
+    }
   });
 });

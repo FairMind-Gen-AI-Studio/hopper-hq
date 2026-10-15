@@ -96,6 +96,15 @@ describe('materials', () => {
     expect(hex(glass.emissive)).toBe('#000000');
   });
 
+  it("gives the planner's blueprint roll the glass colour but opaque, unlike the see-through partitions", () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    expect(hex(m.surface.blueprint.color)).toBe(theme.colors['scene-glass']);
+    expect(m.surface.blueprint.transparent).toBe(false);
+    expect(m.surface.blueprint.opacity).toBe(1);
+    expect(m.surface.blueprint).not.toBe(m.surface.glass);
+  });
+
   it('gives each repo slot a body, darker joints and a rug, and each feature slot a tie', () => {
     const theme = dayTheme();
     const m = new Materials(theme);
@@ -187,9 +196,9 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    // The surfaces (incl. the 5 persona outfits and the boss's gold, appended at the end), a body, joint and rug per
-    // repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(42 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
+    // The surfaces (incl. the 6 persona outfits, the boss's gold and the planner's opaque blueprint roll, appended
+    // at the end), a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
+    expect(m.all().length).toBe(43 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

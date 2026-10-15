@@ -120,8 +120,10 @@ export function buildPersona(neck: Group, armL: Group, persona: Persona, geo: Ge
   switch (persona) {
     case 'security':
       // Wraparound sunglasses over the visor — a lighter, glossier bar than the near-black face plate behind it, or
-      // the two would blend into one dark smear — and a single metal earpiece at the side of the head.
-      head(geo.box(0.21, 0.052, 0.018), s.frame, 0, 0.21, 0.142);
+      // the two would blend into one dark smear — and a single metal earpiece at the side of the head. Shrunk to
+      // 0.04 tall (was 0.052) so its bottom edge (0.19) clears the cigar rod's top edge (0.187, robot.ts CIGAR) —
+      // the two would otherwise interpenetrate by a few millimetres whenever this persona is also smoking.
+      head(geo.box(0.21, 0.04, 0.018), s.frame, 0, 0.21, 0.142);
       head(geo.ball(0.022), s.frame, 0.2, 0.215, 0.07);
       break;
     case 'techlead':
@@ -144,15 +146,21 @@ export function buildPersona(neck: Group, armL: Group, persona: Persona, geo: Ge
       break;
     case 'debugger':
       // Gas-mask goggles over the visor — lighter than the near-black face plate behind them, or the two blend into
-      // one dark smear — and a round filter at the mouth; a thin spray wand in the left hand.
-      head(geo.box(0.22, 0.06, 0.02), s.frame, 0, 0.21, 0.14);
-      head(geo.rod(0.03, 0.03, 0.05, 12), s.leg, 0, 0.17, 0.15, { rx: Math.PI / 2 });
+      // one dark smear — and a filter canister on the cheek (a NATO-mask side filter, not a front-facing one: its
+      // straight-ahead mouth position used to sit right in the cigar's path, robot.ts CIGAR — so it moved to the
+      // side, whose x-range (0.084–0.136) clears the cigar's (-0.022–0.022) outright whenever this persona smokes);
+      // a thin spray wand in the left hand. The goggles are shrunk to 0.04 tall (was 0.06) so their bottom edge
+      // (0.19) also clears the cigar rod's top edge (0.187) — the same fix as security's/developer's own glasses.
+      head(geo.box(0.22, 0.04, 0.02), s.frame, 0, 0.21, 0.14);
+      head(geo.rod(0.026, 0.026, 0.05, 12), s.leg, 0.11, 0.19, 0.14, { rx: Math.PI / 2 });
       hand(geo.rod(0.013, 0.013, 0.18), s.frame, 0, HAND.y, HAND.z, { rx: Math.PI / 2.2 });
       break;
     case 'librarian':
-      // Small reading glasses low on the visor — lighter than the face plate behind them, for contrast — and an
-      // open book (two angled pages) in the left hand.
-      head(geo.box(0.17, 0.035, 0.012), s.frame, 0, 0.185, 0.14);
+      // Small reading glasses on the visor — lighter than the face plate behind them, for contrast — and an open
+      // book (two angled pages) in the left hand. At the visor's own height (0.21, like security's/developer's own
+      // glasses) rather than lower (0.185): lower put their bottom edge inside the cigar rod's span (robot.ts
+      // CIGAR, y 0.143–0.187) whenever this persona is also smoking; 0.21 clears it by a margin.
+      head(geo.box(0.17, 0.035, 0.012), s.frame, 0, 0.215, 0.14);
       hand(geo.box(0.1, 0.012, 0.13), s.paper, -0.04, HAND.y, HAND.z, { ry: -0.35, rx: 0.2 });
       hand(geo.box(0.1, 0.012, 0.13), s.paper, 0.04, HAND.y, HAND.z, { ry: 0.35, rx: 0.2 });
       break;
@@ -164,8 +172,9 @@ export function buildPersona(neck: Group, armL: Group, persona: Persona, geo: Ge
       break;
     case 'developer':
       // Thick glasses over the visor — lighter than the face plate behind them, for contrast — and a dark headphone
-      // cup either side of the head, against the light shell there.
-      head(geo.box(0.2, 0.048, 0.016), s.frame, 0, 0.21, 0.139);
+      // cup either side of the head, against the light shell there. Shrunk to 0.04 tall (was 0.048) so its bottom
+      // edge (0.19) clears the cigar rod's top edge (0.187, robot.ts CIGAR), the same fix as security's sunglasses.
+      head(geo.box(0.2, 0.04, 0.016), s.frame, 0, 0.21, 0.139);
       head(geo.ball(0.035), s.leg, 0.195, 0.21, 0.05);
       head(geo.ball(0.035), s.leg, -0.195, 0.21, 0.05);
       break;
@@ -178,9 +187,11 @@ export function buildPersona(neck: Group, armL: Group, persona: Persona, geo: Ge
       break;
     case 'planner':
       // A pencil behind the ear — bolder than a real one (design: avoid thin details under ~2cm, interns scale to
-      // 0.55) so it still reads at a distance — and a blueprint roll (a pale blue tube) under the left arm.
+      // 0.55) so it still reads at a distance — and a blueprint roll (a pale blue tube) under the left arm. `s.blueprint`
+      // is opaque (materials.ts) — `s.glass`, the gin-tonic glass's own 28%-opacity recipe, made the roll nearly
+      // invisible, the persona's only held-prop cue gone (QA + code review, both independently).
       head(geo.rod(0.013, 0.013, 0.15), s.frame, 0.2, 0.24, 0.04, { rx: Math.PI / 2.3, ry: 0.3 });
-      hand(geo.rod(0.025, 0.025, 0.22), s.glass, 0, HAND.y, HAND.z, { rx: Math.PI / 2 });
+      hand(geo.rod(0.025, 0.025, 0.22), s.blueprint, 0, HAND.y, HAND.z, { rx: Math.PI / 2 });
       break;
     case 'generalist':
       // A cap (half-dome and a peak) and a wrench, both in the handyman's own blue.

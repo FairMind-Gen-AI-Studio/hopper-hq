@@ -91,6 +91,12 @@ const SURFACES = {
   outfitPlanner: { fixed: '#1f3350', roughness: 0.55 },
   /** The boss's mug and watch (user-decisions.md OQ-1): the working state's amber again, shinier, as gold. */
   bossGold: { color: 's-working', roughness: 0.3 },
+  /**
+   * The planner's blueprint roll (persona.ts): `scene-glass`'s own pale-blue token, but opaque — unlike `glass`
+   * above, a held prop needs to actually be seen, not read through. Reusing `glass`'s 28%-opacity recipe here (the
+   * original mistake) made the roll all but invisible in the left hand, the persona's only distinguishing cue.
+   */
+  blueprint: { color: 'scene-glass', roughness: 0.4 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;
