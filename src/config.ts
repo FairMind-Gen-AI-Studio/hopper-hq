@@ -37,3 +37,15 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 export const DEFAULT_PORT = 7337;
+
+export interface LeisureWindow {
+  /** Local hour leisure starts (0-23), inclusive. */
+  fromHour: number;
+  /** Local hour leisure ends (0-23), exclusive. A window where `toHour <= fromHour` wraps past midnight. */
+  toHour: number;
+  /** Reserved for a future per-day-of-week restriction; not yet consulted — the window applies every day. */
+  days?: number[];
+}
+
+/** Office aperitivo hours: 17:00 through 01:59, every day. */
+export const DEFAULT_LEISURE_WINDOW: LeisureWindow = { fromHour: 17, toHour: 2 };
