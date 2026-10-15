@@ -251,9 +251,12 @@ describe('the shell', () => {
       ...[n, 4 * n, n, n, n, n, n, n, n, n + 9 * r, n],
       // The lounge: the couches' seats, backs and arms, the coffee table's top, legs and cup, and the two beanbags.
       ...[2, 2, 4, 1, 2, 1, 1, 1],
-      // The break area: the cart's counter, its legs, its bottles and its glasses, the coffee machine's body, its tray
-      // and its cup, and the table's top, legs and players.
-      ...[1, 4, 3, 2, 1, 1, 1, 1, 4, 8],
+      // The break area. The bar: its shelf's two posts and two planks, its gin and its amber bottles (shelf and
+      // counter), its two frame-coloured and its one monitor-dark shelf-only bottles, its one leg-coloured bottle,
+      // its counter's panel and its overhanging top, its lime bowl, its two limes, its two glasses, and a stool's
+      // seat and its leg. Then the coffee machine's body, its tray and its cup, and the table's top, legs and players.
+      ...[2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 2, 2, 2, 2],
+      ...[1, 1, 1, 1, 4, 8],
       // The rooms: each table, its two pedestals, and its nine seats.
       ...[r, 2 * r, 9 * r],
     ]);
@@ -298,8 +301,9 @@ describe('the shell', () => {
     const rect = floor.breakArea;
     const inArea = (b: Box3) => b.min.x > rect.x && b.max.x < rect.x + rect.w && b.min.z > rect.y && b.max.z < rect.y + rect.h;
     const of = (m: Material) => drawn(shell.group, m).filter(inArea);
-    // The cart's counter and its 3 bottles and 2 glasses, apart from the desks (s.leg) and rooms (s.desk) elsewhere on the floor.
-    expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length]).toEqual([1, 3, 2]);
+    // The bar's counter panel and its overhanging top (both s.cart), its two amber bottles and its two glasses, apart
+    // from the desks (s.leg) and rooms (s.desk) elsewhere on the floor.
+    expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length]).toEqual([2, 2, 2]);
     // The coffee machine's body (apart from the elevator doors, which lie outside the break area) and its cup, apart
     // from the lounge's own coffee-table cup, which also shares s.paper but lies outside the break area.
     const machine = of(s.elevator);

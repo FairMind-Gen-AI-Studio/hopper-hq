@@ -13,11 +13,12 @@ import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixture
  */
 const BUDGET = { meshes: 3726, draws: 3766, casters: 487 };
 /**
- * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 187 draw calls, 151 meshes
- * and 36 instanced meshes drawing 580 instances, and 29 of them cast a shadow. Robots make most of a frame's draws, so the
- * floor's budget alone would pass furniture drawn as plain meshes.
+ * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 197 draw calls, 151
+ * meshes and 46 instanced meshes drawing 593 instances, and 37 of them cast a shadow — raised from 205/31 for the
+ * bar (props.ts), grown from a cart into a counter with a back-bar shelf, a lime bowl and two stools. Robots make
+ * most of a frame's draws, so the floor's budget alone would pass furniture drawn as plain meshes.
  */
-const SHELL_BUDGET = { draws: 205, casters: 31 };
+const SHELL_BUDGET = { draws: 216, casters: 40 };
 
 /** Shown, and so are all its parents. */
 function shown(o: Object3D | null): boolean {
@@ -97,10 +98,11 @@ describe('the budget of the fullest floor', () => {
 /**
  * The break area at its full capacity (design §7.1, OQ-1..OQ-3): four interns at the bar cart with their glass and
  * lime, a pair at the foosball table and one at the coffee machine with its cup, over checkoutFloor's own desks and
- * robots. What the whole scene then costs, as measured (357 draw calls, 66 shadow casters), with a tenth to spare,
- * rounded down.
+ * robots. What the whole scene then costs, as measured (367 draw calls, 74 shadow casters), with a tenth to spare,
+ * rounded down — raised from 392/72 for the bar's own growth (props.ts, world.ts), from a cart into a counter with
+ * a back-bar shelf, a lime bowl and two stools.
  */
-const LEISURE_BUDGET = { draws: 392, casters: 72 };
+const LEISURE_BUDGET = { draws: 403, casters: 81 };
 
 /**
  * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven

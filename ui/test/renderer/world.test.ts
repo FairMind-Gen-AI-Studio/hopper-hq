@@ -3,7 +3,12 @@ import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX, layoutPlan } from '../../../src/s
 import type { Occupant, Place, PodDesk } from '../../../src/scene/types';
 import {
   BAR_CART,
-  BAR_CART_R,
+  BAR_COUNTER,
+  BAR_SHELF,
+  BAR_SPOT_DX,
+  BAR_SPOT_OUT,
+  BAR_STOOL_DX,
+  BAR_STOOL_OUT,
   BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
@@ -174,26 +179,31 @@ describe('world maths', () => {
     });
   });
 
-  it('stands the bar cart near the break area\'s west edge, with 4 "standing with a glass" spots in a ring round it, each facing it', () => {
+  it("stands the bar near the break area's west edge, with 4 \"standing with a glass\" spots evenly spaced along the counter's front, each facing north toward it", () => {
     const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
     const c = barCartCenter(rect);
     const spots = barCartSpots(rect);
     expect(spots).toHaveLength(4);
-    const [north, east, south, west] = spots;
-    // North faces south (toward the cart, 0); east faces west (-QUARTER); south faces north (PI); west faces east (QUARTER).
-    expect([north, east, south, west]).toEqual([
-      { x: c.x, z: c.z - BAR_CART_R, facing: 0 },
-      { x: c.x + BAR_CART_R, z: c.z, facing: -QUARTER },
-      { x: c.x, z: c.z + BAR_CART_R, facing: Math.PI },
-      { x: c.x - BAR_CART_R, z: c.z, facing: QUARTER },
-    ]);
+    expect(spots).toEqual(BAR_SPOT_DX.map((dx) => ({ x: c.x + dx, z: c.z + BAR_SPOT_OUT, facing: Math.PI })));
+    // Evenly spaced, west to east.
+    for (let i = 1; i < spots.length; i++) expect(spots[i]!.x - spots[i - 1]!.x).toBeCloseTo(spots[1]!.x - spots[0]!.x);
     for (const s of spots) {
       expect(s.x).toBeGreaterThan(rect.x);
       expect(s.x).toBeLessThan(rect.x + rect.w);
       expect(s.z).toBeGreaterThan(rect.y);
       expect(s.z).toBeLessThan(rect.y + rect.h);
     }
-    expect(BAR_CART).toEqual({ w: 1, d: 0.5 });
+    // Grown well past the old bar cart's 1.0 x 0.5, wide and deep enough to hold the shelf and the counter together.
+    expect(BAR_CART).toEqual({ w: 2.2, d: 0.9 });
+    // The shelf racks behind the bar's centre, the counter stands in front of it, and a stool stands either side of
+    // the counter, all inside BAR_CART's own footprint or its walk clearance, so neither needs blocking of its own.
+    expect(BAR_SHELF.w).toBeLessThan(BAR_CART.w);
+    expect(BAR_COUNTER.w).toBeLessThan(BAR_CART.w);
+    expect(BAR_SHELF.d + BAR_COUNTER.d).toBeLessThan(BAR_CART.d);
+    expect(BAR_STOOL_OUT).toBeGreaterThan(BAR_CART.d / 2);
+    expect(BAR_STOOL_DX).toBeLessThan(BAR_CART.w / 2);
+    // The spots stand clear of the stools, south of them, between the stools and the break area's own south edge.
+    expect(BAR_SPOT_OUT).toBeGreaterThan(BAR_STOOL_OUT);
   });
 
   it("stands the biliardino table near the break area's east edge, with its v1 handle spots, one per side, facing each other across it", () => {
