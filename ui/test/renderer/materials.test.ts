@@ -159,7 +159,7 @@ describe('materials', () => {
     m.dispose();
     expect(freed).toBe(m.all().length);
     // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(32 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
+    expect(m.all().length).toBe(35 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

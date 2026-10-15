@@ -7,10 +7,11 @@ import { fullestFloor } from './fixtures';
 
 /**
  * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
- * rounded down. It shows 2,980 meshes and 36 instanced meshes, which draw 580 instances, in 3,016 draw calls, and 443 of
- * them cast a shadow.
+ * rounded down. With every running intern, room agent and working/no_signal occupant holding a cigar (its tip and puff,
+ * none of them a shadow caster), it shows 3,388 meshes and 36 instanced meshes, which draw 580 instances, in 3,424 draw
+ * calls, and 443 of them cast a shadow — the cigar adds meshes and draws, never a shadow caster.
  */
-const BUDGET = { meshes: 3278, draws: 3317, casters: 487 };
+const BUDGET = { meshes: 3726, draws: 3766, casters: 487 };
 /**
  * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 187 draw calls, 151 meshes
  * and 36 instanced meshes drawing 580 instances, and 29 of them cast a shadow. Robots make most of a frame's draws, so the

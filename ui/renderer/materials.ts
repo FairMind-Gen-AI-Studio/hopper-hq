@@ -62,6 +62,12 @@ const SURFACES = {
   jet: { color: 'bot-jet', roughness: 0.5 },
   window: { color: 'window-glow', emissive: 'window-glow', intensity: 'window-int' },
   lamp: { color: 'lamp-glow', emissive: 'lamp-glow', intensity: 'lamp-int' },
+  /** The cigar's body: the lounge's wood token, darker, no new theme token for a prop this small. */
+  cigarBody: { color: 'scene-wood', shade: 0.7, roughness: 0.55 },
+  /** Its lit tip: the working state's amber, glowing, as an ember. */
+  cigarTip: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
+  /** The smoke puff: barely-there, off-white. Shared by every robot (robot.ts fades it by scale, not opacity). */
+  smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.35 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;

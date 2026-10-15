@@ -206,6 +206,23 @@ describe('the floor scene', () => {
     expect(fs.sessions.get('sw-a1')!.robot!.group.parent).toBe(fs.scene);
   });
 
+  it("lights a session's own cigar from its own smoking flag, in any pose, and toggles it without rebuilding its robot", () => {
+    const floor = checkoutFloor();
+    const occupant = seatOf(floor, 'sw-a1').occupant;
+    occupant.smoking = true;
+    const fs = sceneOf(floor);
+    const robot = fs.sessions.get('sw-a1')!.robot!;
+    expect(robot.rig.cigar.visible).toBe(true);
+    // ps-d4 (in a meeting, so resting its badge differently) never asked to smoke: no cigar.
+    expect(fs.sessions.get('ps-d4')!.robot!.rig.cigar.visible).toBe(false);
+    // Smoking stops; the same robot just hides its cigar, it is not rebuilt.
+    const off = checkoutFloor();
+    seatOf(off, 'sw-a1').occupant.smoking = false;
+    fs.apply(off);
+    expect(fs.sessions.get('sw-a1')!.robot).toBe(robot);
+    expect(robot.rig.cigar.visible).toBe(false);
+  });
+
   it('keeps one robot per session wherever its occupant is: at its desk, resting in the lounge, at the head of its room', () => {
     const fs = sceneOf();
     const rest = fs.sessions.get('sw-c3')!;
@@ -422,6 +439,16 @@ describe('meeting rooms in the floor scene', () => {
     expect(fs.scene.getObjectByName('agent wf_0000aaaa-002-a8')).toBeUndefined();
   });
 
+  it("lights a room agent's own cigar from its own smoking flag, independently of its table-mates", () => {
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, smoking: true } : a));
+    const fs = sceneOf(floor);
+    const first = entryOf(fs, 0);
+    const agents = [...first.agents.values()];
+    expect(agents[0]!.rig.cigar.visible).toBe(true);
+    expect(agents.slice(1).every((a) => !a.rig.cigar.visible)).toBe(true);
+  });
+
   it('opens a laptop before each agent at the table and before the host at the head, and none before a session at its desk', () => {
     const fs = sceneOf(roomFloor());
     const first = entryOf(fs, 0);
@@ -595,6 +622,14 @@ describe('interns', () => {
     });
     expect(fs.scene.getObjectByName('intern i3')).toBe(entry.interns.get('i3')!.group);
     expect(fs.sessions.get('sw-b2')!.interns.size).toBe(0);
+  });
+
+  it('lights each intern\'s own cigar from its own smoking flag, independently of its siblings and of its session', () => {
+    const fs = sceneOf(withInterns([{ ...intern('i1'), smoking: true }, intern('i2')]));
+    const entry = fs.sessions.get('sw-a1')!;
+    expect(entry.interns.get('i1')!.rig.cigar.visible).toBe(true);
+    expect(entry.interns.get('i2')!.rig.cigar.visible).toBe(false);
+    expect(entry.robot!.rig.cigar.visible).toBe(false);
   });
 
   it('leaves no intern flying over the desk for a subagent that sits in its session\'s room', () => {
