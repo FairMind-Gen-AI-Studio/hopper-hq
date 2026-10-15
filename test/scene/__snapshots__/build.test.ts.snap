@@ -495,7 +495,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               "id": "p0-0",
               "occupant": {
                 "activity": {
-                  "label": "Bash: npm test",
+                  "label": "Bash: npm run test:smoke",
                   "running": true,
                   "since": 1791709200028,
                 },
@@ -525,7 +525,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-ss-e5",
                 "since": 1791709200004,
-                "smoking": false,
+                "smoking": true,
                 "state": "working",
                 "summary": null,
                 "title": "Tune BM25 weights with click data",

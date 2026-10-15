@@ -58,16 +58,23 @@ const SWEEP = { runId: 'wf_showcase-a11y', name: 'a11y-sweep', summary: 'Check e
  * agents at the table and a laptop before each; two sessions and their subagents meet in a room of their own; one
  * session waits for permission, one finishes a turn, two are cleared and rest in the lounge, and two leave at the end.
  * It does not repeat: restart the demo to see it again.
+ *
+ * Two beats double as the whimsical features' demo (the daemon forces the leisure window open with `DEMO_LEISURE_HOUR`
+ * for the whole `--showcase` run, same as the plain demo): web2's two helpers hold a lone gin tonic between sec 34 and
+ * 42 (one stops while the other keeps running), and web1's release-check run holds biliardino pairs from sec 39 on
+ * (two or more of its agents finish together while a later phase's agents keep running) — no separate cohort was added
+ * for this; it falls out of the existing helpers and run. The pay3 session's `Bash: npm run test:smoke -- retry` from
+ * sec 18 to 45 holds a cigar (Feature B).
  */
 export function showcaseScript(): DemoStep[] {
   const s = SHOWCASE_SESSIONS;
   const step = (sec: number, events: (b: number) => RawEvent[]): DemoStep => ({ at: SHOWCASE_LEAD_MS + sec * 1000, events });
-  const arrive = (who: ShowcaseSession, sec: number, tool: string, label: string): DemoStep =>
+  const arrive = (who: ShowcaseSession, sec: number, tool: string, label: string, smoke = false): DemoStep =>
     step(sec, (b) => [
       at(who.id, b, { type: 'session.seen', workspace: who.workspace, pid: null, name: who.name, tmuxPane: who.pane, startedAt: b }),
       at(who.id, b, { type: 'title', title: who.title }),
       at(who.id, b, { type: 'prompt', text: who.prompt }),
-      at(who.id, b, { type: 'tool.started', toolId: `${who.id}-t1`, tool, label, agentId: null }),
+      at(who.id, b, { type: 'tool.started', toolId: `${who.id}-t1`, tool, label, agentId: null, ...(smoke ? { smoke: true } : {}) }),
     ]);
   const agent = (_host: ShowcaseSession, run: { runId: string }, n: string, phase: string, description: string): Body => ({ type: 'agent.started', agentId: `${run.runId}-${n}`, agentType: 'workflow-subagent', description, runId: run.runId, phase });
   const done = (run: { runId: string }, n: string): Body => ({ type: 'agent.finished', agentId: `${run.runId}-${n}` });
@@ -107,7 +114,8 @@ export function showcaseScript(): DemoStep[] {
     ]),
     // orders-api-2 stops to ask before it rebuilds dist.
     step(16, (b) => [at(s.api2.id, b, { type: 'waiting', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist && npm run build' }, agentId: null })]),
-    arrive(s.pay3, 18, 'Bash', 'Bash: npm test -- retry'),
+    // A smoke test: the mega sigaro (Feature B) shows on this desk from here until it clears at sec 45.
+    arrive(s.pay3, 18, 'Bash', 'Bash: npm run test:smoke -- retry', true),
     step(20, (b) => [at(s.api1.id, b, start(MIGRATION)), at(s.api1.id, b, agent(s.api1, MIGRATION, '0', 'Sample', 'Pick a day of orders to replay'))]),
     // The ninth session: a second block of desks opens.
     arrive(s.web4, 22, 'Edit', 'Edit src/cart/GiftNote.tsx'),
@@ -142,6 +150,8 @@ export function showcaseScript(): DemoStep[] {
       at(s.api1.id, b, done(MIGRATION, '2')),
       at(s.api1.id, b, done(MIGRATION, '3')),
     ]),
+    // The smoke test started at sec 18 finishes: the cigar clears.
+    step(45, (b) => [at(s.pay3.id, b, { type: 'tool.finished', toolId: `${s.pay3.id}-t1`, ok: true, agentId: null })]),
     step(47, (b) => [at(s.pay1.id, b, stop('sc-pay1-a')), at(s.pay1.id, b, helper('sc-pay1-c', 'general-purpose', 'Write the refund tests'))]),
     step(50, (b) => [at(s.web3.id, b, { type: 'prompt', text: 'Yes, sweep the pages.' })]),
     step(51, (b) => [at(s.web1.id, b, agent(s.web1, RELEASE, '6', 'Ship', 'Run the checkout suite on staging')), at(s.web1.id, b, done(RELEASE, '4')), at(s.web1.id, b, done(RELEASE, '5'))]),

@@ -1,10 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { SHOWCASE_LEAD_MS, SHOWCASE_SESSIONS, showcaseScript } from '../../src/adapters/showcase.js';
-import { demoSummaryLine } from '../../src/adapters/demo.js';
+import { DEMO_LEISURE_HOUR, demoSummaryLine } from '../../src/adapters/demo.js';
 import { Collector } from '../../src/collector.js';
 
 const BASE = 1_800_000_000_000;
 const FLOOR = 'feature:checkout-v2';
+
+/** Plays the whole showcase into a fresh collector, with `hourOf` defaulting to the real local hour as production does. */
+async function playShowcase(hourOf?: (now: number) => number) {
+  const clock = { now: BASE };
+  const c = new Collector({ resolveWorkspace: async () => { throw new Error('events carry their workspace'); }, now: () => clock.now, acceptSources: ['demo'], hourOf });
+  const at = new Map<number, ReturnType<Collector['floor']>>();
+  for (const step of showcaseScript()) {
+    clock.now = BASE + step.at;
+    for (const e of step.events(clock.now)) await c.ingest(e);
+    at.set(step.at, c.floor(FLOOR));
+  }
+  return { c, at };
+}
+
+const byId = (a: [string, unknown], b: [string, unknown]) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+const leisureOf = (agents: readonly { agentId: string; leisure: string | null }[] | undefined) =>
+  (agents ?? []).filter((a) => a.leisure !== null).map((a): [string, string | null] => [a.agentId, a.leisure]).sort(byId);
 
 describe('the showcase', () => {
   it('plays in time order, after its lead, and writes every session its own summary line', () => {
@@ -35,5 +52,56 @@ describe('the showcase', () => {
     expect(seen.sessions).toBe(12);
     expect(seen.hosts.size).toBeGreaterThanOrEqual(4);
     expect(c.floor(FLOOR)!.rooms).toEqual([]);
+  });
+});
+
+describe("the showcase's smoke test (mega sigaro)", () => {
+  it("holds a cigar on pay3's desk from its tool.started at sec 18 to its tool.finished at sec 45, with smoke:true set explicitly", async () => {
+    const { at } = await playShowcase();
+    const smoking = (raw: number) => {
+      const occupant = at.get(raw)?.pods.flatMap((p) => p.desks).find((d) => d.occupant?.sessionId === 'sc-pay-3')?.occupant;
+      return occupant ? occupant.smoking : null;
+    };
+    expect([36_000, 38_000, 56_000, 64_000, 65_000, 84_000].map((raw) => [raw, smoking(raw)])).toEqual([
+      [36_000, null], // pay3 has not arrived yet
+      [38_000, true], // arrives with a smoke-test tool.started
+      [56_000, true],
+      [64_000, true],
+      [65_000, false], // its tool.finished clears the cigar
+      [84_000, false],
+    ]);
+  });
+});
+
+describe("the showcase's leisure window (aperitivo/biliardino/coffee)", () => {
+  it('shows a lone gin tonic (web1) at the same time web2 also holds one, then pairs web1 into biliardino once a third agent waits, once the window is forced open', async () => {
+    const { at } = await playShowcase(() => DEMO_LEISURE_HOUR);
+    const agentsOf = (raw: number, runId: string) => leisureOf(at.get(raw)?.rooms.find((r) => r.runId === runId)?.agents);
+    // sec 36 (raw 56_000): web1 is still a lone waiter; web2's two helpers have just become one waiter + one runner.
+    expect(agentsOf(56_000, 'wf_showcase-release')).toEqual([['wf_showcase-release-0', 'gintonic']]);
+    expect(agentsOf(56_000, 'crew:sc-web-2')).toEqual([['sc-web2-a', 'gintonic']]);
+    // sec 39 (raw 59_000): web1's Review phase starts, pairing its four finished agents into two biliardino tables;
+    // web2 is still its own lone gin tonic.
+    expect(agentsOf(59_000, 'wf_showcase-release')).toEqual([
+      ['wf_showcase-release-0', 'biliardino'],
+      ['wf_showcase-release-1', 'biliardino'],
+      ['wf_showcase-release-2', 'biliardino'],
+      ['wf_showcase-release-3', 'biliardino'],
+    ]);
+    expect(agentsOf(59_000, 'crew:sc-web-2')).toEqual([['sc-web2-a', 'gintonic']]);
+  });
+
+  it('sends the same waiters for coffee instead, outside the window', async () => {
+    const { at } = await playShowcase(() => 10);
+    const agentsOf = (raw: number, runId: string) => leisureOf(at.get(raw)?.rooms.find((r) => r.runId === runId)?.agents);
+    expect(agentsOf(56_000, 'wf_showcase-release')).toEqual([['wf_showcase-release-0', 'coffee']]);
+    expect(agentsOf(56_000, 'crew:sc-web-2')).toEqual([['sc-web2-a', 'coffee']]);
+    expect(agentsOf(59_000, 'wf_showcase-release')).toEqual([
+      ['wf_showcase-release-0', 'coffee'],
+      ['wf_showcase-release-1', 'coffee'],
+      ['wf_showcase-release-2', 'coffee'],
+      ['wf_showcase-release-3', 'coffee'],
+    ]);
+    expect(agentsOf(59_000, 'crew:sc-web-2')).toEqual([['sc-web2-a', 'coffee']]);
   });
 });

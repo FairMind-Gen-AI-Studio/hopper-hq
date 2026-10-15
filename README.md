@@ -56,7 +56,7 @@ The mod makes hopper-hq report each session as things happen, with the exact rea
 
 ## Status
 
-Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-hopper-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), and [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md).
+Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-hopper-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md), and [the design of the smoke-test cigar and the aperitivo/biliardino leisure](docs/plans/2026-10-15-agent-moods.md).
 
 ## Demo
 
@@ -67,6 +67,7 @@ Early. The collector, the CLI, the tmux counter and the building in the browser 
 - Shows which sessions work on the same feature. Sessions are grouped by branch, across repos.
 - Shows which sessions are waiting for you, and why.
 - Shows what runs inside each session: its workflow runs, phase by phase, and its subagents.
+- Shows a subagent running a smoke test puffing on a cigar, and a finished subagent whose siblings are still running heading for the office bar or a game of table football.
 - Says in one line where each session stands, once you turn [summaries](#summaries) on.
 - Keeps a record of finished sessions (coming).
 
@@ -135,6 +136,10 @@ Each workflow run that is going on, and each session whose subagents run, has a 
 - up close, the whiteboard lists the run's phases (✓ done, ● current, ○ upcoming) and how many agents run and have finished.
 
 A floor has two rooms, and four once a third run goes on at the same time; its side panel counts the runs beyond four. A run keeps its room until it ends. The room then closes, its door shut and its lights dimmed, and the session's desk panel keeps how the run ended. Click a room or its tag to open the run's panel: its phases, its agents and a link to the session's desk. Double-click the room, press Enter, or use `Go to pane` to switch tmux to that session's pane.
+
+A session or subagent running a smoke test (a test-runner command, script or file with "smoke" in it) holds a lit cigar, with a little smoke puff rising from its tip; it clears as soon as the tool finishes.
+
+When a subagent finishes while a sibling started by the same session or run keeps going, it waits for its cohort at the office's break area instead of just sitting idle: a lone waiter nurses a gin tonic at the bar cart, and waiters are paired up two at a time for a game of table football (biliardino) at the coffee machine's table, odd one out on the gin tonic. This only happens during the office's aperitivo hours, 17:00 to 02:00 viewer-local by default and configurable in `config.ts` (`DEFAULT_LEISURE_WINDOW`); outside that window every waiter gets a coffee at the machine instead. It all clears once the cohort finishes or the window closes.
 
 The page's address names the floor, and the desk or the run on screen: a link opens it, and Back and reload keep your place.
 
