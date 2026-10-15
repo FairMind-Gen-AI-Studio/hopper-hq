@@ -41,6 +41,7 @@ import {
   BEANBAG_X,
   BOARD,
   CHAIR_Z,
+  COFFEE_COUNTER_H,
   COFFEE_MACHINE,
   COFFEE_TABLE,
   COUCH,
@@ -359,18 +360,19 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
 /**
  * The break area (world.ts places its stand spots): a rug, a little bar near its west edge — a counter with a solid
  * front panel and an overhanging top, a warm wooden back-bar racked with bottles behind it, a bowl of limes and a
- * couple of glasses on the counter, and a stool either side of it, on the customer's side — a coffee machine midway
- * between the bar and the table with a cup under its spout, and a biliardino table near its east edge: a box cabinet, a green
- * field marked in white inside a low rim, 8 rods of little players through the rim's long sides and a ball at the
- * centre spot (buildFoosball).
+ * couple of glasses on the counter, and a stool either side of it, on the customer's side — the "macchinetta" midway
+ * between the bar and the table (an Italian office's own espresso machine, not a fridge: see buildBreakArea's own
+ * comment), and a biliardino table near its east edge: a box cabinet, a green field marked in white inside a low
+ * rim, 8 rods of little players through the rim's long sides and a ball at the centre spot (buildFoosball).
  *
  * The back-bar is a proper bancone fixture, not a lab rack: its two posts and two shelf planks stand in the counter's
  * own wood tone (not the shelf's old frame grey), backed by a solid wood panel and closed at the top by a header
  * plank (BAR_RACK_H.cap) so that no bottle, however tall, ever pokes out above the posts — and fronted, between the
  * two shelf planks, by a glass mirror strip. The bar's panel and top, its shelf planks and header, its bottles, its
  * lime bowl and its glasses' own bowls, and a stool's seat all cast a shadow; its shelf posts, its back panel and
- * mirror, its glasses' own feet and a stool's leg are too thin to be worth it, like the coffee machine's tray and the
- * table's legs, rim, rods and players; the table's cabinet casts one.
+ * mirror, its glasses' own feet and a stool's leg are too thin to be worth it, like the espresso machine's tray,
+ * gauges, portafilters and steam wand, and the table's legs, rim, rods and players; the counter cabinet, the
+ * machine's own body and the table's cabinet each cast one.
  */
 function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
   const s = mats.surface;
@@ -440,11 +442,58 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
     add(geo.rod(0.035, 0.035, 0.44, 8), s.leg, cart.x + dx, 0.22, cart.z + BAR_STOOL_OUT, { cast: false });
   }
 
-  // The coffee machine: a floor-standing body, a thin tray sticking out at its front, and a cup under its spout.
+  // The coffee machine: Italy's own "macchinetta" — the office's espresso bar, not a fridge. A short wood counter,
+  // the bar's own tone (s.cart), topped at COFFEE_COUNTER_H; on it a two-group espresso machine, wider than tall, in
+  // a polished chrome body, with a cup-warmer tray of its own cups on top, a group head and a dark portafilter handle
+  // either side at the front, a drip tray under them, a steam wand to one side and an amber ready light; a grinder
+  // and its bean hopper stand beside it, and a stack of cups and a sugar jar on the counter's other side.
   const coffee = coffeeMachineCenter(rect);
-  add(geo.rbox(COFFEE_MACHINE.w, 0.9, COFFEE_MACHINE.d, 0.03), s.elevator, coffee.x, 0.45, coffee.z);
-  add(geo.box(COFFEE_MACHINE.w - 0.1, 0.03, 0.14), s.leg, coffee.x, 0.62, coffee.z + COFFEE_MACHINE.d / 2 - 0.02, { cast: false });
-  add(geo.rod(0.05, 0.06, 0.09, 12), s.paper, coffee.x, 0.68, coffee.z + COFFEE_MACHINE.d / 2 - 0.08);
+  const counterCabinetH = COFFEE_COUNTER_H - 0.06;
+  add(geo.rbox(COFFEE_MACHINE.w, counterCabinetH, COFFEE_MACHINE.d, 0.03), s.cart, coffee.x, counterCabinetH / 2, coffee.z);
+  add(geo.rbox(COFFEE_MACHINE.w + 0.08, 0.05, COFFEE_MACHINE.d + 0.08, 0.02), s.cart, coffee.x, COFFEE_COUNTER_H - 0.025, coffee.z, { cast: false });
+
+  // The machine's own body, a short way back from the counter's front edge so the portafilters and the drip tray
+  // still stand clear of it: wider than it is tall, the strongest single cue (with the group heads) that this is an
+  // espresso machine and not a fridge standing on end.
+  const MACHINE = { w: 0.56, d: 0.3, h: 0.24 } as const;
+  const machineZ = coffee.z - 0.04;
+  const bodyTop = COFFEE_COUNTER_H + MACHINE.h;
+  add(geo.rbox(MACHINE.w, MACHINE.h, MACHINE.d, 0.02), s.chrome, coffee.x, COFFEE_COUNTER_H + MACHINE.h / 2, machineZ);
+  // The cup-warmer tray on top, a few espresso cups standing upside down on it.
+  add(geo.rbox(MACHINE.w - 0.06, 0.012, MACHINE.d - 0.04, 0.004), s.chrome, coffee.x, bodyTop + 0.006, machineZ, { cast: false });
+  for (const dx of [-0.14, 0, 0.14]) add(geo.rod(0.016, 0.022, 0.03), s.paper, coffee.x + dx, bodyTop + 0.027, machineZ, { cast: false });
+  // Two round gauges and, between them, the amber ready light.
+  for (const dx of [-0.16, 0.16]) {
+    add(geo.rod(0.035, 0.035, 0.012, 16), s.frame, coffee.x + dx, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2, { rx: Math.PI / 2, cast: false });
+    add(geo.circle(0.026), s.paper, coffee.x + dx, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2 + 0.007, { rx: Math.PI / 2, cast: false });
+  }
+  add(geo.ball(0.014), s.coffeeLight, coffee.x, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2 + 0.01, { cast: false });
+
+  // The two group heads, low on the machine's front face, each with a dark portafilter handle reaching out toward
+  // the customer, and the drip tray along the base between them.
+  const frontZ = machineZ + MACHINE.d / 2;
+  const headY = COFFEE_COUNTER_H + 0.1;
+  for (const dx of [-0.13, 0.13]) {
+    add(geo.rod(0.028, 0.028, 0.05, 12), s.frame, coffee.x + dx, headY, frontZ + 0.02, { rx: Math.PI / 2 });
+    add(geo.rod(0.017, 0.017, 0.16, 10), s.leg, coffee.x + dx, headY - 0.015, frontZ + 0.125, { rx: Math.PI / 2, cast: false });
+    add(geo.ball(0.028), s.leg, coffee.x + dx, headY - 0.015, frontZ + 0.205, { cast: false });
+  }
+  add(geo.rbox(MACHINE.w - 0.08, 0.02, 0.1, 0.006), s.leg, coffee.x, COFFEE_COUNTER_H + 0.01, frontZ + 0.03, { cast: false });
+
+  // The steam wand, jutting out and down from the machine's own west side.
+  add(geo.rod(0.013, 0.013, 0.2, 8), s.frame, coffee.x - MACHINE.w / 2 - 0.015, headY + 0.03, frontZ - 0.05, { rx: Math.PI / 2 - 0.5, ry: -0.3, cast: false });
+
+  // The grinder, its hopper tapering down into the burrs, on the counter beside the machine; a stack of cups and a
+  // sugar jar across on the other side.
+  const grinderX = coffee.x - MACHINE.w / 2 - 0.18;
+  const grinderZ = coffee.z + 0.06;
+  add(geo.rod(0.065, 0.075, 0.22, 14), s.chrome, grinderX, COFFEE_COUNTER_H + 0.11, grinderZ, { cast: false });
+  // The hopper, its beans the bar's own bottle tone, so it reads apart from the grinder's own chrome body.
+  add(geo.rod(0.08, 0.026, 0.16, 14), s.bottle, grinderX, COFFEE_COUNTER_H + 0.3, grinderZ, { cast: false });
+  const cupStack = { x: coffee.x + MACHINE.w / 2 + 0.2 } as const;
+  for (let i = 0; i < 3; i++) add(geo.rod(0.045, 0.05, 0.04), s.paper, cupStack.x, COFFEE_COUNTER_H + 0.02 + i * 0.04, coffee.z, { cast: false });
+  add(geo.rod(0.04, 0.04, 0.06, 12), s.bowl, cupStack.x, COFFEE_COUNTER_H + 0.03, coffee.z + 0.16);
+  add(geo.rod(0.028, 0.028, 0.015, 12), s.frame, cupStack.x, COFFEE_COUNTER_H + 0.0675, coffee.z + 0.16, { cast: false });
 
   buildFoosball(foosballCenter(rect), add, geo, mats);
 }

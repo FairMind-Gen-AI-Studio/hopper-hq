@@ -14,11 +14,14 @@ import { dayTheme } from '../../renderer/theme';
 import type { Intern, Robot } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
 import {
+  COFFEE_COUNTER_H,
+  COFFEE_MACHINE,
   HOME_AZIMUTH,
   LABEL_Y,
   POLAR,
   barCartSpots,
   cameraOffset,
+  coffeeMachineCenter,
   coffeeMachineSpots,
   deskAnchor,
   elevatorSpot,
@@ -800,6 +803,29 @@ describe('leisure', () => {
     const bot = fs.sessions.get('sw-a1')!.interns.get('c1')!;
     expect(at(bot)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
     expect([bot.rig.drink.visible, bot.rig.cup.visible]).toEqual([false, true]);
+  });
+
+  it('stands the coffee intern in front of the machine, on the counter\'s own customer side, clear of its box — not astride it', () => {
+    const floor = withLeisure([leisureIntern('c1', 'coffee')]);
+    const fs = sceneOf(floor);
+    const bot = fs.sessions.get('sw-a1')!.interns.get('c1')!;
+    const rect = floor.breakArea;
+    const c = coffeeMachineCenter(rect);
+    const counter = { minX: c.x - COFFEE_MACHINE.w / 2, maxX: c.x + COFFEE_MACHINE.w / 2, minZ: c.z - COFFEE_MACHINE.d / 2, maxZ: c.z + COFFEE_MACHINE.d / 2 };
+    // Its stand spot (world.ts) lies south of the counter's own footprint, the customer side, clear of it in z —
+    // never inside it, the mistake that once put the intern on top of the machine instead of in front of it.
+    const [x, z] = at(bot);
+    expect(z).toBeGreaterThan(counter.maxZ);
+    expect(x).toBeGreaterThan(counter.minX);
+    expect(x).toBeLessThan(counter.maxX);
+    // Its own body (every mesh of its rig, not the contact disc or badge) never dips below the floor — it floats,
+    // having no legs, but never through it — and never intersects the counter's own box, floor to its own top
+    // (COFFEE_COUNTER_H): the mistake a hover meant for a desk's own height (HOVER_Y) made before robot.ts gave the
+    // coffee pose its own low hover (COFFEE_HOVER_Y), the same way FOOSBALL_HOVER_Y does at the table.
+    const box = new Box3().setFromObject(bot.group);
+    expect(box.min.y).toBeGreaterThan(0);
+    const counterBox = new Box3(new Vector3(counter.minX, 0, counter.minZ), new Vector3(counter.maxX, COFFEE_COUNTER_H, counter.maxZ));
+    expect(box.intersectsBox(counterBox)).toBe(false);
   });
 
   it('walks a room agent that waits for its siblings out to the break area, and still lets it pick its room there', () => {
