@@ -52,6 +52,10 @@ const SURFACES = {
   beanB: { color: 'scene-bean-b', roughness: 0.9 },
   wood: { color: 'scene-wood', roughness: 0.6 },
   loungeRug: { color: 'scene-floor', mix: ['scene-couch', 0.25] },
+  /** The bar cart's counter. */
+  cart: { color: 'scene-wood', roughness: 0.5 },
+  /** The bar cart's bottles. */
+  bottle: { color: 'scene-bean-b', roughness: 0.3 },
   shell: { color: 'bot-shell', roughness: 0.45 },
   visor: { color: 'bot-visor', emissive: 'bot-visor', intensity: 'visor-int' },
   hardhat: { color: 'bot-hardhat', roughness: 0.5 },

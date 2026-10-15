@@ -54,9 +54,9 @@ import {
   type Point3,
 } from './world';
 
-/** What the shell depends on: the footprint, the core, each pod's id and rug, the lounge and every room slot. */
-export function layoutSignature(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>): string {
-  return JSON.stringify([floor.size, floor.core, floor.pods.map((p) => [p.id, p.rect]), floor.lounge.rect, floor.roomSlots]);
+/** What the shell depends on: the footprint, the core, each pod's id and rug, the lounge, the break area and every room slot. */
+export function layoutSignature(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots' | 'breakArea'>): string {
+  return JSON.stringify([floor.size, floor.core, floor.pods.map((p) => [p.id, p.rect]), floor.lounge.rect, floor.roomSlots, floor.breakArea]);
 }
 
 export interface SessionEntry {

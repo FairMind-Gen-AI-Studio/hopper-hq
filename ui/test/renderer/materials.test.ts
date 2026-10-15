@@ -69,6 +69,14 @@ describe('materials', () => {
     }
   });
 
+  it("colours the bar cart's counter from the wood token and its bottles from the beanbags' amber one", () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    expect(hex(m.surface.cart.color)).toBe(theme.colors['scene-wood']);
+    expect(m.surface.cart).not.toBe(m.surface.wood);
+    expect(hex(m.surface.bottle.color)).toBe(theme.colors['scene-bean-b']);
+  });
+
   it('lays a neutral rug under a pod whose occupants share no repository, and dims the floor of a room no run holds', () => {
     const theme = dayTheme();
     const m = new Materials(theme);
@@ -151,7 +159,7 @@ describe('materials', () => {
     m.dispose();
     expect(freed).toBe(m.all().length);
     // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(30 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
+    expect(m.all().length).toBe(32 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

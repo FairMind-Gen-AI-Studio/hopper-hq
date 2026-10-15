@@ -70,6 +70,7 @@ describe('moveAll', () => {
           pods: plan.pods.map((p) => ({ ...p, color: null, placard: null, desks: p.desks.map((d) => ({ ...d, occupant: null })) })),
           lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
           roomSlots: plan.rooms,
+          breakArea: plan.breakArea,
         });
         const spot = elevatorSpot(plan.core);
         for (const lane of ELEVATOR_LANES) {

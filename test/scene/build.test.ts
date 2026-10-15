@@ -301,7 +301,7 @@ describe('the plan', () => {
     const grown: Seating = { blocks: 2, roomCols: 2, desks: [null, null, null, null, null, 'b', null, null, null, 'a', ...Array<null>(6).fill(null)], lounge: emptySeating().lounge, rooms: [null, null, null, null] };
     const floor = floorOf(views, grown);
     const plan = layoutPlan({ blocks: 2, roomCols: 2 });
-    expect([floor.size, floor.core, floor.lounge, floor.roomSlots]).toEqual([plan.size, plan.core, { rect: plan.lounge, seats: LOUNGE_SEATS }, plan.rooms]);
+    expect([floor.size, floor.core, floor.lounge, floor.roomSlots, floor.breakArea]).toEqual([plan.size, plan.core, { rect: plan.lounge, seats: LOUNGE_SEATS }, plan.rooms, plan.breakArea]);
     expect(floor.pods.map((p) => [p.id, p.rect, p.desks.map((d) => [d.id, d.rect, d.chair])])).toEqual(plan.pods.map((p) => [p.id, p.rect, p.desks.map((d) => [d.id, d.rect, d.chair])]));
     expect(floor.pods.flatMap((p) => p.desks.map((d) => d.occupant?.sessionId ?? null))).toEqual(grown.desks);
     expect(floorOf(views)).toEqual(floorOf(views, seated(['a', 'b'])));
@@ -459,8 +459,8 @@ describe('version 4', () => {
   it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
     const views = [view('a', ws('/w/api', 'main'), 'done')];
     const floor = buildFloorDetail(views, 'repo:/w/api')!;
-    expect(SCENE_VERSION).toBe(5);
-    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([5, [], 0, []]);
+    expect(SCENE_VERSION).toBe(6);
+    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([6, [], 0, []]);
     const desk = occupants(floor)[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.at, desk.runs]).toEqual([null, [], 0, { kind: 'desk' }, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();

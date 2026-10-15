@@ -390,6 +390,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
     rooms,
     roomsMore: liveRuns - rooms.length,
     unseated,

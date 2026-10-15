@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX, layoutPlan } from '../../../src/scene/layout';
 import type { Occupant, Place, PodDesk } from '../../../src/scene/types';
 import {
+  BAR_CART,
+  BAR_CART_R,
   BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
   CAMERA_DISTANCE,
   CHAIR_Z,
+  COFFEE_MACHINE,
+  COFFEE_MACHINE_OUT,
   COUCH,
   COUCH_ARM,
   COUCH_BACK,
@@ -15,6 +19,8 @@ import {
   DESK_TOP,
   DOOR_W,
   ELEVATOR_STEP,
+  FOOSBALL,
+  FOOSBALL_OUT,
   FRAME_MARGIN,
   HOME_AZIMUTH,
   LABEL_Y,
@@ -25,13 +31,19 @@ import {
   ROOM_SEAT,
   TABLE,
   azimuthOf,
+  barCartCenter,
+  barCartSpots,
   boardAnchor,
   cameraOffset,
   cellToWorld,
+  coffeeMachineCenter,
+  coffeeMachineSpots,
   deskAnchor,
   doorGap,
   elevatorSpot,
   floorCenter,
+  foosballCenter,
+  foosballSpots,
   frustumFor,
   headSpot,
   internSpots,
@@ -155,6 +167,62 @@ describe('world maths', () => {
       expect(s.z).toBeLessThan(lounge.y + lounge.h);
       for (const other of spots.slice(i + 1)) expect(dist(s, other)).toBeGreaterThanOrEqual(0.5);
     });
+  });
+
+  it('stands the bar cart near the break area\'s west edge, with 4 "standing with a glass" spots in a ring round it, each facing it', () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = barCartCenter(rect);
+    const spots = barCartSpots(rect);
+    expect(spots).toHaveLength(4);
+    const [north, east, south, west] = spots;
+    // North faces south (toward the cart, 0); east faces west (-QUARTER); south faces north (PI); west faces east (QUARTER).
+    expect([north, east, south, west]).toEqual([
+      { x: c.x, z: c.z - BAR_CART_R, facing: 0 },
+      { x: c.x + BAR_CART_R, z: c.z, facing: -QUARTER },
+      { x: c.x, z: c.z + BAR_CART_R, facing: Math.PI },
+      { x: c.x - BAR_CART_R, z: c.z, facing: QUARTER },
+    ]);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    expect(BAR_CART).toEqual({ w: 1, d: 0.5 });
+  });
+
+  it("stands the biliardino table near the break area's east edge, with its v1 handle spots, one per side, facing each other across it", () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = foosballCenter(rect);
+    const spots = foosballSpots(rect);
+    expect(spots).toEqual([
+      { x: c.x, z: c.z - FOOSBALL.d / 2 - FOOSBALL_OUT, facing: 0 },
+      { x: c.x, z: c.z + FOOSBALL.d / 2 + FOOSBALL_OUT, facing: Math.PI },
+    ]);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    // Far enough from the cart's ring that walking between them never crosses the other's spots.
+    for (const cart of barCartSpots(rect)) for (const s of spots) expect(dist(cart, s)).toBeGreaterThan(1);
+  });
+
+  it("stands the coffee machine (OQ-3) at the break area's own centre, midway between the cart and the table, with a single stand spot south of it, facing it", () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = coffeeMachineCenter(rect);
+    expect(c).toEqual({ x: rect.x + rect.w / 2, z: rect.y + rect.h / 2 });
+    const spots = coffeeMachineSpots(rect);
+    expect(spots).toEqual([{ x: c.x, z: c.z + COFFEE_MACHINE.d / 2 + COFFEE_MACHINE_OUT, facing: Math.PI }]);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    // Far enough from the cart's and the table's own spots that walking to any of the three never crosses another's.
+    for (const other of [...barCartSpots(rect), ...foosballSpots(rect)]) for (const s of spots) expect(dist(other, s)).toBeGreaterThan(1);
   });
 
   it('steps out of the elevator in the middle of the core, just inside the doors, facing south', () => {

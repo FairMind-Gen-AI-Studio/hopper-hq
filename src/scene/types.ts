@@ -5,7 +5,7 @@
  */
 import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 5;
+export const SCENE_VERSION = 6;
 
 /** What a waiting sub-agent is shown doing at leisure: a gin tonic, table football (paired), or a coffee break outside the leisure window. */
 export type SceneLeisure = 'gintonic' | 'biliardino' | 'coffee';
@@ -265,6 +265,8 @@ export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   lounge: Lounge;
   /** Every room of the plan, by slot, open or not. */
   roomSlots: GridRect[];
+  /** The break area: a bar cart and a biliardino table, shared by every sub-agent on the floor at leisure. */
+  breakArea: GridRect;
   /** Sessions on the floor without a desk, in start order, at most UNSEATED_MAX: dormant ones whose desk another session took, and those waiting at the cap. */
   unseated: Occupant[];
   /** Unseated sessions beyond `unseated` (at most UNSEATED_MAX are listed). */

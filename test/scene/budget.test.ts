@@ -6,7 +6,7 @@ import { buildFloorDetail } from '../../src/scene/build.js';
 import { BLOCKS_MAX, BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, MEETING_AGENTS_MAX, ROOMS_MAX, RUNS_SHOWN, SEATS_MAX } from '../../src/scene/layout.js';
 
 /**
- * What the fullest floor costs on the wire (design §7.1): its JSON as measured, 88,145 bytes of UTF-8 (SCENE_VERSION 5,
+ * What the fullest floor costs on the wire (design §7.1): its JSON as measured, 88,145 bytes of UTF-8 (SCENE_VERSION 6,
  * with `smoking` on occupants/interns/meeting agents and `leisure` on interns/meeting agents), with a tenth to spare,
  * rounded down.
  */
