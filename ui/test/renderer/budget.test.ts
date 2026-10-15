@@ -8,10 +8,12 @@ import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixture
 /**
  * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
  * rounded down. With every running intern, room agent and working/no_signal occupant holding a cigar (its tip and puff,
- * none of them a shadow caster), it shows 3,388 meshes and 36 instanced meshes, which draw 580 instances, in 3,424 draw
- * calls, and 443 of them cast a shadow — the cigar adds meshes and draws, never a shadow caster.
+ * none of them a shadow caster), and every running intern and room agent typed to a Fairmind plugin, so every one of
+ * them wears the Fairmind badge too (fairmind-badge.ts: a disc and a mark, neither a shadow caster), it shows 3,502
+ * meshes and 172 instanced meshes, which draw 1,532 instances, in 3,674 draw calls, and 443 of them cast a shadow —
+ * the cigar and the badge add meshes and draws, never a shadow caster.
  */
-const BUDGET = { meshes: 3726, draws: 3766, casters: 487 };
+const BUDGET = { meshes: 3852, draws: 4041, casters: 487 };
 /**
  * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 187 draw calls, 151 meshes
  * and 36 instanced meshes drawing 580 instances, and 29 of them cast a shadow. Robots make most of a frame's draws, so the

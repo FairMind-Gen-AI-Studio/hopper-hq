@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Color, Matrix4, Mesh, OrthographicCamera, Vector2, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
 import { MAX_ZOOM, QUARTER } from '../../renderer/camera';
+import { FAIRMIND_BADGE_NAME } from '../../renderer/fairmind-badge';
 import { CONTACT_R, CONTACT_Y, FloorScene, HOVER_BLEND_MS, layoutSignature } from '../../renderer/floor-scene';
 import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
@@ -713,6 +714,50 @@ describe('interns', () => {
     expect(at(entry.robot!)).not.toEqual(spot(seatSpot(entry.desk!)));
     fs.apply(withInterns([intern('i1')], 'dormant'));
     expect(entry.interns.size).toBe(0);
+  });
+});
+
+describe('the Fairmind badge', () => {
+  /** The checkout floor with these interns at sw-a1's desk. */
+  const withInterns = (interns: Intern[]) => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, state: 'working', interns };
+    return makeFloor(checkouts);
+  };
+  const badgeOf = (robot: RobotObject) => robot.group.getObjectByName(FAIRMIND_BADGE_NAME)!;
+
+  it('shows the badge over an intern spawned from a Fairmind plugin, and hides it for one spawned from anywhere else', () => {
+    const fairmind: Intern = { agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null };
+    const other: Intern = { agentId: 'i2', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null };
+    const fs = sceneOf(withInterns([fairmind, other]));
+    const entry = fs.sessions.get('sw-a1')!;
+    expect(badgeOf(entry.interns.get('i1')!).visible).toBe(true);
+    expect(badgeOf(entry.interns.get('i2')!).visible).toBe(false);
+  });
+
+  it("never shows a badge over a session's own robot: a session carries no agent type", () => {
+    const fs = sceneOf(checkoutFloor());
+    expect(fs.sessions.get('sw-a1')!.robot!.group.getObjectByName(FAIRMIND_BADGE_NAME)).toBeUndefined();
+  });
+
+  it('shows the badge over a room agent spawned from a Fairmind plugin, and hides it for one spawned from anywhere else', () => {
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, type: 'fairmind-coding:Software Engineer' } : a));
+    const fs = sceneOf(floor);
+    const agents = [...fs.rooms.get(roomKey(floor.rooms[0]!))!.agents.values()];
+    expect(badgeOf(agents[0]!).visible).toBe(true);
+    expect(agents.slice(1).every((a) => !badgeOf(a).visible)).toBe(true);
+  });
+
+  it('casts no shadow, over an intern or a room agent', () => {
+    const fs = sceneOf(withInterns([{ agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null }]));
+    const internBadge = badgeOf(fs.sessions.get('sw-a1')!.interns.get('i1')!);
+    expect(internBadge.children.every((m) => (m as Mesh).castShadow === false)).toBe(true);
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, type: 'fairmind-coding:Software Engineer' } : a));
+    const roomFs = sceneOf(floor);
+    const agentBadge = badgeOf([...roomFs.rooms.get(roomKey(floor.rooms[0]!))!.agents.values()][0]!);
+    expect(agentBadge.children.every((m) => (m as Mesh).castShadow === false)).toBe(true);
   });
 });
 
