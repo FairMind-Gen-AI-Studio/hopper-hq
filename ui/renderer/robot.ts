@@ -5,7 +5,7 @@
  * swinging its legs and arms.
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
-import { CylinderGeometry, Group, SphereGeometry, type Mesh } from 'three';
+import { CylinderGeometry, Group, InstancedMesh, Object3D, SphereGeometry, type Mesh } from 'three';
 import type { Pose, Robot } from '../../src/scene/types';
 import type { Materials } from './materials';
 import { part, type Geometries, type PickData } from './props';
@@ -86,8 +86,8 @@ export interface RobotRig {
   laptop: Group;
   /** The cigar at the monitor-head's mouth, its lit tip and its smoke puff: shown while its look holds one (setSmoking), in any pose. */
   cigar: Group;
-  /** The smoke puff above the cigar's tip: rises and shrinks back on a sine (animateRobot) while the cigar shows; still otherwise. */
-  puff: Mesh;
+  /** The smoke above the cigar's tip, a column of puffs (PUFF) that rise, grow and vanish (animateRobot) while the cigar shows; a still column otherwise. */
+  puff: InstancedMesh;
   /** Its gin tonic glass and the lime on its rim, in its right hand: shown only in the gintonic pose. */
   glass: Mesh;
   lime: Mesh;
@@ -105,12 +105,39 @@ export const CIGAR = { r: 0.022, len: 0.08, y: 0.165, z: 0.16 } as const;
 /** The lit tip, just past the cigar's far end. */
 export const CIGAR_TIP = { r: 0.013, z: CIGAR.z + CIGAR.len / 2 + 0.006 } as const;
 /**
- * The smoke puff above the tip: one small ball that rises `rise` m over `1/rate` seconds and back
- * to its base, its scale a sine of the same period so it grows from and shrinks back to nothing —
- * the only way to "fade" a mesh that shares its material with every other robot's puff (materials.ts),
- * and cheap enough that the reset at each cycle's ends is never seen (it is scaled to ~0 there).
+ * The smoke above the tip, smoke-signal style: `puffs` balls, one instanced mesh, each rising `rise` m over `1/rate`
+ * seconds, a `1/puffs` of a cycle apart, drifting `drift` m forward as it goes. A puff grows as it rises, by up to
+ * `grow` times its size, and its scale is also a sine of its cycle so it starts from and shrinks back to nothing —
+ * the only way to "fade" a mesh that shares its material with every other robot's smoke (materials.ts), and the reset
+ * at each cycle's ends is never seen (it is scaled to ~0 there).
  */
-export const PUFF = { r: 0.02, rise: 0.09, rate: 1.1, y: CIGAR.y + 0.03, z: CIGAR_TIP.z + 0.01 } as const;
+export const PUFF = { puffs: 7, r: 0.045, rise: 0.8, grow: 1.6, drift: 0.06, rate: 0.45, y: CIGAR.y + 0.03, z: CIGAR_TIP.z + 0.01 } as const;
+
+/** A puff `frac` of the way through its cycle: how high above PUFF.y, how far ahead of PUFF.z, and how big. */
+export function puffAt(frac: number): { y: number; z: number; scale: number } {
+  return { y: frac * PUFF.rise, z: frac * PUFF.drift, scale: (1 + frac * PUFF.grow) * Math.sin(frac * Math.PI) };
+}
+
+const puffDummy = new Object3D();
+
+/**
+ * Places each of the smoke's puffs at its point of the cycle, `base` (a fraction of a cycle) on, or, with `base` null,
+ * shrinks them all to nothing at the tip: a robot that does not smoke keeps no tall column in its bounds. It allocates
+ * nothing.
+ */
+function placePuffs(puff: InstancedMesh, base: number | null): void {
+  for (let i = 0; i < PUFF.puffs; i++) {
+    const frac = base === null ? 0 : (((base + i / PUFF.puffs) % 1) + 1) % 1;
+    const p = puffAt(frac);
+    puffDummy.position.set(0, PUFF.y + p.y, PUFF.z + p.z);
+    puffDummy.scale.setScalar(p.scale);
+    puffDummy.updateMatrix();
+    puff.setMatrixAt(i, puffDummy.matrix);
+  }
+  puff.instanceMatrix.needsUpdate = true;
+  puff.boundingBox = null;
+  puff.boundingSphere = null;
+}
 
 /** Where a seated robot's laptop stands, in metres: on the table (its top, 0.78 high), this far ahead of the robot's seat. */
 export const LAPTOP = { top: 0.78, ahead: 0.6, w: 0.3, d: 0.22, tilt: 0.3 } as const;
@@ -189,7 +216,13 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   neck.add(cigar);
   part(cigar, geo.rod(CIGAR.r, CIGAR.r, CIGAR.len), s.cigarBody, 0, CIGAR.y, CIGAR.z, { rx: Math.PI / 2, cast: false });
   part(cigar, geo.ball(CIGAR_TIP.r), s.cigarTip, 0, CIGAR.y, CIGAR_TIP.z, small);
-  const puff = part(cigar, geo.ball(PUFF.r), s.smokePuff, 0, PUFF.y, PUFF.z, small);
+  const puff = new InstancedMesh(geo.ball(PUFF.r), s.smokePuff, PUFF.puffs);
+  puff.name = 'smoke';
+  puff.castShadow = false;
+  // Its puffs move every frame and rise well above the head: never culled on a stale bounding sphere.
+  puff.frustumCulled = false;
+  placePuffs(puff, robot.smoking ? 0 : null);
+  cigar.add(puff);
   // The tie: a knot and a tapered blade, in the feature colour.
   const knotY = BOT.torso - 0.05;
   part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
@@ -217,7 +250,9 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
 
 /** Shows or hides a robot's cigar (and its tip and puff with it), in any pose, without rebuilding it. */
 export function setSmoking(obj: RobotObject, on: boolean): void {
+  if (obj.rig.cigar.visible === on) return;
   obj.rig.cigar.visible = on;
+  placePuffs(obj.rig.puff, on ? 0 : null);
 }
 
 /**
@@ -338,12 +373,10 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
   const spec = poseOf(robot);
   const r = obj.rig;
   if (r.cigar.visible) {
-    // A puff rises PUFF.rise over 1/PUFF.rate seconds and starts again, its scale a sine of the same period (0 at
-    // either end): the reset at the bottom is never seen, scaled to nothing. phase (radians, [0, 2π)) offsets it by
-    // the same fraction of a cycle as it does the other loops' sines, so puffs next to each other stay out of step.
-    const frac = (((t * PUFF.rate + phase / (2 * Math.PI)) % 1) + 1) % 1;
-    r.puff.position.y = PUFF.y + frac * PUFF.rise;
-    r.puff.scale.setScalar(Math.sin(frac * Math.PI));
+    // The puffs rise PUFF.rise over 1/PUFF.rate seconds and start again, scaled to nothing at either end (puffAt):
+    // the reset at the bottom is never seen. phase (radians, [0, 2π)) offsets them by the same fraction of a cycle
+    // as it does the other loops' sines, so smoke columns next to each other stay out of step.
+    placePuffs(r.puff, t * PUFF.rate + phase / (2 * Math.PI));
   }
   switch (loop) {
     case 'type':

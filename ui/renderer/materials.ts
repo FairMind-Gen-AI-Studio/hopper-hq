@@ -66,8 +66,8 @@ const SURFACES = {
   cigarBody: { color: 'scene-wood', shade: 0.7, roughness: 0.55 },
   /** Its lit tip: the working state's amber, glowing, as an ember. */
   cigarTip: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
-  /** The smoke puff: barely-there, off-white. Shared by every robot (robot.ts fades it by scale, not opacity). */
-  smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.35 },
+  /** The smoke puffs: thick, off-white, smoke signals. Shared by every robot (robot.ts fades it by scale, not opacity). */
+  smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.6 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;

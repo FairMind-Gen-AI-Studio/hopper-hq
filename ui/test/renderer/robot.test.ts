@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Mesh, Vector3, type Object3D } from 'three';
+import { Box3, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three';
 import type { Pose, Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
@@ -12,6 +12,7 @@ import {
   LOOPS,
   POSES,
   PUFF,
+  puffAt,
   STRIDE,
   animateRobot,
   buildRobot,
@@ -377,38 +378,60 @@ describe('the cigar', () => {
     expect(geo.size).toBe(size);
   });
 
-  it("rises and shrinks back on a sine while it shows, never past its rise, and sits still otherwise", () => {
+  it('sends up a column of puffs, smoke signals, that rise, grow and vanish while it shows, and sits still otherwise', () => {
     const { geo, mats } = kit();
+    const m = new Matrix4();
+    const at = new Vector3();
+    const q = new Quaternion();
+    const size = new Vector3();
+    const puffs = (obj: ReturnType<typeof buildRobot>) =>
+      Array.from({ length: PUFF.puffs }, (_, i) => {
+        obj.rig.puff.getMatrixAt(i, m);
+        m.decompose(at, q, size);
+        return { y: at.y, scale: size.x };
+      });
+
     const lit = buildRobot('s1', { ...look, smoking: true }, geo, mats);
     poseRobot(lit, look, { x: 0, z: 0, facing: 0 });
-    const restY = lit.rig.puff.position.y;
-    const restScale = lit.rig.puff.scale.x;
+    // One instanced mesh, one draw, however many puffs, and none of them casts a shadow.
+    expect(lit.rig.puff.count).toBe(PUFF.puffs);
+    expect(PUFF.puffs).toBeGreaterThanOrEqual(5);
+    expect(lit.rig.puff.castShadow).toBe(false);
     let minY = Infinity;
     let maxY = -Infinity;
-    let minScale = Infinity;
     let maxScale = -Infinity;
     for (let k = 0; k <= 200; k++) {
       animateRobot(lit, look, (k / 200) * (1 / PUFF.rate), 0);
-      minY = Math.min(minY, lit.rig.puff.position.y);
-      maxY = Math.max(maxY, lit.rig.puff.position.y);
-      minScale = Math.min(minScale, lit.rig.puff.scale.x);
-      maxScale = Math.max(maxScale, lit.rig.puff.scale.x);
+      const now = puffs(lit);
+      // Spread up the column, never in one clump: the puffs are a 1/PUFF.puffs of a cycle apart.
+      expect(new Set(now.map((p) => p.y.toFixed(6))).size, `t${k}`).toBe(PUFF.puffs);
+      for (const p of now) {
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+        maxScale = Math.max(maxScale, p.scale);
+        expect(p.scale).toBeGreaterThanOrEqual(-1e-6);
+      }
     }
-    expect(minY).toBeGreaterThanOrEqual(PUFF.y - 1e-9);
-    expect(maxY).toBeLessThanOrEqual(PUFF.y + PUFF.rise + 1e-9);
+    expect(minY).toBeGreaterThanOrEqual(PUFF.y - 1e-6);
+    expect(maxY).toBeLessThanOrEqual(PUFF.y + PUFF.rise + 1e-6);
+    // Smoke signals: the column rises far above the head, and its puffs swell well past the size they start at.
+    expect(PUFF.rise).toBeGreaterThan(0.5);
     expect(maxY - minY).toBeGreaterThan(PUFF.rise * 0.9);
-    expect(minScale).toBeGreaterThanOrEqual(-1e-9);
-    expect(maxScale).toBeLessThanOrEqual(1 + 1e-9);
-    expect(maxScale).toBeGreaterThan(0.9);
+    expect(maxScale).toBeLessThanOrEqual(1 + PUFF.grow);
+    expect(maxScale).toBeGreaterThan(1.5);
 
     const unlit = buildRobot('s2', look, geo, mats);
     poseRobot(unlit, look, { x: 0, z: 0, facing: 0 });
-    const unlitY = unlit.rig.puff.position.y;
-    const unlitScale = unlit.rig.puff.scale.x;
+    const rest = puffs(unlit);
     for (let k = 0; k <= 10; k++) animateRobot(unlit, look, k * 0.3, 1.2);
-    expect(unlit.rig.puff.position.y).toBe(unlitY);
-    expect(unlit.rig.puff.scale.x).toBe(unlitScale);
-    expect([restY, restScale]).toEqual([PUFF.y, 1]);
+    expect(puffs(unlit)).toEqual(rest);
+  });
+
+  it('grows a puff as it rises and scales it to nothing at either end of its cycle', () => {
+    expect(puffAt(0).scale).toBeCloseTo(0, 9);
+    expect(puffAt(1).scale).toBeCloseTo(0, 9);
+    expect(puffAt(0.6).scale).toBeGreaterThan(puffAt(0.4).scale);
+    expect(puffAt(1).y).toBeCloseTo(PUFF.rise, 9);
   });
 });
 
