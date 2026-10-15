@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
-import { demoSummaryLine, startDemo } from './adapters/demo.js';
+import { DEMO_LEISURE_HOUR, demoSummaryLine, startDemo } from './adapters/demo.js';
 import { createGitResolver } from './adapters/git.js';
 import { callDaemon } from './client.js';
 import { Collector } from './collector.js';
@@ -141,7 +141,17 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const resolveWorkspace = createGitResolver();
   const watchFiles = !opts.demo && opts.watchFiles !== false;
   // Restored subagents run on until the first scan has reported on them; with no scan to come, they stop at once.
-  const collector = new Collector({ resolveWorkspace, store, acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'], log, ignoreCwd, holdRestored: watchFiles });
+  // The demo forces the leisure window (config.ts) open, wall-clock-gated otherwise, so Feature A shows whatever time
+  // of day `hopper-hq demo` runs; a real daemon still reads the viewer's actual local hour (leisure.ts's default).
+  const collector = new Collector({
+    resolveWorkspace,
+    store,
+    acceptSources: opts.demo ? ['demo'] : ['hook', 'fs'],
+    log,
+    ignoreCwd,
+    holdRestored: watchFiles,
+    ...(opts.demo ? { hourOf: () => DEMO_LEISURE_HOUR } : {}),
+  });
   const summarizer = new Summarizer({
     source: collector,
     config: opts.demo ? async () => DEMO_SUMMARY_CONFIG : cachedSummaryConfig(paths.dataDir),

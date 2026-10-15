@@ -53,6 +53,15 @@ export interface DemoStep {
 
 export const DEMO_LOOP_MS = 60_000;
 
+/**
+ * The hour (viewer-local, 0-23) `startDemo` forces the leisure window (config.ts) open to, so
+ * the office aperitivo/biliardino always shows in `hopper-hq demo` whatever time of day it runs.
+ * Well inside the default 17:00 -> 02:00 window, away from both edges. Only `daemon.ts`'s demo
+ * path reads this (gated behind `opts.demo`, next to its other demo-only overrides); a real
+ * daemon still reads the viewer's actual local hour.
+ */
+export const DEMO_LEISURE_HOUR = 18;
+
 /** The demo's workflow run, on the payments desk. */
 export const DEMO_RUN = { name: 'checkout-verify', summary: 'Verify split payments end to end', phases: ['Plan', 'Build', 'Review', 'Ship'] };
 
@@ -85,6 +94,13 @@ export function demoRunIds(loop = 0, run: 'checkout' | 'replay' = 'checkout'): {
  *
  * Later loops send their prompts without text: the sessions start over, but nobody asks anything new, so the summary
  * lines written in the first loop stay current. A drop-in that ended comes back the same way, as a resumed session.
+ *
+ * Two beats double as the whimsical features' demo (`startDemo` forces the leisure window open with
+ * `DEMO_LEISURE_HOUR`, since it is otherwise wall-clock-gated): between 6s and 30s the address desk's two interns hold
+ * a lone gin tonic (one finishes while the other keeps running), and between 16s and 28s the payments desk's workflow
+ * run holds a biliardino pair (two of its agents finish in the Build phase while a third keeps running) — no separate
+ * cohort was added for this; it falls out of the existing interns and run. The search desk's `Bash: npm run test:smoke`
+ * from 28s to 45s holds a cigar (Feature B).
  */
 export function demoScript(loop = 0): DemoStep[] {
   const checkout = demoRunIds(loop);
@@ -139,7 +155,8 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-ps-d4', b + 25, runAgent(0, 'Plan', 'Map the split payment flow')),
         at('demo-ps-d4', b + 27, { type: 'answer', text: 'Split payments are in. I started checkout-verify to check them end to end.' }),
         at('demo-ps-d4', b + 27, { type: 'turn.finished', backgroundTasks: 0 }),
-        at('demo-ss-e5', b + 28, { type: 'tool.started', toolId: 'e5-t1', tool: 'Bash', label: 'Bash: npm test', agentId: null }),
+        // A smoke test: the mega sigaro (Feature B) shows on this desk from here until the tool.finished at 45s.
+        at('demo-ss-e5', b + 28, { type: 'tool.started', toolId: 'e5-t1', tool: 'Bash', label: 'Bash: npm run test:smoke', agentId: null, smoke: true }),
         at('demo-oa-g7', b + 29, { type: 'waiting', reason: { kind: 'question', text: 'Should the retry queue use Redis or Postgres?' }, agentId: null }),
         at('demo-oa-h8', b + 30, { type: 'tool.started', toolId: 'h8-t1', tool: 'Bash', label: 'Bash: npm run typecheck', agentId: null }),
       ],
@@ -186,6 +203,8 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-oa-c3', b, runAgent(0, 'Sample', 'Pick a day of orders to replay', replay)),
       ],
     },
+    // The smoke test started at 28s finishes: the cigar clears.
+    { at: 45_000, events: (b) => [at('demo-ss-e5', b, { type: 'tool.finished', toolId: 'e5-t1', ok: true, agentId: null })] },
     { at: 46_000, events: (b) => [end(states, b)] },
     {
       at: 48_000,
