@@ -56,6 +56,11 @@ const SURFACES = {
   cart: { color: 'scene-wood', roughness: 0.5 },
   /** The bar cart's bottles. */
   bottle: { color: 'scene-bean-b', roughness: 0.3 },
+  /** The bar's lime bowl: a light ceramic, apart from the shelf's own frame token, so it reads as a bowl, not a puck. */
+  bowl: { color: 'scene-paper', roughness: 0.3 },
+  /** The back-bar's mirror strip: the glass token, lightened, shinier and more opaque than a partition's own glass,
+   * so it reads as a strip of mirror behind the bottles, not more of the back panel's own wood. */
+  mirror: { color: 'scene-glass', mix: ['scene-paper', 0.3], roughness: 0.05, opacity: 0.55 },
   shell: { color: 'bot-shell', roughness: 0.45 },
   visor: { color: 'bot-visor', emissive: 'bot-visor', intensity: 'visor-int' },
   hardhat: { color: 'bot-hardhat', roughness: 0.5 },

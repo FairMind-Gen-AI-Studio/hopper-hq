@@ -31,6 +31,7 @@ import { DESK_OFF, type Materials } from './materials';
 import {
   BAR_COUNTER,
   BAR_COUNTER_OUT,
+  BAR_RACK_H,
   BAR_SHELF,
   BAR_SHELF_OUT,
   BAR_STOOL_DX,
@@ -353,12 +354,18 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
 
 /**
  * The break area (world.ts places its stand spots): a rug, a little bar near its west edge — a counter with a solid
- * front panel and an overhanging top, a back-bar shelf racked with bottles behind it, a bowl of limes and a couple of
- * glasses on the counter, and a stool either side of it, on the customer's side — a coffee machine midway between the
- * bar and the table with a cup under its spout, and a biliardino table near its east edge with two rows of little
- * players. The bar's panel and top, its shelf planks, its bottles, its lime bowl, its glasses and a stool's seat all
- * cast a shadow; its shelf posts and a stool's leg are too thin to be worth it, like the coffee machine's tray and
- * the table's legs and players.
+ * front panel and an overhanging top, a warm wooden back-bar racked with bottles behind it, a bowl of limes and a
+ * couple of glasses on the counter, and a stool either side of it, on the customer's side — a coffee machine midway
+ * between the bar and the table with a cup under its spout, and a biliardino table near its east edge with two rows
+ * of little players.
+ *
+ * The back-bar is a proper bancone fixture, not a lab rack: its two posts and two shelf planks stand in the counter's
+ * own wood tone (not the shelf's old frame grey), backed by a solid wood panel and closed at the top by a header
+ * plank (BAR_RACK_H.cap) so that no bottle, however tall, ever pokes out above the posts — and fronted, between the
+ * two shelf planks, by a glass mirror strip. The bar's panel and top, its shelf planks and header, its bottles, its
+ * lime bowl and its glasses' own bowls, and a stool's seat all cast a shadow; its shelf posts, its back panel and
+ * mirror, its glasses' own feet and a stool's leg are too thin to be worth it, like the coffee machine's tray and the
+ * table's legs and players.
  */
 function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
   const s = mats.surface;
@@ -375,11 +382,18 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
   const shelfZ = cart.z - BAR_SHELF_OUT;
   const counterZ = cart.z + BAR_COUNTER_OUT;
 
-  // The back-bar shelf: two thin uprights holding two shelf planks, bottles of a few shapes, heights and colours
-  // standing on each — one, tall and green, unmistakably gin.
-  const shelfPostH = 1.7;
-  for (const side of [-1, 1]) add(geo.box(0.05, shelfPostH, 0.05), s.frame, cart.x + side * (BAR_SHELF.w / 2 - 0.05), shelfPostH / 2, shelfZ, { cast: false });
-  for (const y of [1.15, 1.55]) add(geo.rbox(BAR_SHELF.w, 0.045, BAR_SHELF.d, 0.015), s.frame, cart.x, y, shelfZ);
+  // The back-bar: two uprights and two shelf planks, in the counter's own wood tone (not the old frame grey), backed
+  // by a solid wood panel and closed off at the top by a header plank — a proper bancone, not a cold lab rack. The
+  // posts stand tall enough (BAR_RACK_H.post) that even the top shelf's own tallest bottle clears the header with
+  // room to spare, so nothing pokes out above the rack like a flagpole; a glass mirror strip fills the gap between
+  // the two shelf planks. Its bottles stand a few shapes, heights and colours to a shelf — one, tall and green,
+  // unmistakably gin.
+  const rackTop = BAR_RACK_H.post + BAR_RACK_H.cap;
+  add(geo.rbox(BAR_SHELF.w + 0.1, rackTop, 0.04, 0.01), s.cart, cart.x, rackTop / 2, shelfZ - BAR_SHELF.d / 2 - 0.02, { cast: false }); // the solid back panel.
+  for (const side of [-1, 1]) add(geo.box(0.05, BAR_RACK_H.post, 0.05), s.cart, cart.x + side * (BAR_SHELF.w / 2 - 0.05), BAR_RACK_H.post / 2, shelfZ, { cast: false });
+  for (const y of [1.15, 1.55]) add(geo.rbox(BAR_SHELF.w, 0.045, BAR_SHELF.d, 0.015), s.cart, cart.x, y, shelfZ);
+  add(geo.rbox(BAR_SHELF.w, BAR_RACK_H.cap, BAR_SHELF.d, 0.015), s.cart, cart.x, BAR_RACK_H.post + BAR_RACK_H.cap / 2, shelfZ); // the header, closing the rack's top.
+  add(geo.plane(BAR_SHELF.w - 0.1, 0.355), s.mirror, cart.x, 1.35, shelfZ - BAR_SHELF.d / 2 + 0.005, { cast: false }); // the mirror strip, between the two shelf planks.
   const tall = geo.rod(0.032, 0.038, 0.34, 10);
   const medium = geo.rod(0.044, 0.05, 0.24, 10);
   const short = geo.rod(0.05, 0.055, 0.17, 10);
@@ -394,12 +408,26 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
 
   // The counter: a solid front panel, and a top that overhangs it a little on every side, a bancone's lip. A gin
   // bottle (the shelf's own green, reused) and a bowl of limes stand on one half, a couple of glasses on the other.
+  const counterTop = 0.85; // the top panel's own top surface (0.815 + 0.07 / 2), where everything on the counter stands.
   add(geo.rbox(BAR_COUNTER.w, 0.78, BAR_COUNTER.d, 0.03), s.cart, cart.x, 0.39, counterZ);
   add(geo.rbox(BAR_COUNTER.w + 0.14, 0.07, BAR_COUNTER.d + 0.12, 0.02), s.cart, cart.x, 0.815, counterZ);
   add(tall, s.plant, cart.x - 0.6, 1.02, counterZ - 0.05);
-  add(geo.ball(0.09), s.frame, cart.x - 0.2, 0.895, counterZ, { scale: [1, 0.5, 1] });
-  for (const dx of [-0.26, -0.14]) add(geo.ball(0.02), s.plant, cart.x + dx, 0.945, counterZ, { cast: false });
-  for (const dx of [0.3, 0.5]) add(geo.ball(0.05), s.glass, cart.x + dx, 0.9, counterZ + 0.05);
+  // The lime bowl: a light ceramic dome with a rim, not the old grey puck, with a few bright green limes piled in it.
+  add(geo.ball(0.1), s.bowl, cart.x - 0.2, counterTop + 0.042, counterZ, { scale: [1, 0.42, 1] });
+  add(geo.ring(0.075, 0.1), s.bowl, cart.x - 0.2, counterTop + 0.084, counterZ, { rx: -Math.PI / 2, cast: false });
+  for (const [dx, dz] of [[-0.05, -0.03], [0.03, -0.02], [-0.02, 0.04], [0.05, 0.02]] as const) {
+    add(geo.ball(0.038), s.plant, cart.x - 0.2 + dx, counterTop + 0.1, counterZ + dz, { cast: false });
+  }
+  // The two glasses: a foot tapering into a stem, under a bowl that swells to a belly and pinches back to a rim —
+  // a balloon glass, the gin tonic's own style (robot.ts), standing empty on the counter.
+  const glassBase = geo.rod(0.013, 0.035, 0.045, 10);
+  const glassBelly = geo.rod(0.07, 0.013, 0.05, 10);
+  const glassRim = geo.rod(0.04, 0.07, 0.045, 10);
+  for (const dx of [0.3, 0.5]) {
+    add(glassBase, s.glass, cart.x + dx, counterTop + 0.0225, counterZ + 0.05, { cast: false });
+    add(glassBelly, s.glass, cart.x + dx, counterTop + 0.07, counterZ + 0.05);
+    add(glassRim, s.glass, cart.x + dx, counterTop + 0.1175, counterZ + 0.05);
+  }
 
   // A stool either side of the counter, on the customer's own side: a round seat on a single thin leg.
   for (const dx of [-BAR_STOOL_DX, BAR_STOOL_DX]) {

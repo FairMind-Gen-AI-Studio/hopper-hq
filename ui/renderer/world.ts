@@ -160,6 +160,12 @@ export const BAR_CART_X = 2;
 export const BAR_SHELF = { w: 1.9, d: 0.22 } as const;
 /** How far north of the bar's centre the shelf stands: flush with BAR_CART's own rear edge. */
 export const BAR_SHELF_OUT = BAR_CART.d / 2 - BAR_SHELF.d / 2;
+/**
+ * The back-bar rack's own height, posts and all: tall enough that even its top shelf's own bottles stand clear
+ * below `post`, with `cap` (a header plank, props.ts) sat on the posts to close the rack off at the top, so that no
+ * bottle ever pokes out above it like a flagpole.
+ */
+export const BAR_RACK_H = { post: 2.0, cap: 0.05 } as const;
 /** The counter's own footprint (its solid front panel): toward the front of BAR_CART, the customer side. Its top
  * overhangs this a little on every side (props.ts), the lip of a bancone. */
 export const BAR_COUNTER = { w: 1.9, d: 0.5 } as const;
