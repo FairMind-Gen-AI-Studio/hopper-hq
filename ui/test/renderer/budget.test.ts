@@ -3,7 +3,7 @@ import type { InstancedMesh, Mesh, Object3D } from 'three';
 import { BLOCKS_MAX, BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, ROOMS_MAX, SEATS_MAX } from '../../../src/scene/layout';
 import { FloorScene } from '../../renderer/floor-scene';
 import { dayTheme } from '../../renderer/theme';
-import { fullestFloor } from './fixtures';
+import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixtures';
 
 /**
  * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
@@ -90,5 +90,43 @@ describe('the budget of the fullest floor', () => {
     const interns = [...fs.sessions.values()].flatMap((e) => [...e.interns.values()]);
     expect(interns).toHaveLength((BLOCKS_MAX * BLOCK_DESKS - 1) * INTERNS_MAX);
     expect(interns.reduce((n, robot) => n + costOf(robot.group).casters, 0)).toBe(0);
+  });
+});
+
+/**
+ * The break area at its full capacity (design §7.1, OQ-1..OQ-3): four interns at the bar cart with their glass and
+ * lime, a pair at the foosball table and one at the coffee machine with its cup, over checkoutFloor's own desks and
+ * robots. What the whole scene then costs, as measured (357 draw calls, 66 shadow casters), with a tenth to spare,
+ * rounded down.
+ */
+const LEISURE_BUDGET = { draws: 392, casters: 72 };
+
+/**
+ * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven
+ * interns waiting at leisure between them: four gin tonics, a biliardino pair (two on one desk) and one coffee.
+ */
+function leisureFloor() {
+  const checkouts = checkoutSpecs();
+  const leisure = [['gintonic'], ['gintonic'], ['gintonic'], ['gintonic'], ['biliardino', 'biliardino'], ['coffee']] as const;
+  const desks = checkouts.flatMap((c) => c.desks).filter((d) => d.state !== 'dormant');
+  let n = 0;
+  desks.forEach((d, k) => (d.interns = leisure[k]!.map((kind) => leisureIntern(`l${n++}`, kind))));
+  return makeFloor(checkouts);
+}
+
+describe('the budget of the break area at leisure', () => {
+  it('fills the bar cart, the foosball table and the coffee machine, each at the spot its leisure took', () => {
+    const fs = new FloorScene(dayTheme());
+    fs.apply(leisureFloor());
+    const sessions = [...fs.sessions.values()];
+    expect(sessions.flatMap((e) => [...e.interns.values()])).toHaveLength(7);
+  });
+
+  it('draws it within its own budget of draw calls and shadow casters', () => {
+    const fs = new FloorScene(dayTheme());
+    fs.apply(leisureFloor());
+    const cost = costOf(fs.scene);
+    expect(cost.draws).toBeLessThanOrEqual(LEISURE_BUDGET.draws);
+    expect(cost.casters).toBeLessThanOrEqual(LEISURE_BUDGET.casters);
   });
 });

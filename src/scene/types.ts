@@ -76,7 +76,12 @@ export interface GridRect {
   h: number;
 }
 
-export type Pose = 'typing' | 'waving' | 'holding' | 'still' | 'resting';
+/**
+ * typing/waving/holding/still/resting come from a session's own state (build.ts's ROBOT map); gintonic/biliardino/coffee
+ * are the renderer's own, for a sub-agent the floor sends to the break area at leisure (SceneLeisure) - never a
+ * session's.
+ */
+export type Pose = 'typing' | 'waving' | 'holding' | 'still' | 'resting' | 'gintonic' | 'biliardino' | 'coffee';
 export type Badge = 'typing' | 'needs' | 'done' | 'meeting' | 'clock';
 
 export interface Robot {

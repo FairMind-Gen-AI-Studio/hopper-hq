@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Mesh, Vector3, type Object3D } from 'three';
-import type { Robot } from '../../../src/scene/types';
+import type { Pose, Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import {
@@ -102,6 +102,29 @@ describe('robots', () => {
     expect(POSES.waving.legs).toBe(0);
     expect(POSES.resting.lean).toBeLessThan(0);
     expect(POSES.holding.paper).toBe(true);
+    // Every leisure pose stands, like waving and holding: the break area has no chair.
+    expect([POSES.gintonic.legs, POSES.biliardino.legs, POSES.coffee.legs]).toEqual([0, 0, 0]);
+  });
+
+  it('holds a glass and a lime over a gin tonic, a cup over a coffee, and nothing over a biliardino, never casting their shadow', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null }, geo, mats);
+    const spot = { x: 0, z: 0, facing: 0 };
+    const cases: Array<[pose: Pose, glass: boolean, lime: boolean, cup: boolean]> = [
+      ['gintonic', true, true, false],
+      ['coffee', false, false, true],
+      ['biliardino', false, false, false],
+      ['still', false, false, false],
+    ];
+    for (const [pose, glass, lime, cup] of cases) {
+      poseRobot(obj, { pose, badge: null }, spot);
+      expect([obj.rig.glass.visible, obj.rig.lime.visible, obj.rig.cup.visible], pose).toEqual([glass, lime, cup]);
+    }
+    for (const m of [obj.rig.glass, obj.rig.lime, obj.rig.cup]) expect(m.castShadow).toBe(false);
+    // On its way it holds nothing, whatever its pose.
+    poseRobot(obj, { pose: 'gintonic', badge: null }, spot);
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
+    expect([obj.rig.glass.visible, obj.rig.lime.visible, obj.rig.cup.visible]).toEqual([false, false, false]);
   });
 
   it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {
@@ -346,6 +369,9 @@ describe('loops at rest', () => {
     [{ pose: 'resting', badge: null }, 'session', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
     [{ pose: 'still', badge: null }, 'intern', { 'root position.y': LOOPS.hover.bob }],
     [{ pose: 'still', badge: 'meeting' }, 'session', {}],
+    [{ pose: 'gintonic', badge: null }, 'intern', { 'root position.y': LOOPS.hover.bob }],
+    [{ pose: 'coffee', badge: null }, 'workflow', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
+    [{ pose: 'biliardino', badge: null }, 'workflow', { 'armL rotation.x': LOOPS.foosball.arm, 'armR rotation.x': LOOPS.foosball.arm }],
   ];
 
   it('starts each robot at a phase in [0, 2π) hashed from its id: the same for the same id, spread round the circle', () => {
@@ -384,7 +410,9 @@ describe('loops at rest', () => {
       breathe: { rate: 1.6, lean: 0.03, neck: 0.03 },
       doze: { rate: 0.9, lean: 0.02, neck: 0.06 },
       hover: { rate: 3, bob: 0.03 },
+      foosball: { rate: 6, arm: 0.12 },
     });
+    expect([loopOf({ pose: 'gintonic', badge: null }), loopOf({ pose: 'coffee', badge: null }), loopOf({ pose: 'biliardino', badge: null })]).toEqual(['breathe', 'breathe', 'foosball']);
   });
 
   it('moves only the pivots of its loop, never further from its pose than the loop goes, and all the way to it', () => {
