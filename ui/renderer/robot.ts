@@ -50,6 +50,12 @@ export const POSES: Record<Pose, PoseSpec> = {
   holding: { armL: [-1, 0.18], armR: [-1, -0.18], legs: 0, neck: 0, lean: 0, paper: true },
   still: { armL: [-1.1, -0.1], armR: [-1.1, 0.1], legs: -1.45, neck: 0, lean: 0, paper: false },
   resting: { armL: [-0.3, -0.25], armR: [-0.3, 0.25], legs: -1.45, neck: -0.1, lean: -0.22, paper: false },
+  /** At the bar cart (design §7.1, leisure): standing, relaxed, its glass raised in its right hand. */
+  gintonic: { armL: [-0.3, -0.25], armR: [-1, -0.15], legs: 0, neck: -0.1, lean: -0.15, paper: false },
+  /** Leaning over the foosball table's handle, both forearms down and forward; the table's rods are T5's furniture. */
+  biliardino: { armL: [-1.3, 0.12], armR: [-1.3, -0.12], legs: 0, neck: 0.15, lean: 0.3, paper: false },
+  /** At the coffee machine: standing, its cup in its right hand. */
+  coffee: { armL: [-0.25, -0.2], armR: [-0.9, -0.15], legs: 0, neck: -0.08, lean: -0.1, paper: false },
 };
 
 /** A still robot with no signal (the clock badge) hangs its head; one in a meeting does not. */
@@ -82,6 +88,11 @@ export interface RobotRig {
   cigar: Group;
   /** The smoke puff above the cigar's tip: rises and shrinks back on a sine (animateRobot) while the cigar shows; still otherwise. */
   puff: Mesh;
+  /** Its gin tonic glass and the lime on its rim, in its right hand: shown only in the gintonic pose. */
+  glass: Mesh;
+  lime: Mesh;
+  /** Its coffee cup, in its right hand: shown only in the coffee pose. */
+  cup: Mesh;
 }
 
 /**
@@ -184,6 +195,11 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
   part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08, cast: false });
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
+  // Leisure props, in the hand that holds the paper: a small glass with a lime on its rim, or a coffee cup. Neither
+  // casts a shadow: at this size they would cost a draw each for a texel or two of it.
+  const glass = part(armR, geo.rod(0.035, 0.03, 0.09), s.glass, 0, -BOT.arm + 0.05, 0.05, small);
+  const lime = part(armR, geo.ball(0.02), s.plant, 0, -BOT.arm + 0.1, 0.05, small);
+  const cup = part(armR, geo.rod(0.035, 0.03, 0.06), s.paper, 0, -BOT.arm + 0.04, 0.05, small);
 
   const laptop = buildLaptop(group, kind, geo, mats);
 
@@ -196,7 +212,7 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
       pickables.push(o as Mesh);
     }
   });
-  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff }, body: robot.body, tie: robot.tie, pickables };
+  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff, glass, lime, cup }, body: robot.body, tie: robot.tie, pickables };
 }
 
 /** Shows or hides a robot's cigar (and its tip and puff with it), in any pose, without rebuilding it. */
@@ -229,6 +245,9 @@ export function strideRobot(obj: RobotObject, at: { x: number; z: number; facing
   r.waist.rotation.x = 0;
   r.paper.visible = false;
   r.laptop.visible = false;
+  r.glass.visible = false;
+  r.lime.visible = false;
+  r.cup.visible = false;
 }
 
 /** Puts the robot on its spot, facing its way, in the pose of its state; with `laptop`, its laptop open before it. */
@@ -245,6 +264,9 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
   r.waist.rotation.x = spec.lean;
   r.paper.visible = spec.paper;
   r.laptop.visible = laptop && !isStanding(robot.pose);
+  r.glass.visible = robot.pose === 'gintonic';
+  r.lime.visible = robot.pose === 'gintonic';
+  r.cup.visible = robot.pose === 'coffee';
 }
 
 /**
@@ -261,6 +283,8 @@ export const LOOPS = {
   breathe: { rate: 1.6, lean: 0.03, neck: 0.03 },
   doze: { rate: 0.9, lean: 0.02, neck: 0.06 },
   hover: { rate: 3, bob: 0.03 },
+  /** A biliardino robot's hands jiggling the table's rod, its forearms out of step with each other. */
+  foosball: { rate: 6, arm: 0.12 },
 } as const;
 
 export type Loop = keyof typeof LOOPS;
@@ -283,6 +307,11 @@ export function loopOf(robot: Pick<Robot, 'pose' | 'badge'>, kind: RobotKind = '
       return 'breathe';
     case 'still':
       return robot.badge === 'clock' ? 'doze' : null;
+    case 'gintonic':
+    case 'coffee':
+      return 'breathe';
+    case 'biliardino':
+      return 'foosball';
   }
 }
 
@@ -341,6 +370,10 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
       return;
     case 'hover':
       obj.group.position.y = HOVER_Y + s * LOOPS.hover.bob;
+      return;
+    case 'foosball':
+      r.armL.rotation.x = spec.armL[0] + s * LOOPS.foosball.arm;
+      r.armR.rotation.x = spec.armR[0] - s * LOOPS.foosball.arm;
       return;
   }
 }

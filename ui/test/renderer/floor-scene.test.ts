@@ -16,9 +16,12 @@ import {
   HOME_AZIMUTH,
   LABEL_Y,
   POLAR,
+  barCartSpots,
   cameraOffset,
+  coffeeMachineSpots,
   deskAnchor,
   elevatorSpot,
+  foosballSpots,
   frustumFor,
   headSpot,
   internSpots,
@@ -32,7 +35,7 @@ import {
   tableCenter,
   type Point,
 } from '../../renderer/world';
-import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec, type DeskSpec } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, leisureAgent, leisureIntern, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec, type DeskSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at its desk. */
 function changedCheckouts(): CheckoutSpec[] {
@@ -713,6 +716,126 @@ describe('interns', () => {
   });
 });
 
+describe('leisure', () => {
+  /** The checkout floor with these interns at sw-a1's desk. */
+  const withLeisure = (interns: Intern[]) => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns };
+    return makeFloor(checkouts);
+  };
+
+  it('flies a gintonic intern to a bar cart spot, holding its glass and lime, in its pose', () => {
+    const floor = withLeisure([leisureIntern('g1', 'gintonic')]);
+    const fs = sceneOf(floor);
+    const bot = fs.sessions.get('sw-a1')!.interns.get('g1')!;
+    expect(at(bot)).toEqual(spot(barCartSpots(floor.breakArea)[0]!));
+    expect([bot.kind, bot.rig.glass.visible, bot.rig.lime.visible, bot.rig.cup.visible]).toEqual(['intern', true, true, false]);
+  });
+
+  it('flies a biliardino pair to the foosball table, facing each other across it, holding no prop', () => {
+    const floor = withLeisure([leisureIntern('f1', 'biliardino'), leisureIntern('f2', 'biliardino')]);
+    const fs = sceneOf(floor);
+    const entry = fs.sessions.get('sw-a1')!;
+    const spots = foosballSpots(floor.breakArea);
+    expect(at(entry.interns.get('f1')!)).toEqual(spot(spots[0]!));
+    expect(at(entry.interns.get('f2')!)).toEqual(spot(spots[1]!));
+    expect(spots[0]!.facing).not.toBe(spots[1]!.facing);
+    for (const id of ['f1', 'f2']) {
+      const bot = entry.interns.get(id)!;
+      expect([bot.rig.glass.visible, bot.rig.cup.visible]).toEqual([false, false]);
+    }
+  });
+
+  it("flies a coffee intern to the coffee machine's one spot, holding its cup", () => {
+    const floor = withLeisure([leisureIntern('c1', 'coffee')]);
+    const fs = sceneOf(floor);
+    const bot = fs.sessions.get('sw-a1')!.interns.get('c1')!;
+    expect(at(bot)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+    expect([bot.rig.glass.visible, bot.rig.cup.visible]).toEqual([false, true]);
+  });
+
+  it('walks a room agent that waits for its siblings out to the break area, and still lets it pick its room there', () => {
+    const floor = roomFloor();
+    const key = roomKey({ hostSessionId: 'ps-d4', runId: 'wf_0000aaaa-001' });
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [...floor.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    const fs = sceneOf(floor);
+    const entry = fs.rooms.get(key)!;
+    const bot = entry.agents.get('wf_0000aaaa-001-c0')!;
+    expect(at(bot)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+    expect([bot.kind, bot.rig.cup.visible]).toEqual(['workflow', true]);
+    const picks = new Set(fs.pickables());
+    expect(bot.pickables.every((m) => picks.has(m) && m.userData.pick?.id === 'wf_0000aaaa-001')).toBe(true);
+  });
+
+  it('keeps each leisure robot at the spot it took first, and leaves one beyond the bar cart\'s four spots undrawn until a spot frees', () => {
+    const ids = ['g0', 'g1', 'g2', 'g3', 'g4'];
+    const fs = sceneOf(withLeisure(ids.slice(0, 4).map((id) => leisureIntern(id, 'gintonic'))));
+    const entry = fs.sessions.get('sw-a1')!;
+    const spots = barCartSpots(withLeisure([]).breakArea);
+    const first = ids.slice(0, 4).map((id) => entry.interns.get(id)!);
+    first.forEach((bot, i) => expect(at(bot)).toEqual(spot(spots[i]!)));
+    // A fifth beyond the cart's four spots is not drawn; the first four keep theirs.
+    fs.apply(withLeisure(ids.map((id) => leisureIntern(id, 'gintonic'))));
+    expect([entry.interns.size, entry.interns.has('g4')]).toEqual([4, false]);
+    first.forEach((bot, i) => expect(at(bot)).toEqual(spot(spots[i]!)));
+    // g0 resumes running: its spot frees, and g4 takes it, the lowest free.
+    fs.apply(withLeisure([{ ...leisureIntern('g0', 'gintonic'), running: true, leisure: null }, ...ids.slice(1).map((id) => leisureIntern(id, 'gintonic'))]), 1000);
+    fs.frame(60_000);
+    expect(at(entry.interns.get('g4')!)).toEqual(spot(spots[0]!));
+  });
+
+  it('flies an intern back to its hover spot once its leisure clears and it runs again, re-pathing from the bar cart', () => {
+    const fs = sceneOf(withLeisure([leisureIntern('g1', 'gintonic')]));
+    const entry = fs.sessions.get('sw-a1')!;
+    const bot = entry.interns.get('g1')!;
+    expect(bot.rig.glass.visible).toBe(true);
+    fs.apply(withLeisure([{ ...leisureIntern('g1', 'gintonic'), running: true, leisure: null }]), 1000);
+    expect(entry.interns.get('g1')).toBe(bot);
+    fs.frame(60_000);
+    expect(at(bot)).toEqual(spot(internSpots(entry.desk!)[0]!));
+    expect(bot.rig.glass.visible).toBe(false);
+  });
+
+  it('walks a room agent back from the coffee machine to the table once its leisure clears and it runs again', () => {
+    const floor = roomFloor();
+    const key = roomKey({ hostSessionId: 'ps-d4', runId: 'wf_0000aaaa-001' });
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [...floor.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    const fs = sceneOf(floor);
+    const entry = fs.rooms.get(key)!;
+    const bot = entry.agents.get('wf_0000aaaa-001-c0')!;
+    expect(bot.rig.cup.visible).toBe(true);
+    const back = roomFloor();
+    const orig = back.rooms[0]!.agents;
+    const resumed = { ...leisureAgent('wf_0000aaaa-001-c0', 'coffee'), running: true, leisure: null };
+    // Running agents first, then finished: the resumed one joins their end, as the 4th running.
+    back.rooms[0] = { ...back.rooms[0]!, agents: [...orig.slice(0, 3), resumed, ...orig.slice(3)], counts: { running: 4, finished: 2 } };
+    fs.apply(back, 1000);
+    expect(fs.rooms.get(key)!.agents.get('wf_0000aaaa-001-c0')).toBe(bot);
+    fs.frame(60_000);
+    const seats = seatSpots(back.rooms[0]!.rect);
+    expect(at(bot)).toEqual(spot(seats[3]!));
+    expect(bot.rig.cup.visible).toBe(false);
+  });
+
+  it("shares the coffee machine's one spot across desks and rooms alike: whichever took it first keeps it", () => {
+    const floor = roomFloor();
+    floor.pods[0]!.desks[0]!.occupant = { ...floor.pods[0]!.desks[0]!.occupant!, interns: [leisureIntern('i0', 'coffee')] };
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [...floor.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    const fs = sceneOf(floor);
+    const intern = fs.sessions.get('sw-a1')!.interns.get('i0')!;
+    const key = roomKey({ hostSessionId: 'ps-d4', runId: 'wf_0000aaaa-001' });
+    expect(fs.rooms.get(key)!.agents.has('wf_0000aaaa-001-c0')).toBe(false);
+    expect(at(intern)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+    // The intern's turn ends: the room agent, still waiting, now takes the spot it freed.
+    const next = roomFloor();
+    next.pods[0]!.desks[0]!.occupant = { ...next.pods[0]!.desks[0]!.occupant!, interns: [{ ...leisureIntern('i0', 'coffee'), running: true, leisure: null }] };
+    next.rooms[0] = { ...next.rooms[0]!, agents: [...next.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    fs.apply(next, 1000);
+    fs.frame(60_000);
+    expect(at(fs.rooms.get(key)!.agents.get('wf_0000aaaa-001-c0')!)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+  });
+});
+
 describe('walking', () => {
   /** A walk over this floor, from `from` to `to`, setting off at `start`. */
   const walk = (floor: Parameters<typeof walkGrid>[0], from: Point, to: Point, start: number): Trip => startTrip(from, findPath(walkGrid(floor), from, to), start, WALK_SPEED);
@@ -1289,6 +1412,17 @@ describe('loops at rest', () => {
     expect(Math.max(...steps)).toBeLessThan(0.004);
     expect([Math.min(...heights), Math.max(...heights)]).toEqual([expect.closeTo(HOVER_Y - LOOPS.hover.bob, 2), expect.closeTo(HOVER_Y + LOOPS.hover.bob, 2)]);
     expect(HOVER_BLEND_MS).toBe(300);
+  });
+
+  it('jiggles a biliardino intern\'s hands at the foosball table while loops are on, from its own phase', () => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: [leisureIntern('f1', 'biliardino')] };
+    const fs = sceneOf(makeFloor(checkouts));
+    fs.loops = true;
+    const robot = fs.sessions.get('sw-a1')!.interns.get('f1')!;
+    const look: Look = { pose: 'biliardino', badge: null };
+    fs.frame(5250);
+    expect(limbs(robot)).toEqual(expected(robot, look, { t: 5.25, phase: phaseOf(JSON.stringify(['intern', 'sw-a1', 'f1'])) }));
   });
 
   it('keeps the tag anchor of a robot at its place from frame to frame, and works it out again with each floor update', () => {

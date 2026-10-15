@@ -25,7 +25,7 @@
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
-import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot } from '../../src/scene/types';
+import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot, SceneLeisure } from '../../src/scene/types';
 import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
@@ -38,8 +38,11 @@ import { advance, doorsMoving, doorsNext, moveAll, settled, walkerAt, type Walke
 import {
   HOME_AZIMUTH,
   LABEL_Y,
+  barCartSpots,
+  coffeeMachineSpots,
   elevatorSpot,
   floorCenter,
+  foosballSpots,
   internSpots,
   isStanding,
   labelAnchor,
@@ -52,6 +55,7 @@ import {
   visibleWalls,
   type Point,
   type Point3,
+  type Spot,
 } from './world';
 
 /** What the shell depends on: the footprint, the core, each pod's id and rug, the lounge, the break area and every room slot. */
@@ -65,13 +69,13 @@ export interface SessionEntry {
   desk: PodDesk | null;
   /** Its robot while it is on the floor: none when its occupant is gone, or while it walks out to leave. */
   robot: RobotObject | null;
-  /** The robots of its running interns over its desk, by agent id. */
+  /** The robots of its running interns over its desk, and of its finished ones at leisure at the break area, by agent id. */
   readonly interns: Map<string, RobotObject>;
 }
 
 export interface RoomEntry {
   room: MeetingRoom;
-  /** The robots of the agents at the table, by agent id. */
+  /** The robots of the agents at the table, and of those finished and at leisure at the break area, by agent id. */
   readonly agents: Map<string, RobotObject>;
 }
 
@@ -173,6 +177,13 @@ export class FloorScene {
   /** Each room's seats by agent id, by room key; each session's intern spots by agent id, by session id. */
   private readonly roomSeats = new Map<string, Map<string, number>>();
   private readonly internSeats = new Map<string, Map<string, number>>();
+  /**
+   * The break area's own spots, each pool first-come across the whole floor (keepSeats), by the robot key
+   * (internKey/agentKey) of whichever sub-agent, over any desk or room, is at that leisure.
+   */
+  private gintonicSeats = new Map<string, number>();
+  private biliardinoSeats = new Map<string, number>();
+  private coffeeSeats = new Map<string, number>();
   /** The floor's sessions by id: those at a desk and those waiting for one. */
   private readonly entries = new Map<string, SessionEntry>();
   /** By roomKey. */
@@ -235,6 +246,7 @@ export class FloorScene {
   apply(floor: FloorDetail, now?: number): boolean {
     this.floor = floor;
     this.anchors.clear();
+    this.updateLeisureSeats(floor);
     if (now !== undefined) this.clock = now;
     const signature = layoutSignature(floor);
     const rebuild = signature !== this.signature;
@@ -455,6 +467,37 @@ export class FloorScene {
   }
 
   /**
+   * Keeps the break area's three pools of spots (bar cart, foosball table, coffee machine) first-come across the whole
+   * floor (seats.ts keepSeats), from every desk's interns and every room's agents that are at that leisure: nobody
+   * shuffles when another leaves, and a sub-agent beyond its pool's spots is not drawn there (desk-seated occupants
+   * only: an unseated one, like its own robot, has none either).
+   */
+  private updateLeisureSeats(floor: FloorDetail): void {
+    const ids: Record<SceneLeisure, string[]> = { gintonic: [], biliardino: [], coffee: [] };
+    const take = (key: string, leisure: SceneLeisure | null) => {
+      if (leisure) ids[leisure].push(key);
+    };
+    for (const pod of floor.pods) for (const desk of pod.desks) for (const i of desk.occupant?.interns ?? []) take(internKey(desk.occupant!.sessionId, i.agentId), i.leisure);
+    for (const room of floor.rooms) {
+      const key = roomKey(room);
+      for (const a of room.agents) take(agentKey(key, a.agentId), a.leisure);
+    }
+    this.gintonicSeats = keepSeats(this.gintonicSeats, ids.gintonic, barCartSpots(floor.breakArea).length);
+    this.biliardinoSeats = keepSeats(this.biliardinoSeats, ids.biliardino, foosballSpots(floor.breakArea).length);
+    this.coffeeSeats = keepSeats(this.coffeeSeats, ids.coffee, coffeeMachineSpots(floor.breakArea).length);
+  }
+
+  /** Where a sub-agent at this leisure, by its robot key, stands at the break area; undefined beyond its pool's spots. */
+  private leisureSpot(leisure: SceneLeisure, key: string): { seat: number; spot: Spot } | undefined {
+    const seats = leisure === 'gintonic' ? this.gintonicSeats : leisure === 'biliardino' ? this.biliardinoSeats : this.coffeeSeats;
+    const seat = seats.get(key);
+    if (seat === undefined) return undefined;
+    const spots = leisure === 'gintonic' ? barCartSpots(this.floor!.breakArea) : leisure === 'biliardino' ? foosballSpots(this.floor!.breakArea) : coffeeMachineSpots(this.floor!.breakArea);
+    const spot = spots[seat];
+    return spot ? { seat, spot } : undefined;
+  }
+
+  /**
    * Keeps the session's entry, and asks for its robot at its occupant's place, resting in the lounge, and for its running
    * interns over its desk, each on the spot it took first, in its robot's colours. A session that is gone, or waits for a
    * desk, has neither.
@@ -503,11 +546,34 @@ export class FloorScene {
         join: (r) => it.interns.set(agentId, r),
       });
     }
+    // A finished intern waiting for a running sibling, at leisure: it flies to the break area instead, its own pool's
+    // spot (leisureSpot), in the pose of its leisure; beyond its pool's spots it is not drawn.
+    for (const i of occupant.interns) {
+      if (!i.leisure) continue;
+      const b = this.leisureSpot(i.leisure, internKey(id, i.agentId));
+      if (!b) continue;
+      const look: Look = { pose: i.leisure, badge: null, body: robot.body, tie: robot.tie, smoking: i.smoking };
+      wanted.push({
+        id: internKey(id, i.agentId),
+        gait: 'fly',
+        place: `break ${i.leisure} ${b.seat}`,
+        to: b.spot,
+        kind: 'intern',
+        owner: id,
+        look,
+        name: `intern ${i.agentId}`,
+        run: null,
+        laptop: false,
+        join: (r) => it.interns.set(i.agentId, r),
+      });
+    }
   }
 
   /**
    * Asks for the running agents of a room at its table, as workflow robots in the room's colours that pick the room:
    * each keeps the seat it took first, a new one takes the lowest free seat, and those beyond the seats are not drawn.
+   * A finished agent waiting for a running sibling, at leisure, walks out to its own pool's spot at the break area
+   * instead, in the pose of its leisure, and still picks the room there.
    */
   private seatAgents(entry: RoomEntry, wanted: Cast[]): void {
     const { room } = entry;
@@ -518,6 +584,24 @@ export class FloorScene {
     const spots = seatSpots(room.rect);
     const look: Robot = { pose: 'typing', badge: null, body: room.look.body, tie: room.look.tie };
     const byAgent = new Map(room.agents.map((a) => [a.agentId, a]));
+    for (const a of room.agents) {
+      if (!a.leisure) continue;
+      const b = this.leisureSpot(a.leisure, agentKey(key, a.agentId));
+      if (!b) continue;
+      wanted.push({
+        id: agentKey(key, a.agentId),
+        gait: 'walk',
+        place: `break ${a.leisure} ${b.seat}`,
+        to: b.spot,
+        kind: 'workflow',
+        owner: a.agentId,
+        look: { pose: a.leisure, badge: null, body: room.look.body, tie: room.look.tie, smoking: a.smoking },
+        name: `agent ${a.agentId}`,
+        run: room.runId,
+        laptop: false,
+        join: (r) => entry.agents.set(a.agentId, r),
+      });
+    }
     for (const [agentId, seat] of seats) {
       wanted.push({
         id: agentKey(key, agentId),

@@ -83,9 +83,9 @@ export function standSpot(desk: Pick<PodDesk, 'rect' | 'chair'>): Spot {
   return { x: a.x + STAND_X, z: a.z + s * STAND_Z, facing: s === 1 ? 0 : Math.PI };
 }
 
-/** Poses that stand up from the desk; the others sit. */
+/** Poses that stand up from the desk; the others sit. Every leisure pose (robot.ts POSES) stands too: the break area has no chair. */
 export function isStanding(pose: Pose): boolean {
-  return pose === 'waving' || pose === 'holding';
+  return pose === 'waving' || pose === 'holding' || pose === 'gintonic' || pose === 'biliardino' || pose === 'coffee';
 }
 
 /**

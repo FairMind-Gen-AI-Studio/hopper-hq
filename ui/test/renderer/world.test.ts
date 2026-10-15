@@ -47,6 +47,7 @@ import {
   frustumFor,
   headSpot,
   internSpots,
+  isStanding,
   labelAnchor,
   loungeSpots,
   placardAnchor,
@@ -101,6 +102,10 @@ describe('world maths', () => {
     expect([up.facing]).toEqual([Math.PI]);
     expect(up.x).toBeCloseTo(4.6, 10);
     expect(up.z).toBeCloseTo(7.52, 10);
+    // Waving and holding stand up from the chair; typing, dozing and resting sit; every leisure pose stands too, at the
+    // break area, which has no chair.
+    expect((['typing', 'still', 'resting'] as const).map(isStanding)).toEqual([false, false, false]);
+    expect((['waving', 'holding', 'gintonic', 'biliardino', 'coffee'] as const).map(isStanding)).toEqual([true, true, true, true, true]);
     // Every spot stays inside the desk's own cells.
     for (const s of [seat, stand, north, up]) {
       expect(s.x).toBeGreaterThan(RECT.x);

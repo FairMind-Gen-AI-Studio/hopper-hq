@@ -12,6 +12,7 @@ import {
   type Place,
   type PodDesk,
   type Robot,
+  type SceneLeisure,
   type ShownState,
 } from '../../../src/scene/types';
 import { HOME_AZIMUTH, cameraOffset, floorCenter, frustumFor } from '../../renderer/world';
@@ -94,6 +95,16 @@ export interface RoomSpec {
   seated?: boolean;
   /** Its room slot; its place in the list of room specs by default. */
   slot?: number;
+}
+
+/** A finished intern waiting for a running sibling, at this leisure, over at the break area rather than its desk. */
+export function leisureIntern(agentId: string, leisure: SceneLeisure): Intern {
+  return { agentId, type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure };
+}
+
+/** A finished room agent waiting for a running sibling, at this leisure, over at the break area rather than the table. */
+export function leisureAgent(agentId: string, leisure: SceneLeisure): MeetingAgent {
+  return { agentId, label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure };
 }
 
 /** The phases of the demo's run, in its Build phase. */
