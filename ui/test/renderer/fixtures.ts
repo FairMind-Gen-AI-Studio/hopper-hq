@@ -60,6 +60,7 @@ export function makeOccupant(spec: DeskSpec, body: number, tie: number | null, c
     since: 1000,
     reason: null,
     activity: null,
+    smoking: false,
     agentsRunning: spec.agents ?? 0,
     summary: null,
     interns: spec.interns ?? [],
@@ -112,6 +113,8 @@ export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: numb
     phase: live ? 'Build' : 'Plan',
     type: 'workflow-subagent',
     running: live,
+    smoking: false,
+    leisure: null,
   });
   const agents = [...Array.from({ length: running }, (_, k) => agent(k, true)), ...Array.from({ length: finished }, (_, k) => agent(running + k, false))];
   return {
@@ -240,7 +243,7 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
  */
 export function fullestFloor(): FloorDetail {
   const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
-  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true, inRoom: false }));
+  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null }));
   const repos = ['storefront-web', 'orders-api', 'payments-svc', 'search-svc'];
   const checkouts = repos.map((repo, r): CheckoutSpec => ({
     key: `/demo/${repo}`,

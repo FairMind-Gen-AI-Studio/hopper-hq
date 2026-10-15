@@ -34,9 +34,9 @@ export function checkoutWithRoom(): FloorDetail {
     ],
     counts: { running: 2, finished: 1 },
     agents: [
-      { agentId: 'wf-agent-1', label: 'Implement the split ledger entries', phase: 'Build', type: 'workflow-subagent', running: true },
-      { agentId: 'wf-agent-2', label: 'Implement the refund path', phase: 'Build', type: 'workflow-subagent', running: true },
-      { agentId: 'wf-agent-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: false },
+      { agentId: 'wf-agent-1', label: 'Implement the split ledger entries', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null },
+      { agentId: 'wf-agent-2', label: 'Implement the refund path', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null },
+      { agentId: 'wf-agent-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: false, smoking: false, leisure: null },
     ],
     look: { body: host.robot!.body, tie: host.robot!.tie },
     rect: floor.roomSlots[0]!,

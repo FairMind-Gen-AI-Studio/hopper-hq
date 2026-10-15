@@ -255,6 +255,7 @@ function occupantOf(f: FloorSpec, c: CheckoutSpec, d: DeskSpec): Occupant {
     since: d.since,
     reason: d.reason ?? null,
     activity: d.activity ?? null,
+    smoking: false,
     agentsRunning: d.agents ?? 0,
     summary: null,
     interns: [],

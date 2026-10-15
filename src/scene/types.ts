@@ -5,7 +5,10 @@
  */
 import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 4;
+export const SCENE_VERSION = 5;
+
+/** What a waiting sub-agent is shown doing at leisure: a gin tonic, table football (paired), or a coffee break outside the leisure window. */
+export type SceneLeisure = 'gintonic' | 'biliardino' | 'coffee';
 
 /** States a desk can show. Ended sessions have left the building. */
 export type ShownState = Exclude<SessionState, 'ended'>;
@@ -109,6 +112,10 @@ export interface Intern {
   running: boolean;
   /** Running in its session's room, as part of its crew: it does not hover. */
   inRoom: boolean;
+  /** Its open tool is a smoke test: it holds a cigar. Only a running intern smokes. */
+  smoking: boolean;
+  /** What it is doing while it waits for a running sibling; null while it is running, or has no running sibling. */
+  leisure: SceneLeisure | null;
 }
 
 /** One run of a session, for its desk panel. */
@@ -129,6 +136,10 @@ export interface MeetingAgent {
   phase: string | null;
   type: string | null;
   running: boolean;
+  /** Its open tool is a smoke test: it holds a cigar. Only a running agent smokes. */
+  smoking: boolean;
+  /** What it is doing while it waits for a running sibling; null while it is running, or has no running sibling. */
+  leisure: SceneLeisure | null;
 }
 
 /** A running workflow run, or the crew of a session's running subagents: a room in the meeting wing of its host's floor. */
@@ -177,6 +188,8 @@ export interface Occupant {
   since: number;
   reason: SceneReason | null;
   activity: DeskActivity | null;
+  /** Its own open tool is a smoke test: it holds a cigar. Only while it is actually open (working or no_signal). */
+  smoking: boolean;
   /** Running subagents and workflow agents. */
   agentsRunning: number;
   summary: DeskSummary | null;

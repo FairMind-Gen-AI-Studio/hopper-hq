@@ -92,7 +92,7 @@ describe('the demo workflow run', () => {
         summary: 'Verify split payments end to end',
         phases: [{ title: 'Plan', state: 'current' }, { title: 'Build', state: 'upcoming' }, { title: 'Review', state: 'upcoming' }, { title: 'Ship', state: 'upcoming' }],
         counts: { running: 1, finished: 0 },
-        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: true }],
+        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: true, smoking: false, leisure: null }],
         look,
         rect: { x: 18, y: 2, w: 8, h: 6 },
         slot: 0,
