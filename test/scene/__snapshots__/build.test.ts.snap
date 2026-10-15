@@ -454,7 +454,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 5,
+      "version": 6,
     },
     {
       "breakArea": {
@@ -669,7 +669,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 5,
+      "version": 6,
     },
     {
       "breakArea": {
@@ -922,7 +922,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 5,
+      "version": 6,
     },
   ],
   "scene": {
@@ -1130,7 +1130,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         ],
       },
     ],
-    "version": 5,
+    "version": 6,
   },
 }
 `;
