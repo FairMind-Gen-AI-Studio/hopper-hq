@@ -127,6 +127,8 @@ export const SCREEN_GLASS = '#0a0a0a';
 export const DESK_OFF = 0.55;
 /** How dark the soft disc under a walking or flying robot is: a shadow's stand-in, the same by day and by night. */
 export const CONTACT_OPACITY = 0.22;
+/** The Fairmind brand's teal (fairmind-badge.ts): fixed, not a theme token — the badge keeps the brand's own colours by day and by night, as its mark does on fairmind.ai. */
+export const FAIRMIND_TEAL = '#2ec4a5';
 
 /** The colour a desk's screen glows in, by state; idle and dormant screens are off. */
 export const SCREEN_TOKEN: Record<ShownState, ColorToken | null> = {
@@ -152,6 +154,9 @@ export class Materials {
   readonly ring: MeshBasicMaterial;
   /** The soft disc on the floor under a robot on its way, in place of its shadow. */
   readonly contact: MeshBasicMaterial;
+  /** The Fairmind badge's disc and its mark (fairmind-badge.ts): fixed colour, outside the theme. */
+  readonly fairmindDisc: MeshBasicMaterial;
+  readonly fairmindMark: MeshBasicMaterial;
   private readonly recipes: Array<[MeshStandardMaterial, Recipe]> = [];
   private readonly bodies: MeshStandardMaterial[] = [];
   private readonly joints: MeshStandardMaterial[] = [];
@@ -177,6 +182,8 @@ export class Materials {
     this.screen = new MeshBasicMaterial();
     this.ring = new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
     this.contact = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: CONTACT_OPACITY, depthWrite: false });
+    this.fairmindDisc = new MeshBasicMaterial({ color: new Color(FAIRMIND_TEAL) });
+    this.fairmindMark = new MeshBasicMaterial({ color: 0xffffff });
     this.applyTheme(theme);
   }
 
@@ -225,7 +232,7 @@ export class Materials {
   }
 
   all(): Material[] {
-    return [...this.recipes.map(([m]) => m), this.screen, this.ring, this.contact];
+    return [...this.recipes.map(([m]) => m), this.screen, this.ring, this.contact, this.fairmindDisc, this.fairmindMark];
   }
 
   dispose(): void {

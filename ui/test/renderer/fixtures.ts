@@ -255,10 +255,13 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
  * running, and every running intern and room agent, and every occupant whose own open tool is a smoke test (`working` or
  * `no_signal`: `Occupant.smoking`'s own doc, src/scene/types.ts), holds a cigar — the real worst case for the cigar's
  * added meshes, not an arbitrary sample, so that the budget below is pinned to what a real floor could actually cost.
+ * Every intern and room agent is also typed to a Fairmind plugin, so every one of them wears the Fairmind badge
+ * (src/scene/fairmind.ts isFairmindAgent, ui/renderer/fairmind-badge.ts): the real worst case for its added meshes too.
  */
 export function fullestFloor(): FloorDetail {
   const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
-  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: true, leisure: null }));
+  const interns = (id: string): Intern[] =>
+    Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'fairmind-coding:Software Engineer', label: 'Find the callers', running: true, inRoom: false, smoking: true, leisure: null }));
   const repos = ['storefront-web', 'orders-api', 'payments-svc', 'search-svc'];
   const checkouts = repos.map((repo, r): CheckoutSpec => ({
     key: `/demo/${repo}`,
@@ -280,7 +283,10 @@ export function fullestFloor(): FloorDetail {
       if (desk.occupant && (desk.occupant.state === 'working' || desk.occupant.state === 'no_signal')) desk.occupant.smoking = true;
     }
   }
-  for (const room of floor.rooms) for (const agent of room.agents) agent.smoking = agent.running;
+  for (const room of floor.rooms) for (const agent of room.agents) {
+    agent.smoking = agent.running;
+    agent.type = 'fairmind-coding:QA Engineer';
+  }
   return floor;
 }
 

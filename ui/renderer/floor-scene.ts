@@ -26,6 +26,7 @@
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
 import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot, SceneLeisure } from '../../src/scene/types';
+import { attachFairmindBadge, orientFairmindBadge, setFairmindBadge } from './fairmind-badge';
 import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
@@ -114,6 +115,9 @@ interface Cast extends Wanted {
   run: string | null;
   /** It sits at a room's table, where its laptop is open before it. */
   laptop: boolean;
+  /** Its own agent type ('fairmind-coding:Software Engineer', 'Explore', …); null for a session, which carries none.
+   * Decides whether its robot wears the Fairmind badge (src/scene/fairmind.ts isFairmindAgent). */
+  type: string | null;
   /** Hands it to what keeps it: its session's entry, or its room's. */
   join(robot: RobotObject): void;
 }
@@ -135,6 +139,8 @@ interface Mover {
   /** How much of its bob an intern shows, 0 to 1, as of `hoverAt`: it grows at its place and dies away on its way. */
   hover: number;
   hoverAt: number;
+  /** Its Fairmind badge (fairmind-badge.ts), shown and turned to the camera while it is on; null for a session's own robot. */
+  badge: Group | null;
 }
 
 /** The keys walkers go by: a session's robot, a room's agent, a session's intern. */
@@ -524,7 +530,7 @@ export class FloorScene {
     const place = at.kind === 'lounge' ? `lounge ${at.seat}` : at.kind === 'room' ? `room ${at.slot}` : `desk ${desk.id} ${isStanding(robot.pose) ? 'stand' : 'seat'}`;
     const look: Look = { ...robot, smoking: occupant.smoking, ...(at.kind === 'lounge' ? { pose: 'resting' as const } : {}) };
     const near = at.kind === 'desk' ? `desk ${desk.id}` : undefined;
-    wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, laptop: at.kind === 'room', join: (r) => (it.robot = r) });
+    wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, laptop: at.kind === 'room', type: null, join: (r) => (it.robot = r) });
     const spots = internSpots(desk);
     const running = occupant.interns.filter((i) => i.running && !i.inRoom);
     const seats = keepSeats(this.internSeats.get(id) ?? new Map(), running.map((i) => i.agentId), Math.min(INTERNS_MAX, spots.length));
@@ -543,6 +549,7 @@ export class FloorScene {
         name: `intern ${agentId}`,
         run: null,
         laptop: false,
+        type: byAgent.get(agentId)?.type ?? null,
         join: (r) => it.interns.set(agentId, r),
       });
     }
@@ -564,6 +571,7 @@ export class FloorScene {
         name: `intern ${i.agentId}`,
         run: null,
         laptop: false,
+        type: i.type,
         join: (r) => it.interns.set(i.agentId, r),
       });
     }
@@ -599,6 +607,7 @@ export class FloorScene {
         name: `agent ${a.agentId}`,
         run: room.runId,
         laptop: false,
+        type: a.type,
         join: (r) => entry.agents.set(a.agentId, r),
       });
     }
@@ -614,6 +623,7 @@ export class FloorScene {
         name: `agent ${agentId}`,
         run: room.runId,
         laptop: true,
+        type: byAgent.get(agentId)?.type ?? null,
         join: (r) => entry.agents.set(agentId, r),
       });
     }
@@ -634,14 +644,16 @@ export class FloorScene {
         const robot = buildRobot(c.owner, c.look, this.geo, this.mats, c.kind);
         robot.group.name = c.name;
         if (c.run !== null) pickRoom(robot, c.run);
+        const badge = attachFairmindBadge(robot.group, c.kind, this.geo, this.mats);
         this.scene.add(robot.group);
-        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null, phase: phaseOf(c.id), laptop: c.laptop, posed: false, hover: 0, hoverAt: now };
+        mover = { robot, look: c.look, tag: c.kind === 'session' ? c.owner : null, walking: null, phase: phaseOf(c.id), laptop: c.laptop, posed: false, hover: 0, hoverAt: now, badge };
         this.movers.set(c.id, mover);
       }
       mover.look = { pose: c.look.pose, badge: c.look.badge };
       mover.laptop = c.laptop;
       // Toggled here, not per frame: it changes far less often than a pose, and never needs the robot rebuilt.
       setSmoking(mover.robot, Boolean(c.look.smoking));
+      setFairmindBadge(mover.badge, c.type);
     }
     for (const [key, mover] of this.movers) if (!this.walkers.has(key)) this.drop(key, mover);
     for (const [key, mover] of this.movers) this.place(mover, this.walkers.get(key)!, now);
@@ -666,12 +678,14 @@ export class FloorScene {
       mover.walking ??= this.lift(robot);
       mover.walking.disc.visible = at.shown;
       mover.walking.disc.position.set(at.x, CONTACT_Y, at.z);
+      orientFairmindBadge(mover.badge, robot.group.rotation.y, this.azimuth);
       return false;
     }
     robot.group.visible = true;
     poseRobot(robot, mover.look, w.to, mover.laptop);
     mover.posed = true;
     this.loop(mover, now);
+    orientFairmindBadge(mover.badge, robot.group.rotation.y, this.azimuth);
     return this.land(mover);
   }
 
