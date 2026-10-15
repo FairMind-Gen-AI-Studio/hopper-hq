@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three';
+import { PERSONAS } from '../../../src/scene/persona';
 import type { Pose, Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
@@ -130,6 +131,30 @@ describe('robots', () => {
     expect([obj.rig.glass.visible, obj.rig.lime.visible, obj.rig.cup.visible]).toEqual([false, false, false]);
   });
 
+  it("hides a persona's held prop over holding/gintonic/biliardino/coffee and on its way, keeping its headgear shown throughout", () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null, persona: 'qa' }, geo, mats);
+    const spot = { x: 0, z: 0, facing: 0 };
+    const cases: Array<[pose: Pose, held: boolean]> = [
+      ['typing', true],
+      ['still', true],
+      ['waving', true],
+      ['resting', true],
+      ['holding', false],
+      ['gintonic', false],
+      ['biliardino', false],
+      ['coffee', false],
+    ];
+    for (const [pose, held] of cases) {
+      poseRobot(obj, { pose, badge: null }, spot);
+      expect([obj.rig.persona.heldGroup.visible, obj.rig.persona.headgearGroup.visible], pose).toEqual([held, true]);
+    }
+    // On its way it holds nothing either, whatever its pose, but its headgear is still its silhouette.
+    poseRobot(obj, { pose: 'typing', badge: null }, spot);
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
+    expect([obj.rig.persona.heldGroup.visible, obj.rig.persona.headgearGroup.visible]).toEqual([false, true]);
+  });
+
   it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {
     const { geo, mats } = kit();
     const obj = buildRobot('s1', { pose: 'holding', badge: 'done', body: 0, tie: null }, geo, mats);
@@ -198,6 +223,22 @@ describe('robots', () => {
       expect(labelAnchor(floor, desk, occupant).y - box.max.y, name).toBeGreaterThan(0.2);
     }
     expect([...sides].sort()).toEqual(['north', 'south']);
+  });
+
+  it("stays inside its desk cell with every persona's accessories, headgear and held prop alike", () => {
+    const { floor, desk, occupant } = posed()[0]!;
+    const { geo, mats } = kit();
+    for (const persona of PERSONAS) {
+      const obj = buildRobot(occupant.sessionId, { ...occupant.robot!, persona }, geo, mats);
+      poseRobot(obj, occupant.robot!, placeSpot(floor, desk, occupant)!);
+      obj.rig.laptop.removeFromParent();
+      obj.group.updateMatrixWorld(true);
+      const box = new Box3().setFromObject(obj.group);
+      expect(box.min.x, persona).toBeGreaterThan(desk.rect.x);
+      expect(box.max.x, persona).toBeLessThan(desk.rect.x + desk.rect.w);
+      expect(box.min.z, persona).toBeGreaterThan(desk.rect.y);
+      expect(box.max.z, persona).toBeLessThan(desk.rect.y + desk.rect.h);
+    }
   });
 
   it('builds a workflow agent at 0.8, in a hard hat of the hard-hat colour, with its legs and its tie', () => {

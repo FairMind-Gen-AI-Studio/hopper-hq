@@ -10,7 +10,7 @@ import type { ColorToken, NumberToken, ThemeTokens } from './theme';
 
 /** How a material takes its colours from the theme. */
 interface Recipe {
-  color: ColorToken;
+  color?: ColorToken;
   roughness?: number;
   /** Mixes the colour toward a second token by this amount. */
   mix?: readonly [ColorToken, number];
@@ -20,6 +20,12 @@ interface Recipe {
   intensity?: NumberToken;
   /** See-through at this opacity, writing no depth: glass. */
   opacity?: number;
+  /**
+   * A '#rrggbb' colour set once and never touched again, in place of a theme token: for a persona's outfit colour
+   * (ui/renderer/persona.ts, user-decisions.md OQ-3) that has no token close enough to reuse and must read the same
+   * by day and by night, rather than shift with the theme as every other surface does.
+   */
+  fixed?: string;
 }
 
 /** How much of the repo colour a rug takes over the floor colour. */
@@ -68,6 +74,23 @@ const SURFACES = {
   cigarTip: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
   /** The smoke puffs: thick, off-white, smoke signals. Shared by every robot (robot.ts fades it by scale, not opacity). */
   smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.6 },
+  /**
+   * Persona outfit colours (ui/renderer/persona.ts, user-decisions.md OQ-3): a role recolours a sub-agent's body,
+   * the tie staying in the feature colour. Appended at the end, additive, so as not to disturb the recipes above.
+   * Most personas reuse an existing surface outright (persona.ts's PERSONA_BODY_SURFACE: security->monitor,
+   * reviewer->leg, qa->wood, developer->jet, generalist->chair) rather than a new entry here; these five have no
+   * token close enough to reuse. Debugger's hazmat yellow is the working state's amber, same token, same emissive-free
+   * recipe pattern, still fully theme-aware; the rest are `fixed`, a shade the theme never touches, because nothing in
+   * the existing palette reads as olive drab, burgundy, a pale smock or navy without a theme token dedicated to it.
+   */
+  outfitDebugger: { color: 's-working', roughness: 0.55 },
+  outfitTechlead: { fixed: '#5c5f3a', roughness: 0.55 },
+  outfitLibrarian: { fixed: '#6b2737', roughness: 0.55 },
+  outfitDesigner: { fixed: '#e8e4d8', roughness: 0.55 },
+  outfitExplorer: { fixed: '#9c8f5e', roughness: 0.55 },
+  outfitPlanner: { fixed: '#1f3350', roughness: 0.55 },
+  /** The boss's mug and watch (user-decisions.md OQ-1): the working state's amber again, shinier, as gold. */
+  bossGold: { color: 's-working', roughness: 0.3 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;
@@ -112,6 +135,8 @@ export class Materials {
   /** The soft disc on the floor under a robot on its way, in place of its shadow. */
   readonly contact: MeshBasicMaterial;
   private readonly recipes: Array<[MeshStandardMaterial, Recipe]> = [];
+  /** Materials made with a `fixed` colour (persona outfits with no token close enough): never touched by applyTheme. */
+  private readonly fixedMaterials: MeshStandardMaterial[] = [];
   private readonly bodies: MeshStandardMaterial[] = [];
   private readonly joints: MeshStandardMaterial[] = [];
   private readonly rugs: MeshStandardMaterial[] = [];
@@ -165,10 +190,10 @@ export class Materials {
     return this.screens.get(SCREEN_TOKEN[state])!;
   }
 
-  /** Recolours every material in place. */
+  /** Recolours every material in place; a `fixed` one (persona outfits) is never in `recipes` and so never touched. */
   applyTheme(theme: ThemeTokens): void {
     for (const [m, r] of this.recipes) {
-      m.color.set(theme.colors[r.color]);
+      m.color.set(theme.colors[r.color!]);
       if (r.mix) m.color.lerp(this.mixer.set(theme.colors[r.mix[0]]), r.mix[1]);
       if (r.shade !== undefined) m.color.multiplyScalar(r.shade);
       if (r.emissive && r.intensity) {
@@ -184,7 +209,7 @@ export class Materials {
   }
 
   all(): Material[] {
-    return [...this.recipes.map(([m]) => m), this.screen, this.ring, this.contact];
+    return [...this.recipes.map(([m]) => m), ...this.fixedMaterials, this.screen, this.ring, this.contact];
   }
 
   dispose(): void {
@@ -193,6 +218,11 @@ export class Materials {
 
   private make(recipe: Recipe): MeshStandardMaterial {
     const m = new MeshStandardMaterial({ roughness: recipe.roughness ?? 0.85, metalness: 0 });
+    if (recipe.fixed) {
+      m.color.set(recipe.fixed);
+      this.fixedMaterials.push(m);
+      return m;
+    }
     if (recipe.opacity !== undefined) {
       m.transparent = true;
       m.opacity = recipe.opacity;

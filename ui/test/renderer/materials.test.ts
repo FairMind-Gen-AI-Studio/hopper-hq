@@ -152,14 +152,44 @@ describe('materials', () => {
     expect(hex(m.surface.couch.color)).toBe('#8e5a47');
   });
 
+  it("gives a persona outfit either a theme token (debugger's hazmat amber, the working state's) or a fixed shade the theme never touches", () => {
+    const m = new Materials(dayTheme());
+    const theme = dayTheme();
+    expect(hex(m.surface.outfitDebugger.color)).toBe(theme.colors['s-working']);
+    expect(hex(m.surface.bossGold.color)).toBe(theme.colors['s-working']);
+    expect(m.surface.bossGold).not.toBe(m.surface.outfitDebugger);
+    for (const [name, shade] of [
+      ['outfitTechlead', '#5c5f3a'],
+      ['outfitLibrarian', '#6b2737'],
+      ['outfitDesigner', '#e8e4d8'],
+      ['outfitExplorer', '#9c8f5e'],
+      ['outfitPlanner', '#1f3350'],
+    ] as const) {
+      expect(hex(m.surface[name].color), name).toBe(shade);
+    }
+    m.applyTheme(nightTheme());
+    expect(hex(m.surface.outfitDebugger.color)).toBe('#ffd27a');
+    expect(hex(m.surface.bossGold.color)).toBe('#ffd27a');
+    for (const [name, shade] of [
+      ['outfitTechlead', '#5c5f3a'],
+      ['outfitLibrarian', '#6b2737'],
+      ['outfitDesigner', '#e8e4d8'],
+      ['outfitExplorer', '#9c8f5e'],
+      ['outfitPlanner', '#1f3350'],
+    ] as const) {
+      expect(hex(m.surface[name].color), name).toBe(shade);
+    }
+  });
+
   it('frees every material once', () => {
     const m = new Materials(dayTheme());
     let freed = 0;
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(35 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
+    // The surfaces (incl. the 5 persona outfits and the boss's gold, appended at the end), a body, joint and rug per
+    // repo slot, the ties, the screens, the ring and the contact disc.
+    expect(m.all().length).toBe(42 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

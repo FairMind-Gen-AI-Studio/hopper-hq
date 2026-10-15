@@ -2,16 +2,21 @@ import { describe, expect, it } from 'vitest';
 import type { InstancedMesh, Mesh, Object3D } from 'three';
 import { BLOCKS_MAX, BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, ROOMS_MAX, SEATS_MAX } from '../../../src/scene/layout';
 import { FloorScene } from '../../renderer/floor-scene';
+import { PERSONA_MESHES } from '../../renderer/persona';
 import { dayTheme } from '../../renderer/theme';
 import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixtures';
 
 /**
- * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
- * rounded down. With every running intern, room agent and working/no_signal occupant holding a cigar (its tip and puff,
- * none of them a shadow caster), it shows 3,388 meshes and 36 instanced meshes, which draw 580 instances, in 3,424 draw
- * calls, and 443 of them cast a shadow — the cigar adds meshes and draws, never a shadow caster.
+ * What a frame of the fullest floor costs (design §7.1), re-measured for the personas (hq-agent-personas TP2): every
+ * session robot now wears the boss persona (user-decisions.md OQ-1, two held meshes, no headgear) and every running
+ * intern is 'Explore' (persona.ts, three meshes: a pith helmet and binoculars) — room and leisure agents stay
+ * 'workflow-subagent', persona 'none', unchanged. As measured, with a tenth to spare, rounded down: with every running
+ * intern, room agent and working/no_signal occupant also holding a cigar (its tip and puff, none of them a shadow
+ * caster), it shows 3,585 meshes and 172 instanced meshes (36 of the shell's own, 136 of them a smoking robot's puff),
+ * which draw 1,532 instances, in 3,757 draw calls, and 443 of them cast a shadow — the cigar and the personas both add
+ * meshes and draws, neither ever a shadow caster.
  */
-const BUDGET = { meshes: 3726, draws: 3766, casters: 487 };
+const BUDGET = { meshes: 3943, draws: 4132, casters: 487 };
 /**
  * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 187 draw calls, 151 meshes
  * and 36 instanced meshes drawing 580 instances, and 29 of them cast a shadow. Robots make most of a frame's draws, so the
@@ -97,10 +102,13 @@ describe('the budget of the fullest floor', () => {
 /**
  * The break area at its full capacity (design §7.1, OQ-1..OQ-3): four interns at the bar cart with their glass and
  * lime, a pair at the foosball table and one at the coffee machine with its cup, over checkoutFloor's own desks and
- * robots. What the whole scene then costs, as measured (357 draw calls, 66 shadow casters), with a tenth to spare,
- * rounded down.
+ * robots. Re-measured for the personas (hq-agent-personas TP2): the seven leisure interns are 'Explore' and keep
+ * their headgear at leisure (held prop hidden there, like the glass/lime/cup — design: held prop vs right-hand
+ * props), and checkoutFloor's own session robots now wear the boss persona. What the whole scene then costs, as
+ * measured (381 draw calls, 66 shadow casters — unchanged: no persona accessory casts a shadow), with a tenth to
+ * spare, rounded down.
  */
-const LEISURE_BUDGET = { draws: 392, casters: 72 };
+const LEISURE_BUDGET = { draws: 419, casters: 72 };
 
 /**
  * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven
@@ -129,5 +137,12 @@ describe('the budget of the break area at leisure', () => {
     const cost = costOf(fs.scene);
     expect(cost.draws).toBeLessThanOrEqual(LEISURE_BUDGET.draws);
     expect(cost.casters).toBeLessThanOrEqual(LEISURE_BUDGET.casters);
+  });
+});
+
+describe('the per-persona accessory budget', () => {
+  it('keeps every persona, including the boss, at 4 meshes or fewer (design: ≤4 meshes/persona)', () => {
+    expect(Math.max(...Object.values(PERSONA_MESHES))).toBeLessThanOrEqual(4);
+    expect(PERSONA_MESHES.none).toBe(0);
   });
 });
