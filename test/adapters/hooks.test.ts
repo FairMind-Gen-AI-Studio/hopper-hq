@@ -130,6 +130,13 @@ describe('mapHookPayload edge cases', () => {
       .toEqual([expect.objectContaining({ type: 'waiting', agentId: 'a1' })]);
   });
 
+  it('flags a smoke-test Bash or Skill call, main or subagent, and omits the field otherwise', () => {
+    const pre = (extra: Record<string, unknown>) => mapHookPayload({ ...p, hook_event_name: 'PreToolUse', ...extra }, NOW)[0];
+    expect(pre({ tool_name: 'Bash', tool_input: { command: 'npm run test:smoke' } })).toMatchObject({ type: 'tool.started', smoke: true });
+    expect(pre({ tool_name: 'Bash', tool_input: { command: 'npm test' } })).not.toHaveProperty('smoke');
+    expect(pre({ agent_id: 'a1', tool_name: 'Skill', tool_input: { skill: 'smoke-check' } })).toMatchObject({ type: 'tool.started', agentId: 'a1', smoke: true });
+  });
+
   it('cleans the text of a wait first, and falls back to a default when nothing is left', () => {
     const reason = (extra: Record<string, unknown>) => (mapHookPayload({ ...p, ...extra }, NOW)[0] as { reason?: unknown }).reason;
     expect(reason({ hook_event_name: 'PermissionRequest', tool_name: 'Ba\u001b[2Ksh\u202E' })).toEqual({ kind: 'permission', text: 'Ba[2Ksh', detail: 'Ba[2Ksh' });

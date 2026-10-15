@@ -1,5 +1,5 @@
 import { ANSWER_MAX } from '../../core/reducer.js';
-import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
+import { isSmokeTest, toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
 import { cleanOrNull } from '../../scene/text.js';
 
@@ -111,7 +111,10 @@ export function parseTranscriptLine(line: string, sessionId: string, cwdHint?: s
       if (!b || b.type !== 'tool_use' || typeof b.name !== 'string') continue;
       const wait = waitingFromTool(b.name, b.input);
       if (wait) out.events.push({ ...base, type: 'waiting', reason: wait, agentId: null });
-      else out.events.push({ ...base, type: 'tool.started', toolId: typeof b.id === 'string' ? b.id : null, tool: b.name, label: toolLabel(b.name, b.input, out.cwd ?? cwdHint), agentId: null });
+      else {
+        const smoke = isSmokeTest(b.name, b.input);
+        out.events.push({ ...base, type: 'tool.started', toolId: typeof b.id === 'string' ? b.id : null, tool: b.name, label: toolLabel(b.name, b.input, out.cwd ?? cwdHint), agentId: null, ...(smoke ? { smoke: true } : {}) });
+      }
     }
   }
   return out;

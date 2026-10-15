@@ -68,6 +68,17 @@ describe('workflow runs', () => {
     expect(s.runs[0]).toMatchObject({ agentsFinished: 1, agents: [{ running: false, updatedAt: 1400 }] });
   });
 
+  it('flags a run agent smoking on a smoke tool.started, and clears it on tool.finished or agent.finished', () => {
+    let s = run(seen(), hookAgent(1100, 'a1'), ev('tool.started', 1200, { toolId: 'c1', tool: 'Bash', label: 'Bash: smoke', agentId: 'a1', smoke: true }));
+    expect(s.runs[0]!.agents).toEqual([expect.objectContaining({ id: 'a1', smoking: true })]);
+    s = applyEvent(s, ev('tool.finished', 1300, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    expect(s.runs[0]!.agents[0]!.smoking).toBeFalsy();
+
+    let t = run(seen(), hookAgent(1100, 'a2'), ev('tool.started', 1200, { toolId: 'c2', tool: 'Bash', label: 'Bash: smoke', agentId: 'a2', smoke: true }));
+    t = applyEvent(t, ev('agent.finished', 1300, { agentId: 'a2' }))!;
+    expect(t.runs[0]!.agents[0]!.smoking).toBeFalsy();
+  });
+
   it("moves an agent whose tool event came before its spawn from the children to its run, and makes no child for its later steps", () => {
     let s = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'Grep', label: 'Grep useCart', agentId: 'a1' }));
     expect(s.children.map((c) => c.id)).toEqual(['a1']);

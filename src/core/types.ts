@@ -49,12 +49,16 @@ export interface ChildAgent {
    * may start it again on a transcript written before its last update.
    */
   restored?: boolean;
+  /** Its running tool is a smoke test. Absent/false once the tool it was set from closes. */
+  smoking?: boolean;
 }
 
 export interface OpenTool {
   id: string | null;
   label: string;
   startedAt: number;
+  /** The open tool is a smoke test. */
+  smoking?: boolean;
 }
 
 export type RunStatus = 'running' | 'completed' | 'failed' | 'killed';
@@ -71,6 +75,8 @@ export interface RunAgent {
   running: boolean;
   startedAt: number;
   updatedAt: number;
+  /** Its running tool is a smoke test. Absent/false once the tool it was set from closes. */
+  smoking?: boolean;
 }
 
 /** A workflow run a session started (design §5). */
@@ -183,7 +189,7 @@ export type CollectorEvent = EventBase &
     | { type: 'branch'; branch: string | null }
     | { type: 'title'; title: string }
     | { type: 'prompt'; text: string | null }
-    | { type: 'tool.started'; toolId: string | null; tool: string; label: string; agentId: string | null }
+    | { type: 'tool.started'; toolId: string | null; tool: string; label: string; agentId: string | null; smoke?: boolean }
     | { type: 'tool.finished'; toolId: string | null; ok: boolean; agentId: string | null }
     | { type: 'waiting'; reason: WaitReason; agentId: string | null }
     | { type: 'turn.finished'; backgroundTasks: number }
