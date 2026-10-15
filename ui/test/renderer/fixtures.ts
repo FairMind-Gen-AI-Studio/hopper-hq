@@ -239,11 +239,14 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
  * The fullest floor (design §7.1): four checkouts of BLOCK_DESKS sessions take every desk of four blocks. Each checkout's
  * first session hosts a run at the head of its room's table, with SEATS_MAX agents at it, so that every room slot is open;
  * its next two rest in the lounge, which fills; the others work, need you, are done or lost their signal, but for the
- * very last, dormant, whose desk has its nameplate. INTERNS_MAX interns fly over every other desk.
+ * very last, dormant, whose desk has its nameplate. INTERNS_MAX interns fly over every other desk, every one of them
+ * running, and every running intern and room agent, and every occupant whose own open tool is a smoke test (`working` or
+ * `no_signal`: `Occupant.smoking`'s own doc, src/scene/types.ts), holds a cigar — the real worst case for the cigar's
+ * added meshes, not an arbitrary sample, so that the budget below is pinned to what a real floor could actually cost.
  */
 export function fullestFloor(): FloorDetail {
   const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
-  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null }));
+  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: true, leisure: null }));
   const repos = ['storefront-web', 'orders-api', 'payments-svc', 'search-svc'];
   const checkouts = repos.map((repo, r): CheckoutSpec => ({
     key: `/demo/${repo}`,
@@ -259,7 +262,14 @@ export function fullestFloor(): FloorDetail {
     }),
   }));
   const rooms = checkouts.map((c, slot): RoomSpec => ({ runId: `wf_0000aaaa-00${slot + 1}`, host: c.desks[0]!.id, running: SEATS_MAX, finished: 4, seated: true, slot }));
-  return makeFloor(checkouts, 'feature:checkout-v2', rooms);
+  const floor = makeFloor(checkouts, 'feature:checkout-v2', rooms);
+  for (const pod of floor.pods) {
+    for (const desk of pod.desks) {
+      if (desk.occupant && (desk.occupant.state === 'working' || desk.occupant.state === 'no_signal')) desk.occupant.smoking = true;
+    }
+  }
+  for (const room of floor.rooms) for (const agent of room.agents) agent.smoking = agent.running;
+  return floor;
 }
 
 /** Every session at a desk, with its desk, in desk order. */

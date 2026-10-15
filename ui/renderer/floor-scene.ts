@@ -30,7 +30,7 @@ import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
 import { Geometries, buildNameplate, buildShell, setDoors, updateDesk, updatePod, updateRoom, type Nameplate, type PickData, type Shell } from './props';
-import { HOVER_Y, KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, strideRobot, type RobotKind, type RobotObject } from './robot';
+import { HOVER_Y, KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, setSmoking, strideRobot, type Look, type RobotKind, type RobotObject } from './robot';
 import { keepSeats } from './seats';
 import type { ThemeTokens } from './theme';
 import { walkGrid } from './walk';
@@ -103,7 +103,7 @@ interface Cast extends Wanted {
   kind: RobotKind;
   /** The id it is built with: its session's, or a room agent's own. */
   owner: string;
-  look: Robot;
+  look: Look;
   /** Its object's name. */
   name: string;
   /** The run whose room a click on it picks; null: it picks its session. */
@@ -479,13 +479,15 @@ export class FloorScene {
     }
     const at = occupant.at;
     const place = at.kind === 'lounge' ? `lounge ${at.seat}` : at.kind === 'room' ? `room ${at.slot}` : `desk ${desk.id} ${isStanding(robot.pose) ? 'stand' : 'seat'}`;
-    const look = at.kind === 'lounge' ? { ...robot, pose: 'resting' as const } : robot;
+    const look: Look = { ...robot, smoking: occupant.smoking, ...(at.kind === 'lounge' ? { pose: 'resting' as const } : {}) };
     const near = at.kind === 'desk' ? `desk ${desk.id}` : undefined;
     wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, laptop: at.kind === 'room', join: (r) => (it.robot = r) });
     const spots = internSpots(desk);
-    const seats = keepSeats(this.internSeats.get(id) ?? new Map(), occupant.interns.filter((i) => i.running && !i.inRoom).map((i) => i.agentId), Math.min(INTERNS_MAX, spots.length));
+    const running = occupant.interns.filter((i) => i.running && !i.inRoom);
+    const seats = keepSeats(this.internSeats.get(id) ?? new Map(), running.map((i) => i.agentId), Math.min(INTERNS_MAX, spots.length));
     this.internSeats.set(id, seats);
     const crew: Robot = { pose: 'still', badge: null, body: robot.body, tie: robot.tie };
+    const byAgent = new Map(running.map((i) => [i.agentId, i]));
     for (const [agentId, seat] of seats) {
       wanted.push({
         id: internKey(id, agentId),
@@ -494,7 +496,7 @@ export class FloorScene {
         to: spots[seat]!,
         kind: 'intern',
         owner: id,
-        look: crew,
+        look: { ...crew, smoking: byAgent.get(agentId)?.smoking ?? false },
         name: `intern ${agentId}`,
         run: null,
         laptop: false,
@@ -515,6 +517,7 @@ export class FloorScene {
     this.roomSeats.set(key, seats);
     const spots = seatSpots(room.rect);
     const look: Robot = { pose: 'typing', badge: null, body: room.look.body, tie: room.look.tie };
+    const byAgent = new Map(room.agents.map((a) => [a.agentId, a]));
     for (const [agentId, seat] of seats) {
       wanted.push({
         id: agentKey(key, agentId),
@@ -523,7 +526,7 @@ export class FloorScene {
         to: spots[seat]!,
         kind: 'workflow',
         owner: agentId,
-        look,
+        look: { ...look, smoking: byAgent.get(agentId)?.smoking ?? false },
         name: `agent ${agentId}`,
         run: room.runId,
         laptop: true,
@@ -553,6 +556,8 @@ export class FloorScene {
       }
       mover.look = { pose: c.look.pose, badge: c.look.badge };
       mover.laptop = c.laptop;
+      // Toggled here, not per frame: it changes far less often than a pose, and never needs the robot rebuilt.
+      setSmoking(mover.robot, Boolean(c.look.smoking));
     }
     for (const [key, mover] of this.movers) if (!this.walkers.has(key)) this.drop(key, mover);
     for (const [key, mover] of this.movers) this.place(mover, this.walkers.get(key)!, now);

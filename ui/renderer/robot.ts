@@ -16,6 +16,15 @@ export const BOT = { hip: 0.34, torso: 0.36, shoulderX: 0.22, legX: 0.09, arm: 0
 
 /** A session's own robot, a workflow agent at a meeting table, or an intern hovering by its desk. */
 export type RobotKind = 'session' | 'intern' | 'workflow';
+
+/**
+ * A robot's look, as the renderer builds and poses it: `Robot` (the wire type, outline §2.6) plus
+ * whether it holds a lit cigar. `smoking` stays out of the shared `Robot` type — it never goes over
+ * the wire on its own; the server sends it as `Occupant`/`Intern`/`MeetingAgent.smoking` instead
+ * (src/scene/types.ts) and the renderer folds it in here. Optional, so every existing look literal
+ * that has no `smoking` field still reads as not smoking.
+ */
+export type Look = Robot & { smoking?: boolean };
 /** How big each kind stands. */
 export const KIND_SCALE: Readonly<Record<RobotKind, number>> = { session: 1, intern: 0.55, workflow: 0.8 };
 /** How high an intern floats: its feet would be here, and its body above the top of the desk's monitor. */
@@ -69,7 +78,28 @@ export interface RobotRig {
   paper: Mesh;
   /** A laptop on the meeting table in front of the robot: shown only while it sits at a room's table. */
   laptop: Group;
+  /** The cigar at the monitor-head's mouth, its lit tip and its smoke puff: shown while its look holds one (setSmoking), in any pose. */
+  cigar: Group;
+  /** The smoke puff above the cigar's tip: rises and shrinks back on a sine (animateRobot) while the cigar shows; still otherwise. */
+  puff: Mesh;
 }
+
+/**
+ * The cigar at the monitor-head's mouth, in the neck's frame (prototypes/floor-3d-mockup.html has
+ * no equivalent: a running joke, "mega sigaro"): a short fat cylinder jutting forward from below
+ * the visor, a small glowing tip at its end, sized to clear the head's own front face (the visor
+ * reaches to z 0.141) without pushing a robot's bounding box past its desk cell.
+ */
+export const CIGAR = { r: 0.022, len: 0.08, y: 0.165, z: 0.16 } as const;
+/** The lit tip, just past the cigar's far end. */
+export const CIGAR_TIP = { r: 0.013, z: CIGAR.z + CIGAR.len / 2 + 0.006 } as const;
+/**
+ * The smoke puff above the tip: one small ball that rises `rise` m over `1/rate` seconds and back
+ * to its base, its scale a sine of the same period so it grows from and shrinks back to nothing —
+ * the only way to "fade" a mesh that shares its material with every other robot's puff (materials.ts),
+ * and cheap enough that the reset at each cycle's ends is never seen (it is scaled to ~0 there).
+ */
+export const PUFF = { r: 0.02, rise: 0.09, rate: 1.1, y: CIGAR.y + 0.03, z: CIGAR_TIP.z + 0.01 } as const;
 
 /** Where a seated robot's laptop stands, in metres: on the table (its top, 0.78 high), this far ahead of the robot's seat. */
 export const LAPTOP = { top: 0.78, ahead: 0.6, w: 0.3, d: 0.22, tilt: 0.3 } as const;
@@ -90,7 +120,7 @@ export interface RobotObject {
  * and jetpack would cost a draw each for a texel or two of shadow. An intern casts none: small, and high above the floor,
  * it would leave only specks.
  */
-export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mats: Materials, kind: RobotKind = 'session'): RobotObject {
+export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats: Materials, kind: RobotKind = 'session'): RobotObject {
   const s = mats.surface;
   const small = { cast: false };
   const body = mats.body(robot.body);
@@ -140,6 +170,15 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
       part(waist, geo.rod(0.03, 0.05, 0.08), s.shell, x, BOT.torso / 2 - 0.16, -0.16, small);
     }
   }
+  // The cigar at the mouth, below the visor: its body, its lit tip, and the puff above it. One group so that
+  // setSmoking toggles all three together; hidden until its look says otherwise.
+  const cigar = new Group();
+  cigar.name = 'cigar';
+  cigar.visible = Boolean(robot.smoking);
+  neck.add(cigar);
+  part(cigar, geo.rod(CIGAR.r, CIGAR.r, CIGAR.len), s.cigarBody, 0, CIGAR.y, CIGAR.z, { rx: Math.PI / 2, cast: false });
+  part(cigar, geo.ball(CIGAR_TIP.r), s.cigarTip, 0, CIGAR.y, CIGAR_TIP.z, small);
+  const puff = part(cigar, geo.ball(PUFF.r), s.smokePuff, 0, PUFF.y, PUFF.z, small);
   // The tie: a knot and a tapered blade, in the feature colour.
   const knotY = BOT.torso - 0.05;
   part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
@@ -157,7 +196,12 @@ export function buildRobot(sessionId: string, robot: Robot, geo: Geometries, mat
       pickables.push(o as Mesh);
     }
   });
-  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop }, body: robot.body, tie: robot.tie, pickables };
+  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff }, body: robot.body, tie: robot.tie, pickables };
+}
+
+/** Shows or hides a robot's cigar (and its tip and puff with it), in any pose, without rebuilding it. */
+export function setSmoking(obj: RobotObject, on: boolean): void {
+  obj.rig.cigar.visible = on;
 }
 
 /**
@@ -264,6 +308,14 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
   const s = Math.sin(t * LOOPS[loop].rate + phase);
   const spec = poseOf(robot);
   const r = obj.rig;
+  if (r.cigar.visible) {
+    // A puff rises PUFF.rise over 1/PUFF.rate seconds and starts again, its scale a sine of the same period (0 at
+    // either end): the reset at the bottom is never seen, scaled to nothing. phase (radians, [0, 2π)) offsets it by
+    // the same fraction of a cycle as it does the other loops' sines, so puffs next to each other stay out of step.
+    const frac = (((t * PUFF.rate + phase / (2 * Math.PI)) % 1) + 1) % 1;
+    r.puff.position.y = PUFF.y + frac * PUFF.rise;
+    r.puff.scale.setScalar(Math.sin(frac * Math.PI));
+  }
   switch (loop) {
     case 'type':
       r.armL.rotation.x = spec.armL[0] + s * LOOPS.type.arm;

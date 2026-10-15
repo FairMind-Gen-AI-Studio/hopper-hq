@@ -11,6 +11,7 @@ import {
   LAPTOP,
   LOOPS,
   POSES,
+  PUFF,
   STRIDE,
   animateRobot,
   buildRobot,
@@ -19,6 +20,7 @@ import {
   poseOf,
   poseRobot,
   rootHeight,
+  setSmoking,
   strideRobot,
   type Loop,
   type RobotKind,
@@ -297,6 +299,93 @@ describe('robots', () => {
     buildRobot('e', { pose: 'typing', badge: null, body: 4, tie: null }, geo, mats, 'workflow');
     buildRobot('f', { pose: 'still', badge: null, body: 6, tie: 0 }, geo, mats, 'intern');
     expect(geo.size).toBe(kinds);
+  });
+});
+
+describe('the cigar', () => {
+  const look = { pose: 'typing', badge: 'typing', body: 0, tie: null } as const;
+
+  it('shows while its look says smoking, hidden otherwise (the default, with the field left out), on every kind', () => {
+    const { geo, mats } = kit();
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      expect(buildRobot('s-on', { ...look, smoking: true }, geo, mats, kind).rig.cigar.visible, kind).toBe(true);
+      expect(buildRobot('s-off', { ...look, smoking: false }, geo, mats, kind).rig.cigar.visible, kind).toBe(false);
+      expect(buildRobot('s-unset', look, geo, mats, kind).rig.cigar.visible, kind).toBe(false);
+    }
+  });
+
+  it('lights in every pose, and while striding, since a smoke test can be running in any of them', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, smoking: true }, geo, mats);
+    for (const pose of Object.keys(POSES) as Array<keyof typeof POSES>) {
+      poseRobot(obj, { pose, badge: null }, { x: 0, z: 0, facing: 0 });
+      expect(obj.rig.cigar.visible, pose).toBe(true);
+    }
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0.3);
+    expect(obj.rig.cigar.visible).toBe(true);
+  });
+
+  it('casts no shadow, from its body, its tip or its puff, on any kind', () => {
+    const { geo, mats } = kit();
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = buildRobot('s1', { ...look, smoking: true, body: 2, tie: 3 }, geo, mats, kind);
+      const before = obj.pickables.filter((m) => m.castShadow).length;
+      obj.rig.cigar.traverse((o) => {
+        if ((o as Mesh).isMesh) expect((o as Mesh).castShadow, kind).toBe(false);
+      });
+      // Showing it never turns a part into a shadow caster: the same larger parts cast as before.
+      expect(obj.pickables.filter((m) => m.castShadow).length, kind).toBe(before);
+    }
+  });
+
+  it('toggles with setSmoking, on the same robot, without rebuilding it', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, smoking: false }, geo, mats);
+    const size = geo.size;
+    expect(obj.rig.cigar.visible).toBe(false);
+    const { group, rig } = obj;
+    setSmoking(obj, true);
+    expect(obj.rig.cigar.visible).toBe(true);
+    setSmoking(obj, false);
+    expect(obj.rig.cigar.visible).toBe(false);
+    // Still the very same objects: no second buildRobot, no new geometry.
+    expect(obj.group).toBe(group);
+    expect(obj.rig).toBe(rig);
+    expect(geo.size).toBe(size);
+  });
+
+  it("rises and shrinks back on a sine while it shows, never past its rise, and sits still otherwise", () => {
+    const { geo, mats } = kit();
+    const lit = buildRobot('s1', { ...look, smoking: true }, geo, mats);
+    poseRobot(lit, look, { x: 0, z: 0, facing: 0 });
+    const restY = lit.rig.puff.position.y;
+    const restScale = lit.rig.puff.scale.x;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minScale = Infinity;
+    let maxScale = -Infinity;
+    for (let k = 0; k <= 200; k++) {
+      animateRobot(lit, look, (k / 200) * (1 / PUFF.rate), 0);
+      minY = Math.min(minY, lit.rig.puff.position.y);
+      maxY = Math.max(maxY, lit.rig.puff.position.y);
+      minScale = Math.min(minScale, lit.rig.puff.scale.x);
+      maxScale = Math.max(maxScale, lit.rig.puff.scale.x);
+    }
+    expect(minY).toBeGreaterThanOrEqual(PUFF.y - 1e-9);
+    expect(maxY).toBeLessThanOrEqual(PUFF.y + PUFF.rise + 1e-9);
+    expect(maxY - minY).toBeGreaterThan(PUFF.rise * 0.9);
+    expect(minScale).toBeGreaterThanOrEqual(-1e-9);
+    expect(maxScale).toBeLessThanOrEqual(1 + 1e-9);
+    expect(maxScale).toBeGreaterThan(0.9);
+
+    const unlit = buildRobot('s2', look, geo, mats);
+    poseRobot(unlit, look, { x: 0, z: 0, facing: 0 });
+    const unlitY = unlit.rig.puff.position.y;
+    const unlitScale = unlit.rig.puff.scale.x;
+    for (let k = 0; k <= 10; k++) animateRobot(unlit, look, k * 0.3, 1.2);
+    expect(unlit.rig.puff.position.y).toBe(unlitY);
+    expect(unlit.rig.puff.scale.x).toBe(unlitScale);
+    expect([restY, restScale]).toEqual([PUFF.y, 1]);
   });
 });
 
