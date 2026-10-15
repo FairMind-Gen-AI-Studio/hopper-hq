@@ -5,6 +5,7 @@ import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import {
   BOT,
+  GLASS,
   HEAD_DOWN,
   HOVER_Y,
   KIND_SCALE,
@@ -131,20 +132,22 @@ describe('robots', () => {
     expect([obj.rig.drink.visible, obj.rig.cup.visible]).toEqual([false, false]);
   });
 
-  it('builds the gin tonic as a balloon glass, its tonic, its ice, its lime wheel and its straw, each only in the drink', () => {
+  it('builds the gin tonic as a lathed balloon glass, its tonic, its ice, its lime wheel and its straw, each only in the drink', () => {
     const { geo, mats } = kit();
     const obj = buildRobot('s1', { pose: 'gintonic', badge: null, body: 0, tie: null }, geo, mats);
     poseRobot(obj, { pose: 'gintonic', badge: null }, { x: 0, z: 0, facing: 0 });
     const parts = obj.rig.drink.children as Mesh[];
-    // Six shell frustums (the foot, the stem, and the bowl's own four, swelling to the belly and pinching to the
-    // rim), the tonic, two ice cubes, two lime discs and a straw.
+    // The shell (foot, stem, the bowl's own lathed round and its rim ring), the tonic (its own lathed fill and its
+    // flat surface cap), three ice cubes, two lime discs and a straw.
     expect(parts).toHaveLength(12);
     expect(parts.every((m) => m.isMesh)).toBe(true);
-    expect(parts.filter((m) => m.material === mats.surface.gtGlass)).toHaveLength(6);
-    expect(parts.filter((m) => m.material === mats.surface.tonic)).toHaveLength(1);
-    expect(parts.filter((m) => m.material === mats.surface.paper)).toHaveLength(2);
-    expect(parts.filter((m) => m.material === mats.surface.plant)).toHaveLength(2);
+    expect(parts.filter((m) => m.material === mats.surface.gtGlass)).toHaveLength(3);
+    expect(parts.filter((m) => m.material === mats.surface.gtRim)).toHaveLength(1);
+    expect(parts.filter((m) => m.material === mats.surface.tonic)).toHaveLength(2);
+    expect(parts.filter((m) => m.material === mats.surface.ice)).toHaveLength(3);
+    expect(parts.filter((m) => m.material === mats.surface.limeRind)).toHaveLength(1);
     expect(parts.filter((m) => m.material === mats.surface.limeFlesh)).toHaveLength(1);
+    expect(parts.filter((m) => m.material === mats.surface.straw)).toHaveLength(1);
     // The whole drink is a child of the hand that holds the paper (armR), so it rotates with a raised arm.
     expect(obj.rig.drink.parent).toBe(obj.rig.armR);
     // Not one of the drink's own parts is in `pickables` under a different pick: it is picked as the robot is.
@@ -618,6 +621,36 @@ describe('loops at rest', () => {
         const hand = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armR.matrixWorld);
         expect(fromHead(hand.clone().applyMatrix4(obj.rig.neck.matrixWorld.clone().invert())), `${chair} ${k}: off the head`).toBeGreaterThanOrEqual(0.05);
         expect(back.distanceToPoint(hand), `${chair} ${k}: off the chair's back`).toBeGreaterThanOrEqual(0.05);
+      }
+    }
+  });
+
+  it('holds its gin tonic clear of its own head, at every kind (the pose that follows this test was tuned against this exact check; a straw-through-the-head regression at the old pose/anchor is what this guards)', () => {
+    const look: Look = { pose: 'gintonic', badge: null };
+    /** How far a point in the neck's frame is outside the head's rounded box (radius 0.04): negative inside. */
+    const fromHead = (p: Vector3) => {
+      const q = new Vector3(Math.abs(p.x) - 0.15, Math.abs(p.y - 0.2) - 0.1, Math.abs(p.z) - 0.09);
+      return new Vector3(Math.max(q.x, 0), Math.max(q.y, 0), Math.max(q.z, 0)).length() + Math.min(Math.max(q.x, q.y, q.z), 0) - 0.04;
+    };
+    // The straw (buildDrink) is the tallest single part, its tip well above the bowl's own rim; the belly
+    // (GLASS.bellyR) is the widest. A cylinder tall and wide enough to contain both, sampled at its surface,
+    // is a more pessimistic stand-in for the drink's own silhouette than the bowl alone would be.
+    const topH = GLASS.footH + GLASS.stemH + GLASS.bowlH + 0.22;
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = rested(look, kind);
+      obj.group.updateMatrixWorld(true);
+      const toNeck = obj.rig.neck.matrixWorld.clone().invert();
+      for (let h = 0; h <= topH + 1e-9; h += topH / 16) {
+        for (const r of [0.04, GLASS.bellyR]) {
+          for (let a = 0; a < 2 * Math.PI; a += Math.PI / 4) {
+            const p = new Vector3(r * Math.cos(a), h, r * Math.sin(a)).applyMatrix4(obj.rig.drink.matrixWorld).applyMatrix4(toNeck);
+            // A real margin (0.1 m), not just non-negative: the pose this replaced (armR [-0.3, 0.55], GLASS.hand
+            // at -BOT.arm + 0.08/0.1) never quite intersects this same rounded box either (its own worst sample
+            // margin is ~0.06), yet it was rejected on sight in every screenshot as clipping into the head — so a
+            // bare "not overlapping" bound would not have caught that regression. This margin does: ~0.1188 m here.
+            expect(fromHead(p), `${kind} h=${h.toFixed(3)} r=${r.toFixed(3)} a=${a.toFixed(2)}: off the head`).toBeGreaterThanOrEqual(0.1);
+          }
+        }
       }
     }
   });

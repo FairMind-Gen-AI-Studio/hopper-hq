@@ -73,14 +73,33 @@ const SURFACES = {
    * shares the token with (`glass`) — at this size, as see-through as a real balloon glass would wash its own
    * swell-then-pinch silhouette out, the one shape cue that tells it apart from a tumbler or a martini glass.
    */
-  gtGlass: { color: 'scene-glass', mix: ['scene-paper', 0.15], roughness: 0.1, opacity: 0.5 },
+  gtGlass: { color: 'scene-glass', mix: ['scene-paper', 0.15], roughness: 0.3, opacity: 0.4 },
+  /** The rim traced on top of the bowl (robot.ts's buildDrink): `gtGlass`'s own colour, but near-opaque, so the
+   * glass's own silhouette holds a clean edge against the floor even where the shell's own (now lighter)
+   * transparency would otherwise wash it out. */
+  gtRim: { color: 'scene-glass', mix: ['scene-paper', 0.35], roughness: 0.1, opacity: 0.92 },
   /**
-   * The tonic itself: the same pale blue as the glass around it, mixed toward the window's glow for a fizzier tint,
-   * and more opaque still — it has to read as the drink, not as more of the glass.
+   * The tonic itself: the glass token mixed hard toward the accent blue (the one genuinely saturated blue the
+   * theme carries — `window-glow` is itself nearly as pale as the glass, too close to it to read as a second,
+   * distinct colour) — a clearly aqua, fizzy tint apart from the glass's own pale, barely-tinted shell (`gtGlass`,
+   * deliberately lighter so the tonic is what reads, not a second layer of the same hue).
    */
-  tonic: { color: 'scene-glass', mix: ['window-glow', 0.25], roughness: 0.2, opacity: 0.82 },
-  /** The lime wheel's pale flesh, next to its green rind (`plant`): the plant token, lightened. */
+  tonic: { color: 'scene-glass', mix: ['accent', 0.4], roughness: 0.2, opacity: 0.88 },
+  /** The ice cubes: the paper token, with only a hint of the glass's own blue — bright and white, so they stand
+   * out against the tonic's own stronger tint rather than blending into it. */
+  ice: { color: 'scene-paper', mix: ['scene-glass', 0.15], roughness: 0.08 },
+  /** The lime wheel's rind, on the rim: the plant token, brightened a notch past the office's own plants — with the
+   * straw, one of the drink's two strongest cues, so it has to pop a little more than a leaf does. */
+  limeRind: { color: 'scene-plant', mix: ['scene-paper', 0.2], roughness: 0.4 },
+  /** The lime wheel's pale flesh, next to its rind (`limeRind`): the plant token, lightened further still. */
   limeFlesh: { color: 'scene-plant', mix: ['scene-paper', 0.55], roughness: 0.55 },
+  /**
+   * The straw: bright red, reusing the "needs you" badge's own colour purely as a plain accent (the same way
+   * `cigarTip` reuses the working state's amber as a plain ember glow, no state meaning here) — picked over black
+   * so it still pops against the shell's own dark edges and the floor's own shadows alike, the other of the drink's
+   * two strongest cues.
+   */
+  straw: { color: 's-needs', mix: ['scene-paper', 0.1], roughness: 0.35 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;

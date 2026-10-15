@@ -5,7 +5,7 @@
  * swinging its legs and arms.
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
-import { CylinderGeometry, Euler, Group, InstancedMesh, Object3D, Quaternion, SphereGeometry, type Mesh } from 'three';
+import { CylinderGeometry, Euler, Group, InstancedMesh, LatheGeometry, Object3D, Quaternion, SphereGeometry, Vector2, type Mesh } from 'three';
 import type { Pose, Robot } from '../../src/scene/types';
 import type { Materials } from './materials';
 import { part, type Geometries, type PickData } from './props';
@@ -50,8 +50,17 @@ export const POSES: Record<Pose, PoseSpec> = {
   holding: { armL: [-1, 0.18], armR: [-1, -0.18], legs: 0, neck: 0, lean: 0, paper: true },
   still: { armL: [-1.1, -0.1], armR: [-1.1, 0.1], legs: -1.45, neck: 0, lean: 0, paper: false },
   resting: { armL: [-0.3, -0.25], armR: [-0.3, 0.25], legs: -1.45, neck: -0.1, lean: -0.22, paper: false },
-  /** At the bar cart (design §7.1, leisure): standing, relaxed, its glass raised in its right hand. */
-  gintonic: { armL: [-0.3, -0.25], armR: [-0.3, 0.55], legs: 0, neck: -0.1, lean: -0.15, paper: false },
+  /**
+   * At the bar cart (design §7.1, leisure): standing, relaxed, its forearm raised forward and a little out
+   * from the body — a "cheers"/about-to-sip angle — so the glass (buildDrink, GLASS.hand) stands in clear
+   * space in front of its chest and shoulder, well clear of the head's own box. The head sits in roughly
+   * [-0.19, 0.19] x, [0.42, 0.70] y, [-0.13, 0.13] z of the waist frame (BOT, buildRobot's own head part);
+   * this swing (checked against GLASS.hand's own anchor point, armR's pivot plus its rotation) puts the
+   * glass's anchor at about (0.38, 0.09, 0.25) in that same frame — clear of the head on all three axes,
+   * independently, with the glass's own belly (half as wide again) still short of the head's x bound —
+   * before the rest of the glass's own height is even added on top of the anchor.
+   */
+  gintonic: { armL: [-0.3, -0.25], armR: [-0.8, 0.45], legs: 0, neck: -0.1, lean: -0.15, paper: false },
   /** Leaning over the foosball table's handle, both forearms down and forward; the table's rods are T5's furniture. */
   biliardino: { armL: [-1.3, 0.12], armR: [-1.3, -0.12], legs: 0, neck: 0.15, lean: 0.3, paper: false },
   /** At the coffee machine: standing, its cup in its right hand. */
@@ -138,20 +147,31 @@ function placePuffs(puff: InstancedMesh, base: number | null): void {
   puff.boundingSphere = null;
 }
 
+/** The foot's own height, and the stem's, named ahead of GLASS so GLASS.hand (below) can anchor to the stem's own
+ * midpoint — where the fist closes round it. */
+const FOOT_H = 0.014;
+const STEM_H = 0.07;
+/** The stem's own midpoint, up from the foot's bottom. */
+const STEM_MID = FOOT_H + STEM_H / 2;
+
 /**
  * The gin tonic's glass: a copa de balón, the Spanish balloon glass that tells a gin tonic from any other drink — a
  * thin stem on a foot, under a bowl that swells out from the stem to a round belly, then pinches in again to a
- * narrower rim. Oversized like the cigar (CIGAR): a real copa stands about half this tall, but at this size it would
- * vanish at the orbit camera's floor-view distance. Every radius and height here is local to the stack's own
+ * narrower rim (bowlLathe: a real LatheGeometry revolve, not a stack of straight frustums, so the belly actually
+ * curves). Oversized like the cigar (CIGAR): a real copa stands about half this tall, but at this size it would
+ * vanish at the orbit camera's floor-view distance. Every radius and height here is local to the glass's own
  * foot-up frame (glassLevels, bowlRadiusAt); `hand` is where that frame sits in the arm that holds it (robot.ts's
- * armR), a little above and forward of the fist (the hand's own ball joint, at -BOT.arm).
+ * armR): `y` puts the stem's own midpoint (STEM_MID) exactly at the fist's ball joint (-BOT.arm), so the closed
+ * fist reads as gripping the stem rather than floating beside it; `z` is a hair's own grip offset, not a reach —
+ * it's POSES.gintonic's own forward swing of the forearm that carries the whole glass out past the head, not a
+ * static offset here (see that pose's own doc comment for the clearance maths).
  */
 export const GLASS = {
-  hand: { y: -BOT.arm + 0.08, z: 0.1 },
+  hand: { y: -BOT.arm - STEM_MID, z: 0.015 },
   footR: 0.05,
-  footH: 0.014,
+  footH: FOOT_H,
   stemR: 0.016,
-  stemH: 0.07,
+  stemH: STEM_H,
   /** The bowl's total height, stem to rim. */
   bowlH: 0.17,
   /** The belly: the balloon's widest point, a little over halfway up the bowl. */
@@ -163,13 +183,16 @@ export const GLASS = {
 const BOWL_FOOT_R = GLASS.stemR * 1.3;
 /** How thick the glass's wall reads as: the tonic and its ice sit this much inside the shell around them. */
 const GLASS_WALL = 0.014;
-/** How high up the bowl the tonic's level sits, a fraction of `bowlH`: a generous pour, with the bowl's own pinch to
- * the rim showing clear above it, empty, so the balloon's silhouette reads apart from the liquid inside it. */
-const TONIC_LEVEL = 0.48;
+/** How high up the bowl the tonic's level sits, a fraction of `bowlH`: a generous pour — about two thirds of the
+ * bowl — with the pinch to the rim still showing clear and empty above it, so the balloon's own silhouette reads
+ * apart from the liquid inside it. */
+const TONIC_LEVEL = 0.66;
 /**
- * The bowl's own silhouette, bottom (the stem joint) to the rim, as radius at each fraction of `bowlH`: a swell out
- * to the belly a little past the middle, then a pinch back in to the rim — four frustums approximating the curve of
- * a round balloon glass, rounder than the two straight cones either side of the belly alone would read as.
+ * The bowl's own silhouette, bottom (the stem joint) to the rim, as radius at each named fraction of `bowlH`: a
+ * swell out to the belly a little past the middle, then a pinch back in to the rim. `bowlRadiusAt` eases between
+ * these points rather than drawing a straight line between them, and `bowlLathe` samples that eased curve densely
+ * (BOWL_SAMPLES points, revolved in BOWL_SEGMENTS) — between them, a round balloon, not the five-point polygon the
+ * named points alone would read as.
  */
 const BOWL_PROFILE: ReadonlyArray<readonly [f: number, r: number]> = [
   [0, BOWL_FOOT_R],
@@ -178,13 +201,21 @@ const BOWL_PROFILE: ReadonlyArray<readonly [f: number, r: number]> = [
   [0.8, GLASS.bellyR * 0.68],
   [1, GLASS.rimR],
 ];
+const BOWL_SAMPLES = 20;
+const BOWL_SEGMENTS = 28;
 
-/** The bowl's own radius at `f` (0 at the stem joint, 1 at the rim), between BOWL_PROFILE's points either side of it. */
+/** Eases `t` (0..1) smoothly from 0 to 1, flat-sloped at both ends: between two of BOWL_PROFILE's named radii, so
+ * the bowl's curve rounds through each rather than kinking there. */
+function ease(t: number): number {
+  return (1 - Math.cos(t * Math.PI)) / 2;
+}
+
+/** The bowl's own radius at `f` (0 at the stem joint, 1 at the rim), eased between BOWL_PROFILE's points either side of it. */
 function bowlRadiusAt(f: number): number {
   for (let i = 1; i < BOWL_PROFILE.length; i++) {
     const [f0, r0] = BOWL_PROFILE[i - 1]!;
     const [f1, r1] = BOWL_PROFILE[i]!;
-    if (f <= f1) return r0 + ((r1 - r0) * (f - f0)) / (f1 - f0);
+    if (f <= f1) return r0 + (r1 - r0) * ease((f - f0) / (f1 - f0));
   }
   return BOWL_PROFILE[BOWL_PROFILE.length - 1]![1];
 }
@@ -198,13 +229,39 @@ function glassLevels() {
 }
 
 /**
- * The gin tonic as it stands in the hand (GLASS, glassLevels, BOWL_PROFILE): the glass's shell, the tonic inside it
- * tinted and short of the rim, two ice cubes breaking its surface, a lime wheel wedged on the rim, and a straw. One
- * group, so that poseRobot shows or hides the whole drink together, the same as the cigar's body, tip and puff. It
- * sits at GLASS.hand in the arm that holds it (armR), but counter-rotated against the pose's raised forearm
- * (POSES.gintonic, the only pose that shows it, and never itself animated — see LOOPS.breathe) so the glass stands
- * upright in the hand instead of tipping over to point wherever the arm does. None of its parts casts a shadow: at
- * this size, each would cost a draw for a texel or two of it.
+ * A lathed fill of the bowl's own curve (bowlRadiusAt) from the stem joint up to `maxF`, each radius `inset` less
+ * than the shell's own (0 for the shell itself; GLASS_WALL for the tonic, which sits inside the glass's own wall).
+ * `key` keeps the shell's lathe and the tonic's own apart in Geometries' shared cache (they differ in `inset` and
+ * `maxF`, so they could never collide on the shared geometry they'd otherwise compute to, but a shared cache keys
+ * only on the string it's given). Both ends are left open (no end caps): the bottom sits flush on the stem's own
+ * flat top, and the shell's rim is meant to read as open, like a real glass's; the tonic's own top is capped
+ * separately, as its liquid surface (buildDrink).
+ */
+function bowlLathe(geo: Geometries, key: string, maxF: number, inset: number) {
+  return geo.shared(key, () => {
+    const { stemTop } = glassLevels();
+    const points = [new Vector2(Math.max(BOWL_FOOT_R - inset, 0.001), stemTop)];
+    for (let i = 1; i <= BOWL_SAMPLES; i++) {
+      const f = (i / BOWL_SAMPLES) * maxF;
+      points.push(new Vector2(Math.max(bowlRadiusAt(f) - inset, 0.001), stemTop + f * GLASS.bowlH));
+    }
+    return new LatheGeometry(points, BOWL_SEGMENTS);
+  });
+}
+
+/**
+ * The gin tonic as it stands in the hand (GLASS, glassLevels, bowlLathe): the glass's own round shell (its foot, its
+ * stem and its lathed balloon bowl, with a brighter rim ring traced on top so its silhouette reads against the
+ * floor), the tonic inside it (also lathed, to the same curve, so it fills the belly rather than reading as a
+ * straight-sided cone of liquid) capped at its own surface, three ice cubes breaking that surface, a lime wheel
+ * wedged on the rim, and a straw — the lime and the straw are the strongest cues that this is a gin tonic and not
+ * some other drink, so each gets its own bright, un-shared colour (materials.ts's `limeRind` and `straw`) rather
+ * than reusing a token already doing duty elsewhere in the scene. One group, so that poseRobot shows or hides the
+ * whole drink together, the same as the cigar's body, tip and puff. It sits at GLASS.hand in the arm that holds it
+ * (armR), but counter-rotated against the pose's raised forearm (POSES.gintonic, the only pose that shows it, and
+ * never itself animated — see LOOPS.breathe) so the glass stands upright in the hand instead of tipping over to
+ * point wherever the arm does. None of its parts casts a shadow: at this size, each would cost a draw for a texel
+ * or two of it.
  */
 function buildDrink(parent: Group, geo: Geometries, mats: Materials): Group {
   const s = mats.surface;
@@ -215,30 +272,31 @@ function buildDrink(parent: Group, geo: Geometries, mats: Materials): Group {
   drink.quaternion.copy(new Quaternion().setFromEuler(new Euler(POSES.gintonic.armR[0], 0, POSES.gintonic.armR[1])).invert());
   parent.add(drink);
   const { footTop, stemTop, rimTop } = glassLevels();
-  /** A frustum of the stack, `yTop` up, in the glass's own material unless told otherwise. */
-  const stack = (rt: number, rb: number, h: number, yTop: number, material = s.gtGlass) => part(drink, geo.rod(rt, rb, h), material, 0, yTop - h / 2, 0, { cast: false });
-  // The foot and the stem, then the bowl's own swell to the belly and pinch back to the rim, BOWL_PROFILE's point by point.
-  stack(GLASS.footR, GLASS.footR, GLASS.footH, footTop);
-  stack(GLASS.stemR, GLASS.stemR, GLASS.stemH, stemTop);
-  for (let i = 1; i < BOWL_PROFILE.length; i++) {
-    const [f0, r0] = BOWL_PROFILE[i - 1]!;
-    const [f1, r1] = BOWL_PROFILE[i]!;
-    stack(r1, r0, (f1 - f0) * GLASS.bowlH, stemTop + f1 * GLASS.bowlH);
-  }
-  // The tonic: the bowl's own taper, a size inside its wall, up to its level.
+  // The foot and the stem: plain, round rods — only the bowl needs a lathe to read as a balloon, these are already
+  // round in cross-section.
+  part(drink, geo.rod(GLASS.footR, GLASS.footR, GLASS.footH, 24), s.gtGlass, 0, footTop - GLASS.footH / 2, 0, { cast: false });
+  part(drink, geo.rod(GLASS.stemR, GLASS.stemR, GLASS.stemH, 24), s.gtGlass, 0, stemTop - GLASS.stemH / 2, 0, { cast: false });
+  // The bowl's own round shell, and a brighter, more opaque ring traced right at its rim so the silhouette holds
+  // against the floor even where the shell's own transparency would otherwise wash it out.
+  part(drink, bowlLathe(geo, 'gin tonic bowl', 1, 0), s.gtGlass, 0, 0, 0, { cast: false });
+  part(drink, geo.rod(GLASS.rimR, GLASS.rimR, 0.01, BOWL_SEGMENTS), s.gtRim, 0, rimTop, 0, { cast: false });
+  // The tonic: the bowl's own curve, a wall's width inside it, filled to its level and capped flat there as its
+  // own liquid surface (the lathe's own top is left open — a flat disc reads as a surface, an open cone does not).
   const level = stemTop + GLASS.bowlH * TONIC_LEVEL;
   const levelR = bowlRadiusAt(TONIC_LEVEL) - GLASS_WALL;
-  stack(levelR, BOWL_FOOT_R - GLASS_WALL, level - stemTop, level, s.tonic);
-  // Two ice cubes, breaking the tonic's surface, turned off-square so neither reads as a stray box.
-  for (const [dx, dz, ry] of [[-0.027, -0.013, 0.3], [0.024, 0.017, -0.4]] as const) {
-    part(drink, geo.rbox(0.028, 0.028, 0.028, 0.006), s.paper, dx, level - 0.016, dz, { ry, cast: false });
+  part(drink, bowlLathe(geo, 'gin tonic tonic', TONIC_LEVEL, GLASS_WALL), s.tonic, 0, 0, 0, { cast: false });
+  part(drink, geo.circle(levelR), s.tonic, 0, level, 0, { rx: -Math.PI / 2, cast: false });
+  // Three ice cubes, poking clear above the tonic's own surface, turned off-square so none reads as a stray box.
+  for (const [dx, dz, ry] of [[-0.03, -0.015, 0.3], [0.026, 0.02, -0.4], [0.002, -0.04, 0.9]] as const) {
+    part(drink, geo.rbox(0.03, 0.03, 0.03, 0.006), s.ice, dx, level + 0.006, dz, { ry, cast: false });
   }
-  // The lime wheel, wedged on the rim, overhanging it: its green rind, and a lighter disc of flesh just inside.
+  // The lime wheel, wedged on the rim, overhanging it: its bright rind, and a lighter disc of flesh just inside —
+  // with the straw, the strongest single cue that this is a gin tonic.
   const rimZ = GLASS.rimR * 0.85;
-  part(drink, geo.rod(GLASS.rimR * 0.95, GLASS.rimR * 0.95, 0.012, 16), s.plant, 0, rimTop, rimZ, { rx: Math.PI / 2, cast: false });
-  part(drink, geo.rod(GLASS.rimR * 0.7, GLASS.rimR * 0.7, 0.014, 16), s.limeFlesh, 0, rimTop, rimZ + 0.002, { rx: Math.PI / 2, cast: false });
+  part(drink, geo.rod(GLASS.rimR * 1.1, GLASS.rimR * 1.1, 0.016, 16), s.limeRind, 0, rimTop, rimZ, { rx: Math.PI / 2, cast: false });
+  part(drink, geo.rod(GLASS.rimR * 0.72, GLASS.rimR * 0.72, 0.018, 16), s.limeFlesh, 0, rimTop, rimZ + 0.002, { rx: Math.PI / 2, cast: false });
   // A straw, through the rim and down into the tonic, tipped a little away from the glass.
-  part(drink, geo.rod(0.009, 0.009, 0.26, 8), s.plant, 0.025, rimTop + 0.07, -0.02, { rx: 0.18, cast: false });
+  part(drink, geo.rod(0.011, 0.011, 0.26, 8), s.straw, 0.025, rimTop + 0.07, -0.02, { rx: 0.18, cast: false });
   return drink;
 }
 
