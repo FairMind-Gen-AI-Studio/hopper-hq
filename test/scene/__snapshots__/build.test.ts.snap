@@ -4,6 +4,12 @@ exports[`the demo building > matches the snapshot 1`] = `
 {
   "floors": [
     {
+      "breakArea": {
+        "h": 3,
+        "w": 8,
+        "x": 18,
+        "y": 15,
+      },
       "core": {
         "h": 2,
         "w": 4,
@@ -451,6 +457,12 @@ exports[`the demo building > matches the snapshot 1`] = `
       "version": 5,
     },
     {
+      "breakArea": {
+        "h": 3,
+        "w": 8,
+        "x": 18,
+        "y": 15,
+      },
       "core": {
         "h": 2,
         "w": 4,
@@ -660,6 +672,12 @@ exports[`the demo building > matches the snapshot 1`] = `
       "version": 5,
     },
     {
+      "breakArea": {
+        "h": 3,
+        "w": 8,
+        "x": 18,
+        "y": 15,
+      },
       "core": {
         "h": 2,
         "w": 4,

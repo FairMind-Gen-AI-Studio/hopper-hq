@@ -334,6 +334,7 @@ export function makeFloor(key: string): FloorDetail | null {
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
     unseated: [],
     unseatedMore: 0,
   };

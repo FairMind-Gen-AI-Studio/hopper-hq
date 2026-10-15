@@ -301,7 +301,7 @@ describe('the plan', () => {
     const grown: Seating = { blocks: 2, roomCols: 2, desks: [null, null, null, null, null, 'b', null, null, null, 'a', ...Array<null>(6).fill(null)], lounge: emptySeating().lounge, rooms: [null, null, null, null] };
     const floor = floorOf(views, grown);
     const plan = layoutPlan({ blocks: 2, roomCols: 2 });
-    expect([floor.size, floor.core, floor.lounge, floor.roomSlots]).toEqual([plan.size, plan.core, { rect: plan.lounge, seats: LOUNGE_SEATS }, plan.rooms]);
+    expect([floor.size, floor.core, floor.lounge, floor.roomSlots, floor.breakArea]).toEqual([plan.size, plan.core, { rect: plan.lounge, seats: LOUNGE_SEATS }, plan.rooms, plan.breakArea]);
     expect(floor.pods.map((p) => [p.id, p.rect, p.desks.map((d) => [d.id, d.rect, d.chair])])).toEqual(plan.pods.map((p) => [p.id, p.rect, p.desks.map((d) => [d.id, d.rect, d.chair])]));
     expect(floor.pods.flatMap((p) => p.desks.map((d) => d.occupant?.sessionId ?? null))).toEqual(grown.desks);
     expect(floorOf(views)).toEqual(floorOf(views, seated(['a', 'b'])));

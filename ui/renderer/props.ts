@@ -1,9 +1,10 @@
 /**
  * The floor's furniture from primitives: the shell (slab, walls with windows, the elevator and plants of the core), and
- * on the plan a rug, a lamp and four desks per pod, the lounge and a meeting room per room slot. Proportions follow
- * prototypes/floor-3d-mockup.html. The furniture (furniture.ts) is drawn by instanced meshes: the desks, the rooms'
- * tables and seats, the lounge's couches, coffee table and beanbags, and the plants. A dormant session's desk has a
- * nameplate of its own, a mesh with its name drawn on a canvas.
+ * on the plan a rug, a lamp and four desks per pod, the lounge, the break area and a meeting room per room slot.
+ * Proportions follow prototypes/floor-3d-mockup.html. The furniture (furniture.ts) is drawn by instanced meshes: the
+ * desks, the rooms' tables and seats, the lounge's couches, coffee table and beanbags, the break area's bar cart and
+ * biliardino table, and the plants. A dormant session's desk has a nameplate of its own, a mesh with its name drawn on
+ * a canvas.
  */
 import {
   BoxGeometry,
@@ -28,6 +29,7 @@ import { Furniture, frameAt, type Piece, type PieceOptions } from './furniture';
 import type { Target } from './index';
 import { DESK_OFF, type Materials } from './materials';
 import {
+  BAR_CART,
   BEANBAG_R,
   BEANBAG_SCALE,
   BEANBAG_X,
@@ -40,6 +42,7 @@ import {
   COUCH_Z,
   DESK_CHAIR,
   DESK_TOP,
+  FOOSBALL,
   PARTITION_H,
   PARTITION_T,
   ROOM_SEAT,
@@ -47,8 +50,10 @@ import {
   WALL_H,
   WALL_SIDES,
   WALL_T,
+  barCartCenter,
   deskAnchor,
   doorGap,
+  foosballCenter,
   headSpot,
   plantSpots,
   rectCenter,
@@ -194,7 +199,7 @@ export interface Shell {
  * and every room of the plan, open or not. Rebuilt only when the plan grows; what changes in between (rug colours, who
  * sits at a desk, which rooms are open) is updated in place.
  */
-export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>, geo: Geometries, mats: Materials): Shell {
+export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots' | 'breakArea'>, geo: Geometries, mats: Materials): Shell {
   const { w, h } = floor.size;
   const group = new Group();
   group.name = 'shell';
@@ -263,6 +268,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
   }
 
   buildLounge(group, floor.lounge.rect, furniture, geo, mats);
+  buildBreakArea(group, floor.breakArea, furniture, geo, mats);
 
   const rooms = floor.roomSlots.map((rect, slot) => {
     const obj = buildRoom(rect, slot, furniture, geo, mats);
@@ -336,6 +342,41 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
   add(geo.rod(0.06, 0.07, 0.1, 12), s.paper, c.x + 0.3, 0.5, c.z - 0.1, { cast: false });
   const squash = [BEANBAG_SCALE.across, BEANBAG_SCALE.up, BEANBAG_SCALE.across] as const;
   for (const [side, bean] of [[-1, s.beanA], [1, s.beanB]] as const) add(geo.ball(BEANBAG_R), bean, c.x + side * BEANBAG_X, 0.2, c.z, { scale: squash });
+}
+
+/**
+ * The break area (world.ts places its stand spots): a rug, a bar cart near its west edge with a few bottles and
+ * glasses, and a biliardino table near its east edge with two rows of little players. Only the cart's counter, its
+ * bottles and glasses, and the table's top, cast a shadow: the legs and the players are too thin to be worth it.
+ */
+function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
+  const s = mats.surface;
+  const add = (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => furniture.add(ON_FLOOR, geometry, material, x, y, z, opts);
+  const group = new Group();
+  group.name = 'break-area';
+  parent.add(group);
+  const c = rectCenter(rect);
+  part(group, geo.plane(rect.w - 0.4, rect.h - 0.4), s.rug, c.x, 0.004, c.z, { rx: -Math.PI / 2, cast: false });
+
+  // The bar cart: a counter on four thin legs, a few bottles and a couple of glasses on top.
+  const cart = barCartCenter(rect);
+  add(geo.rbox(BAR_CART.w, 0.08, BAR_CART.d, 0.02), s.cart, cart.x, 0.9, cart.z);
+  for (const lx of [-1, 1]) {
+    for (const lz of [-1, 1]) add(geo.rod(0.03, 0.03, 0.86, 8), s.leg, cart.x + lx * (BAR_CART.w / 2 - 0.06), 0.43, cart.z + lz * (BAR_CART.d / 2 - 0.06), { cast: false });
+  }
+  for (const dx of [-0.2, 0, 0.2]) add(geo.rod(0.03, 0.045, 0.26, 10), s.bottle, cart.x + dx, 1.07, cart.z - 0.1);
+  for (const dx of [-0.15, 0.15]) add(geo.ball(0.05), s.glass, cart.x + dx, 0.99, cart.z + 0.1);
+
+  // The biliardino table: a top on four legs, two rows of little player-rods along its long sides.
+  const table = foosballCenter(rect);
+  add(geo.rbox(FOOSBALL.w, 0.06, FOOSBALL.d, 0.02), s.desk, table.x, 0.85, table.z);
+  for (const lx of [-1, 1]) {
+    for (const lz of [-1, 1]) add(geo.box(0.06, 0.82, 0.06), s.leg, table.x + lx * (FOOSBALL.w / 2 - 0.08), 0.41, table.z + lz * (FOOSBALL.d / 2 - 0.08), { cast: false });
+  }
+  for (const lz of [-1, 1]) {
+    const z = table.z + lz * (FOOSBALL.d / 2 - 0.1);
+    for (const dx of [-0.5, -0.17, 0.17, 0.5]) add(geo.rod(0.02, 0.02, 0.2, 6), s.chair, table.x + dx, 0.98, z, { cast: false });
+  }
 }
 
 export interface DeskObject {

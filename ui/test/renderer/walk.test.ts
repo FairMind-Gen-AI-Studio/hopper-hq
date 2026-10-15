@@ -7,8 +7,10 @@ import {
   BEANBAG_X,
   COUCH,
   COUCH_Z,
+  barCartSpots,
   deskAnchor,
   elevatorSpot,
+  foosballSpots,
   headSpot,
   loungeSpots,
   rectCenter,
@@ -20,7 +22,7 @@ import {
 } from '../../renderer/world';
 import { makeFloor, type DeskSpec, type RoomSpec } from './fixtures';
 
-type Plan = Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>;
+type Plan = Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots' | 'breakArea'>;
 
 /** Every plan size: 1 to 4 blocks, 1 or 2 room columns. */
 const SIZES = [1, 2, 3, 4].flatMap((blocks) => [1, 2].map((roomCols) => ({ blocks, roomCols })));
@@ -41,15 +43,18 @@ function emptyFloor(blocks: number, roomCols: number): Plan {
     pods: plan.pods.map((p) => ({ ...p, color: null, placard: null, desks: p.desks.map((d) => ({ ...d, occupant: null })) })),
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
   };
 }
 
-/** Every spot a robot walks to, named: each desk's seat and stand spots, the lounge's seats, each room's seats and head. */
+/** Every spot a robot walks to, named: each desk's seat and stand spots, the lounge's seats, each room's seats and head, and the break area's cart and table spots. */
 function spotsOf(floor: Plan): Array<[string, Spot]> {
   return [
     ...floor.pods.flatMap((p) => p.desks.flatMap((d): Array<[string, Spot]> => [[`seat ${d.id}`, seatSpot(d)], [`stand ${d.id}`, standSpot(d)]])),
     ...loungeSpots(floor.lounge.rect).map((s, i): [string, Spot] => [`lounge ${i}`, s]),
     ...floor.roomSlots.flatMap((rect, slot): Array<[string, Spot]> => [...seatSpots(rect).map((s, i): [string, Spot] => [`room ${slot} seat ${i}`, s]), [`room ${slot} head`, headSpot(rect)]]),
+    ...barCartSpots(floor.breakArea).map((s, i): [string, Spot] => [`cart ${i}`, s]),
+    ...foosballSpots(floor.breakArea).map((s, i): [string, Spot] => [`foosball ${i}`, s]),
   ];
 }
 
@@ -258,26 +263,42 @@ describe('walkGrid', () => {
     }
   });
 
+  it("blocks only the bar cart's and the biliardino table's own footprint in the break area, leaving every stand spot free", () => {
+    const floor = fullFloor(1, 1);
+    const grid = walkGrid(floor);
+    const rect = floor.breakArea;
+    expect(picture(grid, rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)).toEqual([
+      '................',
+      '................',
+      '...##......####.',
+      '...##......####.',
+      '................',
+      '................',
+    ]);
+    for (const spot of [...barCartSpots(rect), ...foosballSpots(rect)]) expect(isBlocked(grid, spot), `${spot.x} ${spot.z}`).toBe(false);
+  });
+
   it('keeps the elevator spot and every stand spot on a free cell, and every seat on a blocked one: desk chairs, lounge seats, room seats and heads, at every plan size', () => {
     for (const { blocks, roomCols } of SIZES) {
       const floor = fullFloor(blocks, roomCols);
       const grid = walkGrid(floor);
       const spots: Array<[string, Point]> = [['elevator', elevatorSpot(floor.core)], ...spotsOf(floor)];
-      // Two spots a desk, the lounge's eight, and nine a room: its eight seats and its head.
-      expect(spots).toHaveLength(1 + 16 * blocks + 8 + 18 * roomCols);
-      const free = (name: string) => name === 'elevator' || name.startsWith('stand');
+      // Two spots a desk, the lounge's eight, nine a room (its eight seats and its head), the cart's four and the table's two.
+      expect(spots).toHaveLength(1 + 16 * blocks + 8 + 18 * roomCols + 4 + 2);
+      const free = (name: string) => name === 'elevator' || name.startsWith('stand') || name.startsWith('cart') || name.startsWith('foosball');
       expect(spots.filter(([name, s]) => isBlocked(grid, s) === free(name)).map(([name]) => `${blocks}x${roomCols} ${name}`)).toEqual([]);
     }
   });
 
-  it('blocks nothing else, at every plan size: the walls, 12 cells a desk, 105 a room, 44 in the lounge and 8 in the core', () => {
+  it('blocks nothing else, at every plan size: the walls, 12 cells a desk, 105 a room, 44 in the lounge, 8 in the core and 12 in the break area', () => {
     for (const { blocks, roomCols } of SIZES) {
       const grid = walkGrid(fullFloor(blocks, roomCols));
       const walls = 2 * (grid.cols + grid.rows) - 4;
       // A desk: its top and monitor (8) and its chair (4). A room: its glass, the ring of 16 x 12 cells but the 2 of its
       // door (50), its table (30), its north seats (8), its south seats (16) and its head seat (1, the other cell it
-      // touches being the table's). The lounge: each couch (12), the coffee table (8) and each beanbag (6).
-      const expected = walls + 12 * BLOCK_DESKS * blocks + 105 * ROOMS_PER_COL * roomCols + 44 + 8;
+      // touches being the table's). The lounge: each couch (12), the coffee table (8) and each beanbag (6). The break
+      // area: the cart (4) and the table (8).
+      const expected = walls + 12 * BLOCK_DESKS * blocks + 105 * ROOMS_PER_COL * roomCols + 44 + 8 + 12;
       expect(grid.blocked.reduce((n, b) => n + b, 0), `${blocks}x${roomCols}`).toBe(expected);
     }
   });
@@ -382,7 +403,7 @@ describe('findPath', () => {
       }
       expect(bad, `${blocks}x${roomCols}`).toEqual([]);
     }
-    expect(walks).toBe(600);
+    expect(walks).toBe(648);
   });
 
   const floor = fullFloor(1, 1);

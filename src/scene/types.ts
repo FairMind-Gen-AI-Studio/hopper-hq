@@ -265,6 +265,8 @@ export interface FloorDetail extends Omit<FloorSummary, 'windows'> {
   lounge: Lounge;
   /** Every room of the plan, by slot, open or not. */
   roomSlots: GridRect[];
+  /** The break area: a bar cart and a biliardino table, shared by every sub-agent on the floor at leisure. */
+  breakArea: GridRect;
   /** Sessions on the floor without a desk, in start order, at most UNSEATED_MAX: dormant ones whose desk another session took, and those waiting at the cap. */
   unseated: Occupant[];
   /** Unseated sessions beyond `unseated` (at most UNSEATED_MAX are listed). */

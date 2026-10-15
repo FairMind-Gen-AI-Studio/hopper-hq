@@ -3,6 +3,7 @@ import {
   BLOCK,
   BLOCK_DESKS,
   BLOCKS_MAX,
+  BREAK,
   layoutPlan,
   LOUNGE,
   LOUNGE_SEATS,
@@ -38,9 +39,9 @@ function pod(p: number, x: number, y: number): PlanLayout['pods'][number] {
 const SIZES = [1, 2, 3, 4].flatMap((blocks) => [1, 2].map((roomCols) => ({ blocks, roomCols })));
 
 describe('the fixed plan', () => {
-  it('has pods of 4 desks, blocks of 2 pods, a lounge of 8 seats, and at most 4 blocks and 2 columns of 2 rooms', () => {
-    expect([POD_DESKS, BLOCK_DESKS, BLOCKS_MAX, POD, BLOCK, LOUNGE, LOUNGE_SEATS, ROOMS_PER_COL, ROOM_COLS_MAX]).toEqual([
-      4, 8, 4, { w: 6, h: 6 }, { w: 14, h: 6 }, { w: 14, h: 4 }, 8, 2, 2,
+  it('has pods of 4 desks, blocks of 2 pods, a lounge of 8 seats, at most 4 blocks and 2 columns of 2 rooms, and a break area as wide as a room slot', () => {
+    expect([POD_DESKS, BLOCK_DESKS, BLOCKS_MAX, POD, BLOCK, LOUNGE, LOUNGE_SEATS, ROOMS_PER_COL, ROOM_COLS_MAX, BREAK]).toEqual([
+      4, 8, 4, { w: 6, h: 6 }, { w: 14, h: 6 }, { w: 14, h: 4 }, 8, 2, 2, { w: 8, h: 3 },
     ]);
     expect(ROOMS_MAX).toBe(ROOMS_PER_COL * ROOM_COLS_MAX);
   });
@@ -52,6 +53,7 @@ describe('the fixed plan', () => {
       pods: [pod(0, 2, 6), pod(1, 10, 6)],
       lounge: rect(2, 14, 14, 4),
       rooms: [rect(18, 2, 8, 6), rect(18, 9, 8, 6)],
+      breakArea: rect(18, 15, 8, 3),
     });
   });
 
@@ -72,6 +74,7 @@ describe('the fixed plan', () => {
       pods: [pod(0, 2, 6), pod(1, 10, 6), pod(2, 2, 14), pod(3, 10, 14), pod(4, 2, 22), pod(5, 10, 22), pod(6, 2, 30), pod(7, 10, 30)],
       lounge: rect(2, 38, 14, 4),
       rooms: [rect(18, 2, 8, 6), rect(18, 9, 8, 6), rect(28, 2, 8, 6), rect(28, 9, 8, 6)],
+      breakArea: rect(18, 15, 8, 3),
     });
     expect(SIZES.map((s) => [s.blocks, s.roomCols, layoutPlan(s).size])).toEqual(
       SIZES.map((s) => [s.blocks, s.roomCols, { w: s.roomCols === 1 ? 28 : 38, h: 12 + 8 * s.blocks }]),
@@ -102,12 +105,12 @@ describe('the fixed plan', () => {
     expect(layoutPlan({ blocks: 2.7, roomCols: 1.5 })).toEqual(layoutPlan({ blocks: 2, roomCols: 1 }));
   });
 
-  it('never overlaps the core, a pod, the lounge or a room, keeps desks on their rug and everything inside the margins, at every size', () => {
+  it('never overlaps the core, a pod, the lounge, a room or the break area, keeps desks on their rug and everything inside the margins, at every size', () => {
     for (const s of SIZES) {
       const l = layoutPlan(s);
       const field = rect(MARGIN, MARGIN, l.size.w - 2 * MARGIN, l.size.h - 2 * MARGIN);
-      const rects = [l.core, ...l.pods.map((p) => p.rect), l.lounge, ...l.rooms];
-      expect(rects).toHaveLength(1 + 2 * s.blocks + 1 + ROOMS_PER_COL * s.roomCols);
+      const rects = [l.core, ...l.pods.map((p) => p.rect), l.lounge, ...l.rooms, l.breakArea];
+      expect(rects).toHaveLength(1 + 2 * s.blocks + 1 + ROOMS_PER_COL * s.roomCols + 1);
       rects.forEach((r, i) => {
         expect(inside(r, field), JSON.stringify([s, r])).toBe(true);
         for (const other of rects.slice(i + 1)) expect(overlaps(r, other), JSON.stringify([s, r, other])).toBe(false);

@@ -173,6 +173,7 @@ export function makeFloor(checkouts: CheckoutSpec[], key = 'feature:checkout-v2'
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
     unseated: waiting,
     unseatedMore: 0,
   };
