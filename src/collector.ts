@@ -1,6 +1,7 @@
 import type { WorkspaceResolver } from './adapters/git.js';
-import { DEFAULT_THRESHOLDS, type Thresholds } from './config.js';
+import { DEFAULT_THRESHOLDS, type LeisureWindow, type Thresholds } from './config.js';
 import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './core/feature.js';
+import { inLeisureWindow } from './core/leisure.js';
 import { applyEvent, markSeen, normalizeSession, settleRestored } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, SessionSummary, WaitReason } from './core/types.js';
 import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
@@ -48,6 +49,10 @@ export interface CollectorOptions {
   now?: () => number;
   thresholds?: Thresholds;
   featureRules?: FeatureRules;
+  /** The aperitivo/biliardino window (config.ts); defaults to DEFAULT_LEISURE_WINDOW. */
+  leisureWindow?: LeisureWindow;
+  /** The clock `inLeisureWindow` reads `now` with; defaults to the viewer-local hour. Tests inject it to stay timezone-independent. */
+  hourOf?: (now: number) => number;
   /** When set, events from other sources are ignored. */
   acceptSources?: EventSourceKind[];
   saveDelayMs?: number;
@@ -341,8 +346,7 @@ export class Collector {
   }
 
   /** Views of the sessions still in the building. Ended sessions are skipped before any view is derived for them. */
-  liveViews(): SessionView[] {
-    const now = this.now();
+  liveViews(now = this.now()): SessionView[] {
     const t = this.o.thresholds ?? DEFAULT_THRESHOLDS;
     const rules = this.o.featureRules ?? DEFAULT_FEATURE_RULES;
     const out: SessionView[] = [];
@@ -361,6 +365,11 @@ export class Collector {
     return this.seating.get(key) ?? null;
   }
 
+  /** Whether the office aperitivo/biliardino window is open at `now` (core/leisure.ts). */
+  private leisureOpen(now: number): boolean {
+    return inLeisureWindow(now, this.o.leisureWindow, this.o.hourOf);
+  }
+
   /** The building every browser sees: façade, floor directory and attention. */
   scene(): BuildingScene {
     const views = this.liveViews();
@@ -369,17 +378,20 @@ export class Collector {
 
   /** One floor in detail, or null when no live session is on it. */
   floor(key: string): FloorDetail | null {
-    const views = this.liveViews();
-    return buildFloorDetail(views, key, this.firstSeen, this.seat(views));
+    const now = this.now();
+    const views = this.liveViews(now);
+    return buildFloorDetail(views, key, this.firstSeen, this.seat(views), this.leisureOpen(now));
   }
 
   /** The building and the given floors (null for one nobody is on) from one reading of the clock: a session shows one state in all of them. */
   render(floorKeys: readonly string[]): { scene: BuildingScene; floors: Map<string, FloorDetail | null> } {
-    const views = this.liveViews();
+    const now = this.now();
+    const views = this.liveViews(now);
     const seating = this.seat(views);
+    const leisureOpen = this.leisureOpen(now);
     return {
       scene: buildScene(views, this.firstSeen, seating),
-      floors: new Map(floorKeys.map((key) => [key, buildFloorDetail(views, key, this.firstSeen, seating)])),
+      floors: new Map(floorKeys.map((key) => [key, buildFloorDetail(views, key, this.firstSeen, seating, leisureOpen)])),
     };
   }
 

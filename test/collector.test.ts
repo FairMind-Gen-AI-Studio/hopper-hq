@@ -432,6 +432,20 @@ describe('scene', () => {
     expect([...floors.keys()]).toEqual(['repo:/w/orders-api', 'repo:/w/nowhere']);
   });
 
+  it('wires inLeisureWindow(now) into the floor: a waiting sub-agent is at the bar/biliardino only inside the window', async () => {
+    const steps = async (c: Collector) => {
+      await c.ingest(hook({ type: 'prompt', text: 'go' }));
+      await c.ingest(hook({ type: 'agent.started', agentId: 'a1', agentType: 'Explore', description: null }));
+      await c.ingest(hook({ type: 'agent.started', agentId: 'a2', agentType: 'Explore', description: null }));
+      await c.ingest(hook({ type: 'agent.finished', agentId: 'a2' }));
+      return c.floor('repo:/w/orders-api')!.pods[0]!.desks[0]!.occupant!.interns.find((i) => i.agentId === 'a2')!.leisure;
+    };
+    // 10:00 is outside the default 17:00 -> 02:00 window: the waiter goes for coffee.
+    expect(await steps(collector({ hourOf: () => 10 }))).toBe('coffee');
+    // 18:00 is inside it: alone, the waiter gets a gin tonic.
+    expect(await steps(collector({ hourOf: () => 18 }))).toBe('gintonic');
+  });
+
   it('reports an ended session by id, and leaves it out of the building', async () => {
     const c = collector();
     await c.ingest(hook({ type: 'prompt', text: 'go' }));

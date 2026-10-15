@@ -550,7 +550,7 @@ describe('meeting rooms in the floor scene', () => {
 
   it('takes away the interns of a session that leaves, also when two of them share an id', () => {
     const checkouts = checkoutSpecs();
-    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false })) };
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null })) };
     const fs = sceneOf(makeFloor(checkouts));
     for (let i = 0; i < 5; i++) fs.apply(makeFloor(checkouts));
     const interns = () => fs.scene.children.filter((o) => o.name.startsWith('intern ')).length;
@@ -575,7 +575,7 @@ describe('meeting rooms in the floor scene', () => {
 });
 
 describe('interns', () => {
-  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false });
+  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false, smoking: false, leisure: null });
   /** The checkout floor with these interns at sw-a1's desk, sw-a1 in this state, and on this lounge seat if given. */
   const withInterns = (interns: Intern[], state: CheckoutSpec['desks'][number]['state'] = 'working', lounge?: number) => {
     const checkouts = checkoutSpecs();
@@ -1130,7 +1130,7 @@ describe('walking', () => {
 
 describe('loops at rest', () => {
   type Look = Pick<Robot, 'pose' | 'badge'>;
-  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false });
+  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null });
   /** The checkout floor with two interns over sw-a1's desk and both rooms open, ps-d4 at the head of the first. */
   function busyFloor() {
     const checkouts = checkoutSpecs();
