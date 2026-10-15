@@ -7,16 +7,16 @@ import { fullestFloor } from './fixtures';
 
 /**
  * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
- * rounded down. It shows 2,980 meshes and 33 instanced meshes, which draw 577 instances, in 3,013 draw calls, and 441 of
+ * rounded down. It shows 2,980 meshes and 36 instanced meshes, which draw 580 instances, in 3,016 draw calls, and 443 of
  * them cast a shadow.
  */
-const BUDGET = { meshes: 3278, draws: 3314, casters: 485 };
+const BUDGET = { meshes: 3278, draws: 3317, casters: 487 };
 /**
- * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 184 draw calls, 151 meshes
- * and 33 instanced meshes drawing 577 instances, and 27 of them cast a shadow. Robots make most of a frame's draws, so the
+ * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 187 draw calls, 151 meshes
+ * and 36 instanced meshes drawing 580 instances, and 29 of them cast a shadow. Robots make most of a frame's draws, so the
  * floor's budget alone would pass furniture drawn as plain meshes.
  */
-const SHELL_BUDGET = { draws: 202, casters: 29 };
+const SHELL_BUDGET = { draws: 205, casters: 31 };
 
 /** Shown, and so are all its parents. */
 function shown(o: Object3D | null): boolean {

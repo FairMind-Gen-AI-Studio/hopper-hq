@@ -9,6 +9,8 @@ import {
   BOARD,
   CAMERA_DISTANCE,
   CHAIR_Z,
+  COFFEE_MACHINE,
+  COFFEE_MACHINE_OUT,
   COUCH,
   COUCH_ARM,
   COUCH_BACK,
@@ -34,6 +36,8 @@ import {
   boardAnchor,
   cameraOffset,
   cellToWorld,
+  coffeeMachineCenter,
+  coffeeMachineSpots,
   deskAnchor,
   doorGap,
   elevatorSpot,
@@ -203,6 +207,22 @@ describe('world maths', () => {
     }
     // Far enough from the cart's ring that walking between them never crosses the other's spots.
     for (const cart of barCartSpots(rect)) for (const s of spots) expect(dist(cart, s)).toBeGreaterThan(1);
+  });
+
+  it("stands the coffee machine (OQ-3) at the break area's own centre, midway between the cart and the table, with a single stand spot south of it, facing it", () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = coffeeMachineCenter(rect);
+    expect(c).toEqual({ x: rect.x + rect.w / 2, z: rect.y + rect.h / 2 });
+    const spots = coffeeMachineSpots(rect);
+    expect(spots).toEqual([{ x: c.x, z: c.z + COFFEE_MACHINE.d / 2 + COFFEE_MACHINE_OUT, facing: Math.PI }]);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    // Far enough from the cart's and the table's own spots that walking to any of the three never crosses another's.
+    for (const other of [...barCartSpots(rect), ...foosballSpots(rect)]) for (const s of spots) expect(dist(other, s)).toBeGreaterThan(1);
   });
 
   it('steps out of the elevator in the middle of the core, just inside the doors, facing south', () => {

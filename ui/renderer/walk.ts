@@ -19,6 +19,7 @@ import {
   BEANBAG_SCALE,
   BEANBAG_X,
   CHAIR_Z,
+  COFFEE_MACHINE,
   COFFEE_TABLE,
   COUCH,
   COUCH_ARM,
@@ -30,6 +31,7 @@ import {
   ROOM_SEAT,
   TABLE,
   barCartCenter,
+  coffeeMachineCenter,
   deskAnchor,
   doorGap,
   foosballCenter,
@@ -66,8 +68,8 @@ const PLANT_R = 0.3;
 /**
  * The floor's walkable cells: blocked are the outer walls, desks (top and monitor), every seat (desk chairs, room seats,
  * couch seats, beanbags), room glass except the door gaps, room tables, the couches with their arms, the coffee table,
- * the break area's bar cart and biliardino table, and the core's plants. Doors always count as open. The free cells
- * form one connected area at every plan size.
+ * the break area's bar cart, coffee machine and biliardino table, and the core's plants. Doors always count as open.
+ * The free cells form one connected area at every plan size.
  */
 export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots' | 'breakArea'>): WalkGrid {
   const cols = Math.ceil(floor.size.w / WALK_CELL);
@@ -128,9 +130,11 @@ export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lo
   }
   for (const side of [-1, 1]) round(lounge.x + side * BEANBAG_X, lounge.z, BEANBAG_FOOT);
 
-  // The break area: the bar cart and the biliardino table, each blocking only its own footprint.
+  // The break area: the bar cart, the coffee machine and the biliardino table, each blocking only its own footprint.
   const cart = barCartCenter(floor.breakArea);
   solid(cart.x - BAR_CART.w / 2, cart.z - BAR_CART.d / 2, cart.x + BAR_CART.w / 2, cart.z + BAR_CART.d / 2);
+  const coffee = coffeeMachineCenter(floor.breakArea);
+  solid(coffee.x - COFFEE_MACHINE.w / 2, coffee.z - COFFEE_MACHINE.d / 2, coffee.x + COFFEE_MACHINE.w / 2, coffee.z + COFFEE_MACHINE.d / 2);
   const table = foosballCenter(floor.breakArea);
   solid(table.x - FOOSBALL.w / 2, table.z - FOOSBALL.d / 2, table.x + FOOSBALL.w / 2, table.z + FOOSBALL.d / 2);
 

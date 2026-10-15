@@ -5,7 +5,7 @@
  */
 import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 5;
+export const SCENE_VERSION = 6;
 
 /** What a waiting sub-agent is shown doing at leisure: a gin tonic, table football (paired), or a coffee break outside the leisure window. */
 export type SceneLeisure = 'gintonic' | 'biliardino' | 'coffee';

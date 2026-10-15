@@ -144,8 +144,9 @@ export function elevatorSpot(core: GridRect): Spot {
 }
 
 /**
- * The break area (props.ts draws it): a bar cart near its west edge and a biliardino table near its east edge, each
- * with its own stand spots, far enough apart that walking between them never crosses the other's spots.
+ * The break area (props.ts draws it): a bar cart near its west edge, a coffee machine midway between them, and a
+ * biliardino table near its east edge, each with its own stand spot(s), far enough apart that walking between any two
+ * never crosses a third's spots.
  */
 export const BAR_CART = { w: 1.0, d: 0.5 } as const;
 /** How far the cart's centre stands from the break area's west edge. */
@@ -192,6 +193,25 @@ export function foosballSpots(rect: GridRect): Spot[] {
     { x: c.x, z: c.z - FOOSBALL.d / 2 - FOOSBALL_OUT, facing: 0 },
     { x: c.x, z: c.z + FOOSBALL.d / 2 + FOOSBALL_OUT, facing: Math.PI },
   ];
+}
+
+/**
+ * The coffee machine (OQ-3: a finished sub-agent waiting outside the leisure window takes a coffee break here),
+ * centred between the cart and the table, in the free gap their own footprints and rings leave between them.
+ */
+export const COFFEE_MACHINE = { w: 0.6, d: 0.5 } as const;
+/** How far the one stand spot stands south of the machine's centre, facing it. */
+export const COFFEE_MACHINE_OUT = 0.5;
+
+/** Where the coffee machine stands: the break area's own centre, midway between the cart and the table. */
+export function coffeeMachineCenter(rect: GridRect): Point {
+  return rectCenter(rect);
+}
+
+/** The one "holding a coffee cup" stand spot, south of the machine, facing it (north). */
+export function coffeeMachineSpots(rect: GridRect): Spot[] {
+  const c = coffeeMachineCenter(rect);
+  return [{ x: c.x, z: c.z + COFFEE_MACHINE.d / 2 + COFFEE_MACHINE_OUT, facing: Math.PI }];
 }
 
 /** How far in from the core's south corners its plants stand. */

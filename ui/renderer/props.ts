@@ -35,6 +35,7 @@ import {
   BEANBAG_X,
   BOARD,
   CHAIR_Z,
+  COFFEE_MACHINE,
   COFFEE_TABLE,
   COUCH,
   COUCH_ARM,
@@ -51,6 +52,7 @@ import {
   WALL_SIDES,
   WALL_T,
   barCartCenter,
+  coffeeMachineCenter,
   deskAnchor,
   doorGap,
   foosballCenter,
@@ -346,8 +348,10 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
 
 /**
  * The break area (world.ts places its stand spots): a rug, a bar cart near its west edge with a few bottles and
- * glasses, and a biliardino table near its east edge with two rows of little players. Only the cart's counter, its
- * bottles and glasses, and the table's top, cast a shadow: the legs and the players are too thin to be worth it.
+ * glasses, a coffee machine midway between the cart and the table with a cup under its spout, and a biliardino table
+ * near its east edge with two rows of little players. Only the cart's counter, its bottles and glasses, the coffee
+ * machine's body and its cup, and the table's top, cast a shadow: the legs, its tray and the players are too thin to
+ * be worth it.
  */
 function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
   const s = mats.surface;
@@ -366,6 +370,12 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
   }
   for (const dx of [-0.2, 0, 0.2]) add(geo.rod(0.03, 0.045, 0.26, 10), s.bottle, cart.x + dx, 1.07, cart.z - 0.1);
   for (const dx of [-0.15, 0.15]) add(geo.ball(0.05), s.glass, cart.x + dx, 0.99, cart.z + 0.1);
+
+  // The coffee machine: a floor-standing body, a thin tray sticking out at its front, and a cup under its spout.
+  const coffee = coffeeMachineCenter(rect);
+  add(geo.rbox(COFFEE_MACHINE.w, 0.9, COFFEE_MACHINE.d, 0.03), s.elevator, coffee.x, 0.45, coffee.z);
+  add(geo.box(COFFEE_MACHINE.w - 0.1, 0.03, 0.14), s.leg, coffee.x, 0.62, coffee.z + COFFEE_MACHINE.d / 2 - 0.02, { cast: false });
+  add(geo.rod(0.05, 0.06, 0.09, 12), s.paper, coffee.x, 0.68, coffee.z + COFFEE_MACHINE.d / 2 - 0.08);
 
   // The biliardino table: a top on four legs, two rows of little player-rods along its long sides.
   const table = foosballCenter(rect);
