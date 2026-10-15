@@ -72,6 +72,15 @@ describe('parseTranscriptLine', () => {
     ]);
   });
 
+  it('flags a smoke-test tool_use, and omits the field for an ordinary one', () => {
+    const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, cwd: '/w/shop', message: { content: [
+      { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm run test:smoke' } },
+    ] } }), S);
+    expect(r.events).toEqual([
+      { sessionId: S, ts: TS, source: 'fs', type: 'tool.started', toolId: 't1', tool: 'Bash', label: 'Bash: npm run test:smoke', agentId: null, smoke: true },
+    ]);
+  });
+
   it('uses the cwd hint when the line has none', () => {
     const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/w/shop/README.md' } }] } }), S, '/w/shop');
     expect(r.events[0]).toMatchObject({ label: 'Read README.md' });

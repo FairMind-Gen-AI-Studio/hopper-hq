@@ -113,6 +113,29 @@ describe('applyEvent', () => {
     expect(s.children).toEqual([{ id: 'a1', type: 'agent', description: null, running: true, lastAction: 'Grep useCart', updatedAt: 1300 }]);
   });
 
+  it('flags a smoking tool on the main agent, the child and a run agent, and clears it when the tool or the agent finishes', () => {
+    // Main agent: openTool.smoking tracks the current tool's smoke flag.
+    let s = run(seen(), ev('tool.started', 1100, { toolId: 't1', tool: 'Bash', label: 'Bash: smoke', agentId: null, smoke: true }));
+    expect(s.openTool).toMatchObject({ smoking: true });
+    s = applyEvent(s, ev('tool.finished', 1200, { toolId: 't1', ok: true, agentId: null }))!;
+    expect(s.openTool).toBeNull();
+
+    // Child: smoking is set on a smoke tool.started and cleared on tool.finished.
+    let c = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'Bash', label: 'Bash: smoke', agentId: 'a1', smoke: true }));
+    expect(c.children).toEqual([expect.objectContaining({ id: 'a1', smoking: true })]);
+    c = applyEvent(c, ev('tool.finished', 1200, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    expect(c.children[0]!.smoking).toBeFalsy();
+
+    // Child: agent.finished also clears a still-open smoking flag.
+    let d = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'Bash', label: 'Bash: smoke', agentId: 'a2', smoke: true }));
+    d = applyEvent(d, ev('agent.finished', 1200, { agentId: 'a2' }))!;
+    expect(d.children[0]!.smoking).toBeFalsy();
+
+    // A tool.started without smoke leaves it falsey.
+    const e = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'Read', label: 'Read a.ts', agentId: 'a3' }));
+    expect(e.children[0]!.smoking).toBeFalsy();
+  });
+
   it("a subagent's wait ends with that subagent's next step, not with another one's", () => {
     let s = run(seen(), ev('prompt', 1100, { text: 'x' }),
       ev('tool.started', 1200, { toolId: 'm1', tool: 'Agent', label: 'Agent: Review', agentId: null }),

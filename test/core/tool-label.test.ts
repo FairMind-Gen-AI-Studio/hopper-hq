@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toolLabel, truncate, waitingFromTool } from '../../src/core/tool-label.js';
+import { isSmokeTest, toolLabel, truncate, waitingFromTool } from '../../src/core/tool-label.js';
 
 describe('truncate', () => {
   it('collapses whitespace and cuts with an ellipsis', () => {
@@ -51,5 +51,28 @@ describe('waitingFromTool', () => {
   });
   it('returns null for ordinary tools', () => {
     expect(waitingFromTool('Bash', { command: 'ls' })).toBeNull();
+  });
+});
+
+describe('isSmokeTest', () => {
+  it('recognizes a smoke test runner invocation or a smoke spec file', () => {
+    expect(isSmokeTest('Bash', { command: 'npm run test:smoke' })).toBe(true);
+    expect(isSmokeTest('Bash', { command: 'npx playwright test e2e/smoke.spec.ts' })).toBe(true);
+    expect(isSmokeTest('Bash', { command: 'vitest run smoke' })).toBe(true);
+    expect(isSmokeTest('Bash', { command: 'npm test -- smoke.test.ts' })).toBe(true);
+    expect(isSmokeTest('Skill', { skill: 'smoke-check' })).toBe(true);
+  });
+  it('is false for an ordinary test run, a mere mention of smoke, or an unrelated tool', () => {
+    expect(isSmokeTest('Bash', { command: 'npm test' })).toBe(false);
+    expect(isSmokeTest('Bash', { command: "echo 'smoke signal'" })).toBe(false);
+    expect(isSmokeTest('Read', { file_path: 'src/smoke.ts' })).toBe(false);
+    expect(isSmokeTest('Edit', { file_path: 'src/smoke.ts' })).toBe(false);
+    expect(isSmokeTest('Bash', { command: 'npm run build' })).toBe(false);
+  });
+  it('survives odd input', () => {
+    expect(isSmokeTest('Bash', null)).toBe(false);
+    expect(isSmokeTest('Bash', {})).toBe(false);
+    expect(isSmokeTest('Skill', {})).toBe(false);
+    expect(isSmokeTest('SomethingNew', 'oops')).toBe(false);
   });
 });
