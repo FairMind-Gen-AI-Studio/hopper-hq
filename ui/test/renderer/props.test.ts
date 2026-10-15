@@ -261,12 +261,13 @@ describe('the shell', () => {
       ...[1, 2, 2, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 4, 2, 2, 2, 2, 2],
       // The espresso machine (OQ-3, no longer a fridge-like box): its counter cabinet and its overhanging top; its
       // own chrome body and its cup-warmer tray plate; the tray's three cups; its two gauges' bezels and dials; its
-      // ready light; its two group heads, their portafilter shafts and grip balls; its drip tray; its steam wand;
-      // its grinder's own body and its bean hopper; its stack of three cups; and its sugar jar's body and lid. Then
-      // the biliardino table's cabinet, legs and cross-bars, its field, lines, circle and ball, its rim's long walls
-      // and short segments and its two goal mouths, its 8 rods and their handles, and its players' bodies and heads,
-      // in each team's colour.
-      ...[1, 1, 1, 1, 3, 2, 2, 1, 2, 2, 2, 1, 1, 1, 1, 3, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
+      // ready light; its two group heads, their portafilter shafts and grip balls; its drip tray; its steam wand and
+      // its own tip nozzle (round 1: moved clear of the body and given a ball tip of its own so it reads as a wand
+      // at the camera's usual angles, not just a thin rod lost against the chrome); its grinder's own body and its
+      // bean hopper; its stack of three cups; and its sugar jar's body and lid. Then the biliardino table's cabinet,
+      // legs and cross-bars, its field, lines, circle and ball, its rim's long walls and short segments and its two
+      // goal mouths, its 8 rods and their handles, and its players' bodies and heads, in each team's colour.
+      ...[1, 1, 1, 1, 3, 2, 2, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
       // The rooms: each table, its two pedestals, and its nine seats.
       ...[r, 2 * r, 9 * r],
     ]);
@@ -327,10 +328,12 @@ describe('the shell', () => {
     const table = foosballCenter(rect);
     const nearTable = paper.filter((b) => Math.abs(b.getCenter(new Vector3()).x - table.x) < FOOSBALL.w / 2);
     expect([nearTable.length, paper.length - nearTable.length]).toEqual([5, 8]);
-    // Its two group heads, its steam wand, its two gauges' bezels and its sugar jar's lid, with the bar's two
-    // frame-coloured bottles and its 8 rods, apart from the window and partition frames elsewhere on the floor; its
-    // two goal mouths and the bar's one monitor-dark bottle, apart from the desks' and the elevator's own monitors.
-    expect(of(s.frame).length).toBe(16);
+    // Its two group heads and its two gauges' bezels and its sugar jar's lid (round 1: its steam wand moved to the
+    // darker handle token, s.leg, for contrast against the chrome body — not this one, any more), with the bar's
+    // two frame-coloured bottles and its 8 rods, apart from the window and partition frames elsewhere on the floor;
+    // its two goal mouths and the bar's one monitor-dark bottle, apart from the desks' and the elevator's own
+    // monitors.
+    expect(of(s.frame).length).toBe(15);
     expect(of(s.monitor).length).toBe(3);
     // Its two teams of 11 players each (a body and a head apiece), in colours found nowhere else on the floor.
     expect([of(s.foosballA).length, of(s.foosballB).length]).toEqual([22, 22]);

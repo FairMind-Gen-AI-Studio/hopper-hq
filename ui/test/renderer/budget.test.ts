@@ -10,20 +10,22 @@ import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixture
  * rounded down. With every running intern, room agent and working/no_signal occupant holding a cigar (its tip and puff,
  * none of them a shadow caster), and every running intern and room agent typed to a Fairmind plugin, so every one of
  * them wears the Fairmind badge too (fairmind-badge.ts: a disc and a mark, neither a shadow caster), it shows 3,502
- * meshes and 216 instanced meshes, which draw 1,655 instances, in 3,718 draw calls, and 455 of them cast a shadow —
+ * meshes and 217 instanced meshes, which draw 1,656 instances, in 3,719 draw calls, and 455 of them cast a shadow —
  * the espresso machine's counter cabinet and overhang, its own chrome body and its two group heads add real new
- * casters (OQ-3, props.ts), the rest of it (its tray, gauges, portafilters, steam wand and grinder) too thin to be
- * worth one, the same as the coffee cup's own saucer.
+ * casters (OQ-3, props.ts), the rest of it (its tray, gauges, portafilters, steam wand and its own tip nozzle, and
+ * grinder) too thin to be worth one, the same as the coffee cup's own saucer — the wand's own tip nozzle (round 1:
+ * split off the wand's rod so the wand reads as a wand, not a thin line lost against the chrome) adds one more
+ * instanced mesh and draw call, still too thin to cast.
  */
-const BUDGET = { meshes: 3852, draws: 4089, casters: 500 };
+const BUDGET = { meshes: 3852, draws: 4090, casters: 500 };
 /**
- * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 231 draw calls, 151
- * meshes and 80 instanced meshes drawing 703 instances, and 41 of them cast a shadow — raised from 216/40 when the
+ * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 232 draw calls, 151
+ * meshes and 81 instanced meshes drawing 704 instances, and 41 of them cast a shadow — raised from 216/40 when the
  * coffee machine grew from a fridge-like box into the espresso bar's own counter, machine, grinder and cups
- * (props.ts). Robots make most of a frame's draws, so the floor's budget alone would pass furniture drawn as plain
- * meshes.
+ * (props.ts), and again from 231 when round 1 split the steam wand's own tip nozzle off its rod. Robots make most
+ * of a frame's draws, so the floor's budget alone would pass furniture drawn as plain meshes.
  */
-const SHELL_BUDGET = { draws: 254, casters: 45 };
+const SHELL_BUDGET = { draws: 255, casters: 45 };
 
 /** Shown, and so are all its parents. */
 function shown(o: Object3D | null): boolean {
@@ -106,9 +108,10 @@ describe('the budget of the fullest floor', () => {
  * shadow caster), a pair at the foosball table and one at the espresso machine with its cup and saucer, over
  * checkoutFloor's own desks and robots, with the bar's counter, back-bar, lime bowl, glasses and stools, the
  * espresso machine's own counter, body, grinder and cups, and the biliardino's cabinet, rim, rods and players. What
- * the whole scene then costs, as measured (442 draw calls, 78 shadow casters), with a tenth to spare, rounded down.
+ * the whole scene then costs, as measured (443 draw calls, round 1's own extra wand-tip draw call among them, 78
+ * shadow casters), with a tenth to spare, rounded down.
  */
-const LEISURE_BUDGET = { draws: 486, casters: 85 };
+const LEISURE_BUDGET = { draws: 487, casters: 85 };
 
 /**
  * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven

@@ -459,9 +459,11 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
   const machineZ = coffee.z - 0.04;
   const bodyTop = COFFEE_COUNTER_H + MACHINE.h;
   add(geo.rbox(MACHINE.w, MACHINE.h, MACHINE.d, 0.02), s.chrome, coffee.x, COFFEE_COUNTER_H + MACHINE.h / 2, machineZ);
-  // The cup-warmer tray on top, a few espresso cups standing upside down on it.
+  // The cup-warmer tray on top, a few espresso cups standing upside down on it — staggered a little front-to-back
+  // (not lined up on one `z`), so from the side (az close to the counter's own long axis) they still read as three
+  // separate cups instead of stacking into one silhouette.
   add(geo.rbox(MACHINE.w - 0.06, 0.012, MACHINE.d - 0.04, 0.004), s.chrome, coffee.x, bodyTop + 0.006, machineZ, { cast: false });
-  for (const dx of [-0.14, 0, 0.14]) add(geo.rod(0.016, 0.022, 0.03), s.paper, coffee.x + dx, bodyTop + 0.027, machineZ, { cast: false });
+  for (const [dx, dz] of [[-0.14, 0], [0, 0.045], [0.14, 0]] as const) add(geo.rod(0.02, 0.027, 0.035), s.paper, coffee.x + dx, bodyTop + 0.0295, machineZ + dz, { cast: false });
   // Two round gauges and, between them, the amber ready light.
   for (const dx of [-0.16, 0.16]) {
     add(geo.rod(0.035, 0.035, 0.012, 16), s.frame, coffee.x + dx, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2, { rx: Math.PI / 2, cast: false });
@@ -480,8 +482,15 @@ function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo
   }
   add(geo.rbox(MACHINE.w - 0.08, 0.02, 0.1, 0.006), s.leg, coffee.x, COFFEE_COUNTER_H + 0.01, frontZ + 0.03, { cast: false });
 
-  // The steam wand, jutting out and down from the machine's own west side.
-  add(geo.rod(0.013, 0.013, 0.2, 8), s.frame, coffee.x - MACHINE.w / 2 - 0.015, headY + 0.03, frontZ - 0.05, { rx: Math.PI / 2 - 0.5, ry: -0.3, cast: false });
+  // The steam wand, on the machine's own west side but out at the body's own front-left corner, well clear of it
+  // in both `x` and `z` (not flush against the side face, where a thin wand sat nearly in the body's own
+  // silhouette from most angles and so stayed barely legible at any of them) — so it reads as its own open shape
+  // against the counter from the front and from the side alike, thick enough, with its own tip nozzle, to read at
+  // the camera's usual distance, and the darker handle token rather than the lighter frame one, for contrast.
+  const wandX = coffee.x - MACHINE.w / 2 - 0.1;
+  const wandZ = frontZ + 0.06;
+  add(geo.rod(0.02, 0.02, 0.22, 8), s.leg, wandX, headY + 0.02, wandZ, { rx: Math.PI / 2 - 0.5, ry: -0.3, cast: false });
+  add(geo.ball(0.024), s.leg, wandX - 0.07, headY - 0.07, wandZ + 0.06, { cast: false });
 
   // The grinder, its hopper tapering down into the burrs, on the counter beside the machine; a stack of cups and a
   // sugar jar across on the other side.
