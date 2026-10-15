@@ -5,6 +5,7 @@ import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import {
   BOT,
+  FOOSBALL_HOVER_Y,
   HEAD_DOWN,
   HOVER_Y,
   KIND_SCALE,
@@ -296,6 +297,11 @@ describe('robots', () => {
     expect(rootHeight('holding', 'workflow')).toBe(0);
     expect(rootHeight('typing', 'intern')).toBe(HOVER_Y);
     expect(rootHeight('typing', 'session')).toBe(rootHeight('typing'));
+    // At the foosball table, though, an intern floats low enough for its hands to meet the table's handles instead.
+    poseRobot(intern, { pose: 'biliardino', badge: null }, spot);
+    expect(intern.group.position.y).toBe(FOOSBALL_HOVER_Y);
+    expect(rootHeight('biliardino', 'intern')).toBe(FOOSBALL_HOVER_Y);
+    expect(FOOSBALL_HOVER_Y).toBeLessThan(HOVER_Y);
   });
 
   it('lets the hard hat cast a shadow, but not its brim, and an intern cast none', () => {
@@ -484,6 +490,8 @@ describe('loops at rest', () => {
     [{ pose: 'gintonic', badge: null }, 'intern', { 'root position.y': LOOPS.hover.bob }],
     [{ pose: 'coffee', badge: null }, 'workflow', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
     [{ pose: 'biliardino', badge: null }, 'workflow', { 'armL rotation.x': LOOPS.foosball.arm, 'armR rotation.x': LOOPS.foosball.arm }],
+    // An intern plays too, at the biliardino's own low height (FOOSBALL_HOVER_Y, rootHeight), not its desk's hover.
+    [{ pose: 'biliardino', badge: null }, 'intern', { 'armL rotation.x': LOOPS.foosball.arm, 'armR rotation.x': LOOPS.foosball.arm }],
   ];
 
   it('starts each robot at a phase in [0, 2π) hashed from its id: the same for the same id, spread round the circle', () => {
@@ -513,8 +521,9 @@ describe('loops at rest', () => {
       seen.add(occupant.state);
     }
     expect([...seen].sort()).toEqual(Object.keys(want).sort());
-    for (const [look, kind] of looks()) expect(loopOf(look, kind), `${look.pose} ${kind}`).toBe(kind === 'intern' ? 'hover' : loopOf(look));
-    expect([loopOf({ pose: 'typing', badge: null }, 'workflow'), loopOf({ pose: 'waving', badge: 'needs' }, 'intern')]).toEqual(['type', 'hover']);
+    // An intern hovers in every pose but one: at the foosball table it plays like any other kind.
+    for (const [look, kind] of looks()) expect(loopOf(look, kind), `${look.pose} ${kind}`).toBe(kind === 'intern' && look.pose !== 'biliardino' ? 'hover' : loopOf(look));
+    expect([loopOf({ pose: 'typing', badge: null }, 'workflow'), loopOf({ pose: 'waving', badge: 'needs' }, 'intern'), loopOf({ pose: 'biliardino', badge: null }, 'intern')]).toEqual(['type', 'hover', 'foosball']);
     expect(LOOPS).toEqual({
       type: { rate: 15, arm: 0.08 },
       wave: { rate: 7, arm: 0.3 },

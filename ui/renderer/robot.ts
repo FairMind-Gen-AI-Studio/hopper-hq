@@ -52,8 +52,12 @@ export const POSES: Record<Pose, PoseSpec> = {
   resting: { armL: [-0.3, -0.25], armR: [-0.3, 0.25], legs: -1.45, neck: -0.1, lean: -0.22, paper: false },
   /** At the bar cart (design §7.1, leisure): standing, relaxed, its glass raised in its right hand. */
   gintonic: { armL: [-0.3, -0.25], armR: [-1, -0.15], legs: 0, neck: -0.1, lean: -0.15, paper: false },
-  /** Leaning over the foosball table's handle, both forearms down and forward; the table's rods are T5's furniture. */
-  biliardino: { armL: [-1.3, 0.12], armR: [-1.3, -0.12], legs: 0, neck: 0.15, lean: 0.3, paper: false },
+  /**
+   * Leaning over the foosball table's handle, both forearms reaching out and down; the table's rods are props.ts's
+   * furniture, at world.ts's FOOSBALL_ROD_Y. A standing robot's hand lands there at this bend (checked by
+   * forward kinematics, not eyeballed): bending the forearm further, past this, would only lower the hand again.
+   */
+  biliardino: { armL: [-1.6, 0.14], armR: [-1.6, -0.14], legs: 0, neck: 0.1, lean: 0.12, paper: false },
   /** At the coffee machine: standing, its cup in its right hand. */
   coffee: { armL: [-0.25, -0.2], armR: [-0.9, -0.15], legs: 0, neck: -0.08, lean: -0.1, paper: false },
 };
@@ -67,9 +71,18 @@ export function poseOf(robot: Pick<Robot, 'pose' | 'badge'>): PoseSpec {
   return robot.pose === 'still' && robot.badge === 'clock' ? DOZING : POSES[robot.pose];
 }
 
+/**
+ * How high an intern floats while it plays foosball: low enough that its hand, at its own small scale and the
+ * biliardino pose's bend, meets the table's rods at FOOSBALL_ROD_Y (world.ts) — nothing like its desk's HOVER_Y,
+ * which would leave its hands a metre above the handles. Measured the same way as the pose itself (by forward
+ * kinematics, not eyeballed): an intern has no legs to stand on, so unlike session and workflow it needs a root
+ * height of its own at this one pose.
+ */
+export const FOOSBALL_HOVER_Y = 0.28;
+
 /** Height of the robot's feet: a seated robot sinks until its hips, at its size, rest on the chair; an intern hovers. */
 export function rootHeight(pose: Pose, kind: RobotKind = 'session'): number {
-  if (kind === 'intern') return HOVER_Y;
+  if (kind === 'intern') return pose === 'biliardino' ? FOOSBALL_HOVER_Y : HOVER_Y;
   return isStanding(pose) ? 0 : SEAT_Y - BOT.hip * KIND_SCALE[kind];
 }
 
@@ -326,11 +339,12 @@ export type Loop = keyof typeof LOOPS;
 
 /**
  * The loop a robot runs at its place: working sessions and workflow agents type, one that needs you waves, one that is
- * done sways its paper, one without a signal dozes, an idle one breathes, and an intern hovers. A host in a meeting
- * runs none.
+ * done sways its paper, one without a signal dozes, an idle one breathes, and an intern hovers — except at the
+ * foosball table, where it floats low over its handle (rootHeight, FOOSBALL_HOVER_Y) and plays like any other
+ * kind. A host in a meeting runs none.
  */
 export function loopOf(robot: Pick<Robot, 'pose' | 'badge'>, kind: RobotKind = 'session'): Loop | null {
-  if (kind === 'intern') return 'hover';
+  if (kind === 'intern' && robot.pose !== 'biliardino') return 'hover';
   switch (robot.pose) {
     case 'typing':
       return 'type';

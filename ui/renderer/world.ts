@@ -177,6 +177,13 @@ export const FOOSBALL = { w: 1.6, d: 0.8 } as const;
 export const FOOSBALL_X = 1.5;
 /** How far a handle spot stands from the table's long edge. */
 export const FOOSBALL_OUT = 0.5;
+/**
+ * How high the table's 8 rods (and so its players and its handles: one straight rod, the same height throughout)
+ * stand above the floor: props.ts's cabinet carries them through its raised rim, just above its own green field,
+ * and robot.ts's biliardino pose (session and workflow kinds, standing) reaches a hand to just this height. An
+ * intern, with no legs to stand on, floats low enough at this pose instead of its desk's HOVER_Y (robot.ts).
+ */
+export const FOOSBALL_ROD_Y = 0.62;
 
 /** Where the biliardino table stands, centred in the break area's depth. */
 export function foosballCenter(rect: GridRect): Point {

@@ -36,6 +36,7 @@ import {
   COUCH_BACK,
   DESK_CHAIR,
   DESK_TOP,
+  FOOSBALL,
   PARTITION_H,
   ROOM_SEAT,
   WALL_H,
@@ -44,6 +45,7 @@ import {
   coffeeMachineSpots,
   deskAnchor,
   doorGap,
+  foosballCenter,
   foosballSpots,
   headSpot,
   loungeSpots,
@@ -251,9 +253,11 @@ describe('the shell', () => {
       ...[n, 4 * n, n, n, n, n, n, n, n, n + 9 * r, n],
       // The lounge: the couches' seats, backs and arms, the coffee table's top, legs and cup, and the two beanbags.
       ...[2, 2, 4, 1, 2, 1, 1, 1],
-      // The break area: the cart's counter, its legs, its bottles and its glasses, the coffee machine's body, its tray
-      // and its cup, and the table's top, legs and players.
-      ...[1, 4, 3, 2, 1, 1, 1, 1, 4, 8],
+      // The break area: the cart's counter, its legs, its bottles and its glasses, and the coffee machine's body, its
+      // tray and its cup; the biliardino table's cabinet, legs and cross-bars, its field, lines, circle and ball, its
+      // rim's long walls and short segments and its two goal mouths, its 8 rods and their handles, and its players'
+      // bodies and heads, in each team's colour.
+      ...[1, 4, 3, 2, 1, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
       // The rooms: each table, its two pedestals, and its nine seats.
       ...[r, 2 * r, 9 * r],
     ]);
@@ -290,7 +294,7 @@ describe('the shell', () => {
     }
   });
 
-  it('furnishes the break area: a bar cart with bottles and glasses, a coffee machine with a cup, and a biliardino table with two rows of players, all inside its rect', () => {
+  it('furnishes the break area: a bar cart with bottles and glasses, a coffee machine with a cup, and a biliardino table with a green field, 8 rods and two teams of players, all inside its rect', () => {
     const { geo, mats } = kit();
     const floor = checkoutFloor();
     const shell = buildShell(floor, geo, mats);
@@ -300,17 +304,23 @@ describe('the shell', () => {
     const of = (m: Material) => drawn(shell.group, m).filter(inArea);
     // The cart's counter and its 3 bottles and 2 glasses, apart from the desks (s.leg) and rooms (s.desk) elsewhere on the floor.
     expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length]).toEqual([1, 3, 2]);
-    // The coffee machine's body (apart from the elevator doors, which lie outside the break area) and its cup, apart
-    // from the lounge's own coffee-table cup, which also shares s.paper but lies outside the break area.
+    // The coffee machine's body and its cup; the cup shares s.paper with the table's own centre line, two box lines,
+    // circle and ball, apart from each other only by which one of the two stands nearer.
     const machine = of(s.elevator);
-    const cup = of(s.paper);
-    expect([machine.length, cup.length]).toEqual([1, 1]);
-    // The table's top, among the room tables and desk tops that also share s.desk; its players, apart from the chairs' s.chair.
-    const table = of(s.desk);
-    const players = of(s.chair);
-    expect([table.length, players.length]).toEqual([1, 8]);
-    // Every stand spot of the cart, the coffee machine and the table lies inside the break area, clear of its own furniture.
-    const furniture = [...of(s.cart), ...machine, ...table];
+    const paper = of(s.paper);
+    expect(machine.length).toBe(1);
+    const table = foosballCenter(rect);
+    const nearTable = paper.filter((b) => Math.abs(b.getCenter(new Vector3()).x - table.x) < FOOSBALL.w / 2);
+    expect([nearTable.length, paper.length - nearTable.length]).toEqual([5, 1]);
+    // Its 8 rods, apart from the window and partition frames elsewhere on the floor, and its two goal mouths, apart
+    // from the desks' and the elevator's own monitors.
+    expect(of(s.frame).length).toBe(8);
+    expect(of(s.monitor).length).toBe(2);
+    // Its two teams of 11 players each (a body and a head apiece), in colours found nowhere else on the floor.
+    expect([of(s.foosballA).length, of(s.foosballB).length]).toEqual([22, 22]);
+    // Every stand spot of the cart, the coffee machine and the table lies inside the break area, clear of its own
+    // furniture: the cart, the machine's body, and every leg, cross-bar, rim segment and handle of the table (s.leg).
+    const furniture = [...of(s.cart), ...machine, ...of(s.leg)];
     for (const spot of [...barCartSpots(rect), ...coffeeMachineSpots(rect), ...foosballSpots(rect)]) {
       expect(spot.x).toBeGreaterThan(rect.x);
       expect(spot.x).toBeLessThan(rect.x + rect.w);

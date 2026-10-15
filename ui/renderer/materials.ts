@@ -68,6 +68,10 @@ const SURFACES = {
   cigarTip: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
   /** The smoke puffs: thick, off-white, smoke signals. Shared by every robot (robot.ts fades it by scale, not opacity). */
   smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.6 },
+  /** The biliardino table's two teams of little players, in colours clearly apart at a glance: the "needs you" red
+   * and the accent blue, already in every theme, so no new token is needed for a pair of jerseys. */
+  foosballA: { color: 's-needs', roughness: 0.6 },
+  foosballB: { color: 'accent', roughness: 0.6 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;
