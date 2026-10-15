@@ -95,12 +95,13 @@ describe('the budget of the fullest floor', () => {
 });
 
 /**
- * The break area at its full capacity (design §7.1, OQ-1..OQ-3): four interns at the bar cart with their glass and
- * lime, a pair at the foosball table and one at the coffee machine with its cup, over checkoutFloor's own desks and
- * robots. What the whole scene then costs, as measured (357 draw calls, 66 shadow casters), with a tenth to spare,
- * rounded down.
+ * The break area at its full capacity (design §7.1, OQ-1..OQ-3): four interns at the bar cart each holding a gin
+ * tonic (robot.ts's buildDrink: a twelve-part copa de balón, oversized to read at floor-view distance — the bulk of
+ * this budget's own rise over the rest of the floor's), a pair at the foosball table and one at the coffee machine
+ * with its cup, over checkoutFloor's own desks and robots. What the whole scene then costs, as measured (397 draw
+ * calls, 66 shadow casters — the drink's own parts never cast one), with a tenth to spare, rounded down.
  */
-const LEISURE_BUDGET = { draws: 392, casters: 72 };
+const LEISURE_BUDGET = { draws: 436, casters: 72 };
 
 /**
  * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven

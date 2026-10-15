@@ -96,6 +96,22 @@ describe('materials', () => {
     expect(hex(glass.emissive)).toBe('#000000');
   });
 
+  it("gives the gin tonic its own glass and tonic, apart from the partitions' glass, the drink held more opaque than its shell so both still read at a glance", () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    const { gtGlass, tonic, glass, limeFlesh, plant, paper } = m.surface;
+    expect([gtGlass.transparent, tonic.transparent]).toEqual([true, true]);
+    expect(tonic.opacity).toBeGreaterThan(gtGlass.opacity);
+    expect(gtGlass.opacity).toBeLessThan(1);
+    expect(tonic.opacity).toBeLessThan(1);
+    expect(gtGlass).not.toBe(glass);
+    expect(tonic).not.toBe(gtGlass);
+    // The lime wheel's flesh, next to its rind (the plant token, as the lime itself is): paler than the rind.
+    const luma = (c: Color) => c.r + c.g + c.b;
+    expect(luma(limeFlesh.color)).toBeGreaterThan(luma(plant.color));
+    expect(limeFlesh).not.toBe(paper);
+  });
+
   it('gives each repo slot a body, darker joints and a rug, and each feature slot a tie', () => {
     const theme = dayTheme();
     const m = new Materials(theme);
@@ -159,7 +175,7 @@ describe('materials', () => {
     m.dispose();
     expect(freed).toBe(m.all().length);
     // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring and the contact disc.
-    expect(m.all().length).toBe(35 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
+    expect(m.all().length).toBe(42 + 3 * 8 + 8 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {
