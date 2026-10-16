@@ -1,6 +1,6 @@
 /**
  * The Fairmind mark that floats over the head of a sub-agent spawned from a Fairmind plugin (src/scene/fairmind.ts
- * isFairmindAgent): a small teal disc with the brand's head-profile mark (scratchpad/ref/fairmind-mark.png), drawn
+ * isFairmindAgent): a small teal disc with the brand's head-profile mark (traced from the FairMind Studio favicon), drawn
  * from primitives, never a texture, in the house style of every other part a robot wears. Its geometry and its
  * materials are shared by every robot that can show it (attachFairmindBadge, through the scene's own Geometries and
  * Materials) — one disc geometry, one mark geometry, one material each — so that it costs two draw calls on a robot
@@ -72,7 +72,7 @@ function strokeShape(pts: readonly Pt[], width: number): Shape {
 }
 
 /**
- * The head's profile, left-facing, as an open stroke (fairmind-mark.png): the forehead's slant down to the nose's
+ * The head's profile, left-facing, as an open stroke (the FairMind Studio favicon): the forehead's slant down to the nose's
  * ledge, the chin's drop, the jaw's bottom, and the hook that curves up the back of the head, to its own rounded cap.
  * Traced from the reference pixel for pixel (a flood fill of its white pixels, by row), then centred.
  */
