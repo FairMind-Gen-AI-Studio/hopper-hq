@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEMO_DROP_INS, DEMO_LOOP_MS, DEMO_SESSIONS, demoRunIds, demoScript, demoSummaryLine, startDemo } from '../../src/adapters/demo.js';
+import { DEMO_DROP_INS, DEMO_LEISURE_HOUR, DEMO_LOOP_MS, DEMO_SESSIONS, demoRunIds, demoScript, demoSummaryLine, startDemo } from '../../src/adapters/demo.js';
 import { Collector } from '../../src/collector.js';
 import type { RawEvent } from '../../src/core/types.js';
 import type { FloorDetail } from '../../src/scene/types.js';
 import { startDaemon } from '../../src/daemon.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../src/scene/palette.js';
+import { personaOf } from '../../src/scene/persona.js';
 import { cleanText } from '../../src/scene/text.js';
 import { SUMMARY_MAX, summaryInput } from '../../src/summary/input.js';
 
@@ -51,15 +52,24 @@ describe('demoScript', () => {
       expect(times.every((t) => t >= 0 && t < DEMO_LOOP_MS)).toBe(true);
     }
   });
+
+  it("spawns agents across at least 5 distinct personas (hq-agent-personas TP3), alongside the plain explorer/generalist interns", () => {
+    const BASE = 1_000_000_000;
+    const types = demoScript().flatMap((step) => step.events(BASE + step.at)).flatMap((e) => (e.type === 'agent.started' ? [e.agentType] : []));
+    const personas = new Set(types.map((t) => personaOf(t)));
+    expect(personas.size).toBeGreaterThanOrEqual(5);
+    expect([...personas].sort()).toEqual(['developer', 'explorer', 'generalist', 'none', 'qa', 'reviewer', 'security', 'techlead'].sort());
+  });
 });
 
 const BASE = 1_000_000_000;
 const CHECKOUT = 'feature:checkout-v2';
+const SEARCH = 'feature:search-ranking';
 
-/** A collector the demo feeds, at the time each step is due. */
-function demoCollector() {
+/** A collector the demo feeds, at the time each step is due. `hourOf` defaults to the real local hour, as production does. */
+function demoCollector(hourOf?: (now: number) => number) {
   const clock = { now: BASE };
-  const c = new Collector({ resolveWorkspace: async () => { throw new Error('demo events carry their workspace'); }, now: () => clock.now, acceptSources: ['demo'] });
+  const c = new Collector({ resolveWorkspace: async () => { throw new Error('demo events carry their workspace'); }, now: () => clock.now, acceptSources: ['demo'], hourOf });
   /** Plays a loop's steps from `base`, calling `after` once each step is in. */
   const play = async (loop: number, base: number, after?: (at: number) => void) => {
     for (const step of demoScript(loop)) {
@@ -68,8 +78,8 @@ function demoCollector() {
       after?.(step.at);
     }
   };
-  /** A session on the checkout floor, at its desk. */
-  const desk = (id: string) => c.floor(CHECKOUT)!.pods.flatMap((p) => p.desks).find((d) => d.occupant?.sessionId === id)!.occupant!;
+  /** A session at its desk, on the checkout floor by default. */
+  const desk = (id: string, floorKey = CHECKOUT) => c.floor(floorKey)!.pods.flatMap((p) => p.desks).find((d) => d.occupant?.sessionId === id)!.occupant!;
   return { c, clock, play, desk };
 }
 
@@ -92,7 +102,7 @@ describe('the demo workflow run', () => {
         summary: 'Verify split payments end to end',
         phases: [{ title: 'Plan', state: 'current' }, { title: 'Build', state: 'upcoming' }, { title: 'Review', state: 'upcoming' }, { title: 'Ship', state: 'upcoming' }],
         counts: { running: 1, finished: 0 },
-        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: true }],
+        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'fairmind-coding:Technical Lead / Architect', running: true, smoking: false, leisure: null }],
         look,
         rect: { x: 18, y: 2, w: 8, h: 6 },
         slot: 0,
@@ -212,6 +222,63 @@ describe('demo interns', () => {
       [30_000, [['demo-a1-review', 'general-purpose', false], ['demo-a1-explore', 'Explore', false]], 0],
     ]);
     expect(desk('demo-sw-a1').interns.map((i) => i.label)).toEqual(['Check the address form against the design', 'Find every caller of useCart()']);
+  });
+});
+
+describe('the demo smoke test (mega sigaro)', () => {
+  it('holds a cigar on the search desk from its tool.started (within the opening batch) to its tool.finished at 45s, with smoke:true set explicitly', async () => {
+    const { play, desk } = demoCollector();
+    const seen: unknown[] = [];
+    await play(0, BASE, (at) => {
+      if ([0, 20_000, 28_000, 44_000, 45_000, 46_000].includes(at)) seen.push([at, desk('demo-ss-e5', SEARCH).smoking]);
+    });
+    expect(seen).toEqual([
+      [0, true],
+      [20_000, true],
+      [28_000, true],
+      [44_000, true],
+      [45_000, false],
+      [46_000, false],
+    ]);
+  });
+});
+
+describe('the demo leisure window (aperitivo/biliardino/coffee)', () => {
+  /** Who is waiting, and what for, among `demo-sw-a1`'s interns and the checkout-verify run's agents (sorted by id: `meetingAgentsOf`/`internsOf` order by recency, not id, but `assignLeisure` pairs by id). */
+  const byId = (a: [string, unknown], b: [string, unknown]) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  const waiters = (desk: ReturnType<ReturnType<typeof demoCollector>['desk']>, room: { agents: { agentId: string; leisure: string | null }[] } | undefined) => ({
+    interns: desk.interns.filter((i) => i.leisure !== null).map((i): [string, string | null] => [i.agentId, i.leisure]).sort(byId),
+    agents: (room?.agents ?? []).filter((a) => a.leisure !== null).map((a): [string, string | null] => [a.agentId, a.leisure]).sort(byId),
+  });
+
+  it('pairs waiters for biliardino, with a lone gin tonic, once the window is forced open (DEMO_LEISURE_HOUR)', async () => {
+    const { c, play, desk } = demoCollector(() => DEMO_LEISURE_HOUR);
+    const seen: unknown[] = [];
+    await play(0, BASE, (at) => {
+      if ([16_000, 20_000].includes(at)) {
+        const room = c.floor(CHECKOUT)!.rooms.find((r) => r.runId === 'wf_demo-checkout');
+        seen.push([at, waiters(desk('demo-sw-a1'), room)]);
+      }
+    });
+    expect(seen).toEqual([
+      [16_000, { interns: [['demo-a1-explore', 'gintonic']], agents: [['demo-wf-0', 'biliardino'], ['demo-wf-1', 'biliardino']] }],
+      [20_000, { interns: [['demo-a1-explore', 'gintonic']], agents: [['demo-wf-0', 'biliardino'], ['demo-wf-1', 'biliardino']] }],
+    ]);
+  });
+
+  it('sends the same waiters for coffee instead, outside the window', async () => {
+    const { c, play, desk } = demoCollector(() => 10);
+    const seen: unknown[] = [];
+    await play(0, BASE, (at) => {
+      if ([16_000, 20_000].includes(at)) {
+        const room = c.floor(CHECKOUT)!.rooms.find((r) => r.runId === 'wf_demo-checkout');
+        seen.push([at, waiters(desk('demo-sw-a1'), room)]);
+      }
+    });
+    expect(seen).toEqual([
+      [16_000, { interns: [['demo-a1-explore', 'coffee']], agents: [['demo-wf-0', 'coffee'], ['demo-wf-1', 'coffee']] }],
+      [20_000, { interns: [['demo-a1-explore', 'coffee']], agents: [['demo-wf-0', 'coffee'], ['demo-wf-1', 'coffee']] }],
+    ]);
   });
 });
 
@@ -338,14 +405,14 @@ describe('startDemo', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(got).toHaveLength(35);
     await vi.advanceTimersByTimeAsync(59_000);
-    expect(got).toHaveLength(86);
+    expect(got).toHaveLength(87);
     // The second loop starts at 60 s; its next step is due at 63 s.
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(got).toHaveLength(121);
+    expect(got).toHaveLength(122);
     expect(got.flatMap((e) => (e.type === 'workflow.started' ? [e.runId] : []))).toEqual(['wf_demo-checkout', 'wf_demo-replay', 'wf_demo-checkout-2']);
     demo.stop();
     await vi.advanceTimersByTimeAsync(200_000);
-    expect(got).toHaveLength(121);
+    expect(got).toHaveLength(122);
   });
 });
 

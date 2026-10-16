@@ -3,6 +3,7 @@
  * Pure and deterministic: the same views in any order give the same scene, down to its JSON text. Every string is cleaned.
  */
 import type { WorkflowRun } from '../core/types.js';
+import { assignLeisure, waitingSubagents } from '../core/leisure.js';
 import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { INTERNS_MAX, layoutPlan, LOUNGE_SEATS, MEETING_AGENTS_MAX, POD_DESKS, RUNS_SHOWN, UNSEATED_MAX } from './layout.js';
@@ -32,6 +33,7 @@ import {
   type Pose,
   type Robot,
   type RunSummary,
+  type SceneLeisure,
   type SceneReason,
   type ShownState,
 } from './types.js';
@@ -119,7 +121,7 @@ function deskSummaryOf(v: SessionView): DeskSummary | null {
  * The session's plain subagents: running ones in the order they started (the order the reducer first saw them), then
  * finished ones, the latest to finish first; one per id once cleaned; at most INTERNS_MAX, and how many more there are.
  */
-function internsOf(v: SessionView, inRoom: boolean): { interns: Intern[]; internsMore: number } {
+function internsOf(v: SessionView, inRoom: boolean, leisureOpen: boolean): { interns: Intern[]; internsMore: number } {
   const finished = v.children
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => !c.running)
@@ -127,8 +129,17 @@ function internsOf(v: SessionView, inRoom: boolean): { interns: Intern[]; intern
     .map(({ c }) => c);
   const all = firstOfEach([...v.children.filter((c) => c.running), ...finished], (c) => c.id);
   const shown = all.slice(0, INTERNS_MAX);
+  const leisure = leisureMapOf(v.children, leisureOpen);
   return {
-    interns: shown.map((c) => ({ agentId: capKey(c.id), type: typeOf(c.type), label: cleanOrNull(c.description), running: c.running, inRoom: inRoom && c.running })),
+    interns: shown.map((c) => ({
+      agentId: capKey(c.id),
+      type: typeOf(c.type),
+      label: cleanOrNull(c.description),
+      running: c.running,
+      inRoom: inRoom && c.running,
+      smoking: c.running && c.smoking === true,
+      leisure: leisure.get(c.id) ?? null,
+    })),
     internsMore: all.length - shown.length,
   };
 }
@@ -170,15 +181,18 @@ function phasesOf(r: WorkflowRun): MeetingRoom['phases'] {
 }
 
 /** Running agents first, in start order, then finished ones, the latest to finish first; one per id once cleaned; at most MEETING_AGENTS_MAX. */
-function meetingAgentsOf(r: WorkflowRun): MeetingAgent[] {
+function meetingAgentsOf(r: WorkflowRun, leisureOpen: boolean): MeetingAgent[] {
   const running = r.agents.filter((a) => a.running).sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   const finished = r.agents.filter((a) => !a.running).sort((a, b) => b.updatedAt - a.updatedAt || b.startedAt - a.startedAt || byCodeUnit(a.id, b.id));
+  const leisure = leisureMapOf(r.agents, leisureOpen);
   return firstOfEach([...running, ...finished], (a) => a.id).slice(0, MEETING_AGENTS_MAX).map((a) => ({
     agentId: capKey(a.id),
     label: cleanOrNull(a.label),
     phase: cleanOrNull(a.phase, PHASE_MAX),
     type: typeOf(a.type),
     running: a.running,
+    smoking: a.running && a.smoking === true,
+    leisure: leisure.get(a.id) ?? null,
   }));
 }
 
@@ -189,6 +203,17 @@ function activityOf(v: SessionView): DeskActivity | null {
   if (open && running) return { label: running, since: open.startedAt, running: true };
   const last = cleanOrNull(v.lastAction);
   return last ? { label: last, since: v.lastActionAt ?? v.stateSince, running: false } : null;
+}
+
+/** A session smokes only while its own tool is actually open (working or no_signal) and that tool is a smoke test. */
+function smokingOf(v: SessionView): boolean {
+  const open = v.effectiveState === 'working' || v.effectiveState === 'no_signal' ? v.openTool : null;
+  return open?.smoking === true;
+}
+
+/** The leisure of every waiting sub-agent among `agents`: coffee outside the window, else paired biliardino or a lone gintonic. */
+function leisureMapOf(agents: readonly { id: string; running: boolean }[], leisureOpen: boolean): Map<string, SceneLeisure> {
+  return assignLeisure(waitingSubagents(agents), leisureOpen);
 }
 
 /** The colours of a session's robots: the body from its repository, the tie from its feature. */
@@ -244,7 +269,7 @@ function checkoutOf(v: SessionView, label: (v: SessionView) => string): Checkout
 }
 
 /** A session on the floor, its robot at `at`, in its own repository's and feature's colours. */
-function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place, crewSeated = false): Occupant {
+function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place, crewSeated = false, leisureOpen = false): Occupant {
   const state = v.effectiveState as ShownState;
   return {
     sessionId: idOf(v),
@@ -254,9 +279,10 @@ function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place
     since: v.effectiveSince,
     reason: reasonOf(v),
     activity: activityOf(v),
+    smoking: smokingOf(v),
     agentsRunning: v.children.filter((c) => c.running).length + v.runs.reduce((n, r) => n + countsOf(r).running, 0),
     summary: deskSummaryOf(v),
-    ...internsOf(v, crewSeated),
+    ...internsOf(v, crewSeated, leisureOpen),
     runs: runsOf(v),
     location: v.location,
     pane: cleanOrNull(v.tmuxPane),
@@ -282,7 +308,7 @@ function podLook(views: SessionView[], label: (v: SessionView) => string): Pick<
 }
 
 /** The room of a live run in its slot. */
-function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect): MeetingRoom {
+function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect, leisureOpen: boolean): MeetingRoom {
   return {
     kind: crew ? 'crew' : 'workflow',
     runId: capKey(run.id),
@@ -291,7 +317,7 @@ function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect): Mee
     summary: cleanOrNull(run.summary),
     phases: phasesOf(run),
     counts: countsOf(run),
-    agents: meetingAgentsOf(run),
+    agents: meetingAgentsOf(run, leisureOpen),
     look: lookOf(repoRootOf(host), host.feature),
     rect,
     slot,
@@ -307,7 +333,7 @@ function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect): Mee
  * seat; its desk. The crew's subagents show as interns over the desk only while the crew has no room. The floor counts
  * the live runs and crews without a room, every host's: a run two hosts name counts twice.
  */
-function detailOf(floor: Floor, number: number, label: (v: SessionView) => string, seating: Seating): FloorDetail {
+function detailOf(floor: Floor, number: number, label: (v: SessionView) => string, seating: Seating, leisureOpen: boolean): FloorDetail {
   const plan = layoutPlan(seating);
   const on = new Map(floor.sessions.map((v) => [v.id, v]));
   const runs = roomRunsOf(floor);
@@ -330,7 +356,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     p.desks.map((_, n) => {
       const v = on.get(seating.desks[i * POD_DESKS + n] ?? '');
       if (!v || seated.has(v.id)) return null;
-      seated.set(v.id, occupantOf(v, label, placeOf(v), slotOfKey(capKey(CREW_PREFIX + v.id)) !== -1));
+      seated.set(v.id, occupantOf(v, label, placeOf(v), slotOfKey(capKey(CREW_PREFIX + v.id)) !== -1, leisureOpen));
       return v;
     }),
   );
@@ -347,12 +373,12 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     };
   });
   const waiting = floor.sessions.filter((v) => !seated.has(v.id)).sort(bySessionStart);
-  const unseated = waiting.slice(0, UNSEATED_MAX).map((v) => occupantOf(v, label, { kind: 'gone' }));
+  const unseated = waiting.slice(0, UNSEATED_MAX).map((v) => occupantOf(v, label, { kind: 'gone' }, false, leisureOpen));
   const rooms = runs
     .map((r) => ({ r, slot: slotOfKey(r.key) }))
     .filter(({ slot }) => slot !== -1)
     .sort((a, b) => a.slot - b.slot)
-    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!));
+    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!, leisureOpen));
   const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length + (v.children.some((c) => c.running) ? 1 : 0), 0);
 
   const { windows: _windows, ...summary } = summaryOf(floor, number, seating);
@@ -364,6 +390,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
     rooms,
     roomsMore: liveRuns - rooms.length,
     unseated,
@@ -409,12 +436,20 @@ export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMa
 
 /**
  * One floor in detail: its plan, filled from its seating in `seating` (a floor with none there is seated from scratch).
- * Null when no live session is on it.
+ * Null when no live session is on it. `leisureOpen` gates whether a waiting sub-agent (intern or meeting agent) is shown
+ * at the bar/biliardino (true) or on a coffee break (false, the default): the caller reads `now` (see collector.ts,
+ * via `inLeisureWindow`) and passes the result in, keeping this function itself clock-free and deterministic.
  */
-export function buildFloorDetail(views: readonly SessionView[], key: string, firstSeen?: ReadonlyMap<string, number>, seating?: ReadonlyMap<string, Seating>): FloorDetail | null {
+export function buildFloorDetail(
+  views: readonly SessionView[],
+  key: string,
+  firstSeen?: ReadonlyMap<string, number>,
+  seating?: ReadonlyMap<string, Seating>,
+  leisureOpen = false,
+): FloorDetail | null {
   const floors = buildFloors(views, firstSeen);
   const i = floors.findIndex((f) => f.key === key);
   const floor = floors[i];
   if (!floor) return null;
-  return detailOf(floor, floors.length - i, repoLabels(views), seating?.get(key) ?? seatFloor(null, floor));
+  return detailOf(floor, floors.length - i, repoLabels(views), seating?.get(key) ?? seatFloor(null, floor), leisureOpen);
 }

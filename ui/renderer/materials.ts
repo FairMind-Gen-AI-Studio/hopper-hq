@@ -10,7 +10,7 @@ import type { ColorToken, NumberToken, ThemeTokens } from './theme';
 
 /** How a material takes its colours from the theme. */
 interface Recipe {
-  color: ColorToken;
+  color?: ColorToken;
   roughness?: number;
   /** Mixes the colour toward a second token by this amount. */
   mix?: readonly [ColorToken, number];
@@ -20,6 +20,12 @@ interface Recipe {
   intensity?: NumberToken;
   /** See-through at this opacity, writing no depth: glass. */
   opacity?: number;
+  /**
+   * A '#rrggbb' colour set once and never touched again, in place of a theme token: for a persona's outfit colour
+   * (ui/renderer/persona.ts, user-decisions.md OQ-3) that has no token close enough to reuse and must read the same
+   * by day and by night, rather than shift with the theme as every other surface does.
+   */
+  fixed?: string;
 }
 
 /** How much of the repo colour a rug takes over the floor colour. */
@@ -52,12 +58,105 @@ const SURFACES = {
   beanB: { color: 'scene-bean-b', roughness: 0.9 },
   wood: { color: 'scene-wood', roughness: 0.6 },
   loungeRug: { color: 'scene-floor', mix: ['scene-couch', 0.25] },
+  /** The bar cart's counter. */
+  cart: { color: 'scene-wood', roughness: 0.5 },
+  /** The bar cart's bottles. */
+  bottle: { color: 'scene-bean-b', roughness: 0.3 },
+  /** The bar's lime bowl: a light ceramic, apart from the shelf's own frame token, so it reads as a bowl, not a puck. */
+  bowl: { color: 'scene-paper', roughness: 0.3 },
+  /** The back-bar's mirror strip: the glass token, lightened, shinier and more opaque than a partition's own glass,
+   * so it reads as a strip of mirror behind the bottles, not more of the back panel's own wood. */
+  mirror: { color: 'scene-glass', mix: ['scene-paper', 0.3], roughness: 0.05, opacity: 0.55 },
   shell: { color: 'bot-shell', roughness: 0.45 },
   visor: { color: 'bot-visor', emissive: 'bot-visor', intensity: 'visor-int' },
   hardhat: { color: 'bot-hardhat', roughness: 0.5 },
   jet: { color: 'bot-jet', roughness: 0.5 },
   window: { color: 'window-glow', emissive: 'window-glow', intensity: 'window-int' },
   lamp: { color: 'lamp-glow', emissive: 'lamp-glow', intensity: 'lamp-int' },
+  /** The cigar's body: the lounge's wood token, darker, no new theme token for a prop this small. */
+  cigarBody: { color: 'scene-wood', shade: 0.7, roughness: 0.55 },
+  /** Its lit tip: the working state's amber, glowing, as an ember. */
+  cigarTip: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
+  /** The smoke puffs: thick, off-white, smoke signals. Shared by every robot (robot.ts fades it by scale, not opacity). */
+  smokePuff: { color: 'scene-wall', roughness: 1, opacity: 0.6 },
+  /**
+   * The gin tonic glass's own shell: the window glass token, shinier, and held more opaque than the partition it
+   * shares the token with (`glass`) — at this size, as see-through as a real balloon glass would wash its own
+   * swell-then-pinch silhouette out, the one shape cue that tells it apart from a tumbler or a martini glass.
+   */
+  gtGlass: { color: 'scene-glass', mix: ['scene-paper', 0.15], roughness: 0.3, opacity: 0.4 },
+  /** The rim traced on top of the bowl (robot.ts's buildDrink): `gtGlass`'s own colour, but near-opaque, so the
+   * glass's own silhouette holds a clean edge against the floor even where the shell's own (now lighter)
+   * transparency would otherwise wash it out. */
+  gtRim: { color: 'scene-glass', mix: ['scene-paper', 0.35], roughness: 0.1, opacity: 0.92 },
+  /**
+   * The tonic itself: the glass token mixed hard toward the accent blue (the one genuinely saturated blue the
+   * theme carries — `window-glow` is itself nearly as pale as the glass, too close to it to read as a second,
+   * distinct colour) — a clearly aqua, fizzy tint apart from the glass's own pale, barely-tinted shell (`gtGlass`,
+   * deliberately lighter so the tonic is what reads, not a second layer of the same hue).
+   */
+  tonic: { color: 'scene-glass', mix: ['accent', 0.4], roughness: 0.2, opacity: 0.88 },
+  /** The ice cubes: the paper token, with only a hint of the glass's own blue — bright and white, so they stand
+   * out against the tonic's own stronger tint rather than blending into it. */
+  ice: { color: 'scene-paper', mix: ['scene-glass', 0.15], roughness: 0.08 },
+  /** The lime wheel's rind, on the rim: the plant token, brightened a notch past the office's own plants — with the
+   * straw, one of the drink's two strongest cues, so it has to pop a little more than a leaf does. */
+  limeRind: { color: 'scene-plant', mix: ['scene-paper', 0.2], roughness: 0.4 },
+  /** The lime wheel's pale flesh, next to its rind (`limeRind`): the plant token, lightened further still. */
+  limeFlesh: { color: 'scene-plant', mix: ['scene-paper', 0.55], roughness: 0.55 },
+  /**
+   * The straw: bright red, reusing the "needs you" badge's own colour purely as a plain accent (the same way
+   * `cigarTip` reuses the working state's amber as a plain ember glow, no state meaning here) — picked over black
+   * so it still pops against the shell's own dark edges and the floor's own shadows alike, the other of the drink's
+   * two strongest cues.
+   */
+  straw: { color: 's-needs', mix: ['scene-paper', 0.1], roughness: 0.35 },
+  /** The biliardino table's two teams of little players, in colours clearly apart at a glance: the "needs you" red
+   * and the accent blue, already in every theme, so no new token is needed for a pair of jerseys. */
+  foosballA: { color: 's-needs', roughness: 0.6 },
+  foosballB: { color: 'accent', roughness: 0.6 },
+  /**
+   * The espresso machine's own polished steel body (props.ts): the frame token's own darker steel-blue, not the
+   * elevator's own lighter one — that first cut landed in the same pale grey-value family as the elevator doors
+   * and the robot heads (both close to `scene-elevator` itself) and so read as just another grey box, not a
+   * separately metallic one. Lifted only a third of the way to paper white (so it keeps real value apart from
+   * `scene-elevator`/`bot-shell`) and far less rough than a wall panel reads as, for the sharper, shinier highlight
+   * a polished machine throws under the floor's own lights — with no new theme token for a prop this small.
+   */
+  chrome: { color: 'scene-frame', mix: ['scene-paper', 0.3], roughness: 0.05 },
+  /** The machine's own amber ready light, glowing the same way the cigar's lit tip does (an ember, no state meaning
+   * here either): the working state's own amber, reused as a plain accent. */
+  coffeeLight: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
+  /**
+   * Persona outfit colours (ui/renderer/persona.ts, user-decisions.md OQ-3): a role recolours a sub-agent's body,
+   * the tie staying in the feature colour. Appended at the end, additive, so as not to disturb the recipes above.
+   * Most personas reuse an existing surface outright (persona.ts's PERSONA_BODY: qa->wood, developer->jet,
+   * generalist->chair) rather than a new entry here; these seven have no token close enough to reuse — or, for
+   * security/reviewer, the nearest token (`monitor`/`leg`) is one that is *designed* to crash to near-black at
+   * night (a monitor bezel, a robot leg joint), which made both outfits unreadable against the night floor
+   * (fix-round-2, OQ-3's day/night bar). Debugger's hazmat yellow is the working state's amber, same token, same
+   * emissive-free recipe pattern, still fully theme-aware; the rest are `fixed`, a shade the theme never touches,
+   * because nothing in the existing palette reads as a secret agent's black suit, olive drab, a judge's black robe,
+   * burgundy, a pale smock or navy without a theme token dedicated to it, or without one that stays visible at night.
+   */
+  outfitDebugger: { color: 's-working', roughness: 0.55 },
+  outfitTechlead: { fixed: '#5c5f3a', roughness: 0.55 },
+  /** Secret-agent black suit: a fixed charcoal, not the near-black `monitor` token (#0E1015 at night — unreadable). */
+  outfitSecurity: { fixed: '#3A3E4C', roughness: 0.55 },
+  outfitLibrarian: { fixed: '#6b2737', roughness: 0.55 },
+  outfitDesigner: { fixed: '#e8e4d8', roughness: 0.55 },
+  outfitExplorer: { fixed: '#9c8f5e', roughness: 0.55 },
+  outfitPlanner: { fixed: '#1f3350', roughness: 0.55 },
+  /** Judge's black robe: a fixed near-black, not the `leg` token (#15181F at night — just as unreadable). */
+  outfitReviewer: { fixed: '#3A3240', roughness: 0.55 },
+  /** The boss's mug and watch (user-decisions.md OQ-1): the working state's amber again, shinier, as gold. */
+  bossGold: { color: 's-working', roughness: 0.3 },
+  /**
+   * The planner's blueprint roll (persona.ts): `scene-glass`'s own pale-blue token, but opaque — unlike `glass`
+   * above, a held prop needs to actually be seen, not read through. Reusing `glass`'s 28%-opacity recipe here (the
+   * original mistake) made the roll all but invisible in the left hand, the persona's only distinguishing cue.
+   */
+  blueprint: { color: 'scene-glass', roughness: 0.4 },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;
@@ -76,6 +175,8 @@ export const SCREEN_GLASS = '#0a0a0a';
 export const DESK_OFF = 0.55;
 /** How dark the soft disc under a walking or flying robot is: a shadow's stand-in, the same by day and by night. */
 export const CONTACT_OPACITY = 0.22;
+/** The Fairmind brand's teal (fairmind-badge.ts): fixed, not a theme token — the badge keeps the brand's own colours by day and by night, as its mark does on fairmind.ai. */
+export const FAIRMIND_TEAL = '#2ec4a5';
 
 /** The colour a desk's screen glows in, by state; idle and dormant screens are off. */
 export const SCREEN_TOKEN: Record<ShownState, ColorToken | null> = {
@@ -101,7 +202,12 @@ export class Materials {
   readonly ring: MeshBasicMaterial;
   /** The soft disc on the floor under a robot on its way, in place of its shadow. */
   readonly contact: MeshBasicMaterial;
+  /** The Fairmind badge's disc and its mark (fairmind-badge.ts): fixed colour, outside the theme. */
+  readonly fairmindDisc: MeshBasicMaterial;
+  readonly fairmindMark: MeshBasicMaterial;
   private readonly recipes: Array<[MeshStandardMaterial, Recipe]> = [];
+  /** Materials made with a `fixed` colour (persona outfits with no token close enough): never touched by applyTheme. */
+  private readonly fixedMaterials: MeshStandardMaterial[] = [];
   private readonly bodies: MeshStandardMaterial[] = [];
   private readonly joints: MeshStandardMaterial[] = [];
   private readonly rugs: MeshStandardMaterial[] = [];
@@ -126,6 +232,8 @@ export class Materials {
     this.screen = new MeshBasicMaterial();
     this.ring = new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
     this.contact = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: CONTACT_OPACITY, depthWrite: false });
+    this.fairmindDisc = new MeshBasicMaterial({ color: new Color(FAIRMIND_TEAL) });
+    this.fairmindMark = new MeshBasicMaterial({ color: 0xffffff });
     this.applyTheme(theme);
   }
 
@@ -155,10 +263,10 @@ export class Materials {
     return this.screens.get(SCREEN_TOKEN[state])!;
   }
 
-  /** Recolours every material in place. */
+  /** Recolours every material in place; a `fixed` one (persona outfits) is never in `recipes` and so never touched. */
   applyTheme(theme: ThemeTokens): void {
     for (const [m, r] of this.recipes) {
-      m.color.set(theme.colors[r.color]);
+      m.color.set(theme.colors[r.color!]);
       if (r.mix) m.color.lerp(this.mixer.set(theme.colors[r.mix[0]]), r.mix[1]);
       if (r.shade !== undefined) m.color.multiplyScalar(r.shade);
       if (r.emissive && r.intensity) {
@@ -174,7 +282,15 @@ export class Materials {
   }
 
   all(): Material[] {
-    return [...this.recipes.map(([m]) => m), this.screen, this.ring, this.contact];
+    return [
+      ...this.recipes.map(([m]) => m),
+      ...this.fixedMaterials,
+      this.screen,
+      this.ring,
+      this.contact,
+      this.fairmindDisc,
+      this.fairmindMark,
+    ];
   }
 
   dispose(): void {
@@ -183,6 +299,11 @@ export class Materials {
 
   private make(recipe: Recipe): MeshStandardMaterial {
     const m = new MeshStandardMaterial({ roughness: recipe.roughness ?? 0.85, metalness: 0 });
+    if (recipe.fixed) {
+      m.color.set(recipe.fixed);
+      this.fixedMaterials.push(m);
+      return m;
+    }
     if (recipe.opacity !== undefined) {
       m.transparent = true;
       m.opacity = recipe.opacity;

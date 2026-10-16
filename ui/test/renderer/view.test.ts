@@ -1377,7 +1377,7 @@ describe('robots walking in the floor view', () => {
     expect(draws(makeFloor(leaves))).toBe(1);
     expect(draws(checkoutFloor())).toBe(2);
     const flies = checkoutSpecs();
-    flies[0]!.desks[0] = { ...flies[0]!.desks[0]!, interns: [{ agentId: 'i1', type: 'Explore', label: null, running: true, inRoom: false }] };
+    flies[0]!.desks[0] = { ...flies[0]!.desks[0]!, interns: [{ agentId: 'i1', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null }] };
     expect(draws(makeFloor(flies))).toBe(1);
     expect(draws(checkoutFloor())).toBe(1);
   });

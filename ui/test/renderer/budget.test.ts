@@ -2,21 +2,40 @@ import { describe, expect, it } from 'vitest';
 import type { InstancedMesh, Mesh, Object3D } from 'three';
 import { BLOCKS_MAX, BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, ROOMS_MAX, SEATS_MAX } from '../../../src/scene/layout';
 import { FloorScene } from '../../renderer/floor-scene';
+import { PERSONA_MESHES } from '../../renderer/persona';
 import { dayTheme } from '../../renderer/theme';
-import { fullestFloor } from './fixtures';
+import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixtures';
 
 /**
- * What a frame of the fullest floor costs (design §7.1): the fullest floor's counts, as measured, with a tenth to spare,
- * rounded down. It shows 2,871 meshes and 26 instanced meshes, which draw 554 instances, in 2,897 draw calls, and 437 of
- * them cast a shadow.
+ * What a frame of the fullest floor costs (design §7.1), re-measured for the merge of the personas
+ * (hq-agent-personas TP2) onto the bar/espresso/biliardino/badge work: every session robot now wears the boss
+ * persona (user-decisions.md OQ-1, two held meshes, no headgear) and every running intern is typed to a Fairmind
+ * plugin that reads as 'developer' (persona.ts, three meshes: glasses and a headphone band). Every room agent is
+ * also typed to a Fairmind plugin (fullestFloor's own worst case) that reads as 'qa' (deerstalker, four meshes) —
+ * its headgear is the more specific signal (design: headgear vs the workflow hard hat), so its hard hat's dome,
+ * which used to cast a shadow, is now hidden instead: a real drop in casters, not a bug, the same way an intern
+ * never casting one already was. As measured, with a tenth to spare, rounded down: 3,899 meshes and 217 instanced
+ * meshes, which draw 1,656 instances, in 4,116 draw calls, and 423 of them cast a shadow.
+ *
+ * Re-measured again for the 2026-10-16 boss fix (user-decisions.md OQ-1 revision, "Cappello + cravatta"): the boss
+ * traded its hat-less two held meshes (a mug and a 2 cm watch, both invisible whenever a held prop hides or the
+ * robot walks) for a bowler hat that is always shown (two headgear meshes, like every other persona) plus the one
+ * gold mug held prop — the tie also grew wider and longer for this persona, but as a resize of the same two
+ * existing meshes, not a mesh-count change. Net mesh count up by 35 across every boss-persona session robot on
+ * the floor (desks, the lounge and seated room hosts): instanced meshes/instances are untouched (no persona ever
+ * adds one), and casters are unchanged — the hat and the resized tie are still `{ cast: false }`, same as before.
+ * As measured, with a tenth to spare, rounded down: 3,934 meshes and 217 instanced meshes, which draw 1,656
+ * instances, in 4,151 draw calls, and 423 of them cast a shadow.
  */
-const BUDGET = { meshes: 3158, draws: 3186, casters: 480 };
+const BUDGET = { meshes: 4327, draws: 4566, casters: 465 };
 /**
- * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 176 draw calls, 150 meshes
- * and 26 instanced meshes drawing 554 instances, and 23 of them cast a shadow. Robots make most of a frame's draws, so the
- * floor's budget alone would pass furniture drawn as plain meshes.
+ * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 232 draw calls, 151
+ * meshes and 81 instanced meshes drawing 704 instances, and 41 of them cast a shadow — raised from 216/40 when the
+ * coffee machine grew from a fridge-like box into the espresso bar's own counter, machine, grinder and cups
+ * (props.ts), and again from 231 when round 1 split the steam wand's own tip nozzle off its rod. Robots make most
+ * of a frame's draws, so the floor's budget alone would pass furniture drawn as plain meshes.
  */
-const SHELL_BUDGET = { draws: 193, casters: 25 };
+const SHELL_BUDGET = { draws: 255, casters: 45 };
 
 /** Shown, and so are all its parents. */
 function shown(o: Object3D | null): boolean {
@@ -90,5 +109,62 @@ describe('the budget of the fullest floor', () => {
     const interns = [...fs.sessions.values()].flatMap((e) => [...e.interns.values()]);
     expect(interns).toHaveLength((BLOCKS_MAX * BLOCK_DESKS - 1) * INTERNS_MAX);
     expect(interns.reduce((n, robot) => n + costOf(robot.group).casters, 0)).toBe(0);
+  });
+});
+
+/**
+ * The break area at its full capacity (design §7.1, OQ-1..OQ-3), re-measured for the merge of the personas onto the
+ * bar/espresso/biliardino work: four interns at the bar each holding a gin tonic (robot.ts's buildDrink: a
+ * twelve-part copa de balón, oversized to read at floor-view distance, none of its parts a shadow caster), a pair
+ * at the foosball table and one at the espresso machine with its cup and saucer, over checkoutFloor's own desks and
+ * robots, with the bar's counter, back-bar, lime bowl, glasses and stools, the espresso machine's own counter,
+ * body, grinder and cups, and the biliardino's cabinet, rim, rods and players — the seven leisure interns are
+ * 'Explore' and keep their headgear at leisure (held prop hidden there, like the right hand's own drink/cup — design:
+ * held prop vs right-hand props), and checkoutFloor's own session robots now wear the boss persona. As measured,
+ * with a tenth to spare, rounded down: 467 draw calls, 78 shadow casters — unchanged from before the personas
+ * merged in: none of the leisure interns is a workflow kind, so none has a hard hat to suppress, and no persona
+ * accessory ever casts a shadow.
+ *
+ * Re-measured again for the 2026-10-16 boss fix (user-decisions.md OQ-1 revision): checkoutSpecs' own session
+ * robots now carry the boss's always-shown bowler hat instead of its old hat-less two held meshes, the same net
+ * +1-mesh-per-robot trade as the fullest-floor budget above; casters unchanged (the hat and the widened tie still
+ * cast none). As measured, with a tenth to spare, rounded down: 474 draw calls, 78 shadow casters.
+ */
+const LEISURE_BUDGET = { draws: 521, casters: 85 };
+
+/**
+ * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven
+ * interns waiting at leisure between them: four gin tonics, a biliardino pair (two on one desk) and one coffee.
+ */
+function leisureFloor() {
+  const checkouts = checkoutSpecs();
+  const leisure = [['gintonic'], ['gintonic'], ['gintonic'], ['gintonic'], ['biliardino', 'biliardino'], ['coffee']] as const;
+  const desks = checkouts.flatMap((c) => c.desks).filter((d) => d.state !== 'dormant');
+  let n = 0;
+  desks.forEach((d, k) => (d.interns = leisure[k]!.map((kind) => leisureIntern(`l${n++}`, kind))));
+  return makeFloor(checkouts);
+}
+
+describe('the budget of the break area at leisure', () => {
+  it('fills the bar cart, the foosball table and the coffee machine, each at the spot its leisure took', () => {
+    const fs = new FloorScene(dayTheme());
+    fs.apply(leisureFloor());
+    const sessions = [...fs.sessions.values()];
+    expect(sessions.flatMap((e) => [...e.interns.values()])).toHaveLength(7);
+  });
+
+  it('draws it within its own budget of draw calls and shadow casters', () => {
+    const fs = new FloorScene(dayTheme());
+    fs.apply(leisureFloor());
+    const cost = costOf(fs.scene);
+    expect(cost.draws).toBeLessThanOrEqual(LEISURE_BUDGET.draws);
+    expect(cost.casters).toBeLessThanOrEqual(LEISURE_BUDGET.casters);
+  });
+});
+
+describe('the per-persona accessory budget', () => {
+  it('keeps every persona, including the boss, at 4 meshes or fewer (design: ≤4 meshes/persona)', () => {
+    expect(Math.max(...Object.values(PERSONA_MESHES))).toBeLessThanOrEqual(4);
+    expect(PERSONA_MESHES.none).toBe(0);
   });
 });

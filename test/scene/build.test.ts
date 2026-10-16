@@ -27,7 +27,9 @@ function view(id: string, workspace: Workspace, state: SessionState, extra: Part
   return toView({ ...newSession(id, NOW - DAY, workspace), tmuxPane: '%1', ...stored, ...extra }, NOW);
 }
 
-const child = (id: string, type: string, running = true): ChildAgent => ({ id, type, description: null, running, lastAction: null, updatedAt: NOW - MIN });
+const child = (id: string, type: string, running = true, extra: Partial<ChildAgent> = {}): ChildAgent => ({
+  id, type, description: null, running, lastAction: null, updatedAt: NOW - MIN, ...extra,
+});
 
 const runAgent = (id: string, extra: Partial<RunAgent> = {}): RunAgent => ({
   id, label: null, phase: null, type: 'workflow-subagent', running: true, startedAt: NOW - 10 * MIN, updatedAt: NOW - MIN, ...extra,
@@ -299,7 +301,7 @@ describe('the plan', () => {
     const grown: Seating = { blocks: 2, roomCols: 2, desks: [null, null, null, null, null, 'b', null, null, null, 'a', ...Array<null>(6).fill(null)], lounge: emptySeating().lounge, rooms: [null, null, null, null] };
     const floor = floorOf(views, grown);
     const plan = layoutPlan({ blocks: 2, roomCols: 2 });
-    expect([floor.size, floor.core, floor.lounge, floor.roomSlots]).toEqual([plan.size, plan.core, { rect: plan.lounge, seats: LOUNGE_SEATS }, plan.rooms]);
+    expect([floor.size, floor.core, floor.lounge, floor.roomSlots, floor.breakArea]).toEqual([plan.size, plan.core, { rect: plan.lounge, seats: LOUNGE_SEATS }, plan.rooms, plan.breakArea]);
     expect(floor.pods.map((p) => [p.id, p.rect, p.desks.map((d) => [d.id, d.rect, d.chair])])).toEqual(plan.pods.map((p) => [p.id, p.rect, p.desks.map((d) => [d.id, d.rect, d.chair])]));
     expect(floor.pods.flatMap((p) => p.desks.map((d) => d.occupant?.sessionId ?? null))).toEqual(grown.desks);
     expect(floorOf(views)).toEqual(floorOf(views, seated(['a', 'b'])));
@@ -457,8 +459,8 @@ describe('version 4', () => {
   it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
     const views = [view('a', ws('/w/api', 'main'), 'done')];
     const floor = buildFloorDetail(views, 'repo:/w/api')!;
-    expect(SCENE_VERSION).toBe(4);
-    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([4, [], 0, []]);
+    expect(SCENE_VERSION).toBe(6);
+    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([6, [], 0, []]);
     const desk = occupants(floor)[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.at, desk.runs]).toEqual([null, [], 0, { kind: 'desk' }, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();
@@ -476,9 +478,10 @@ describe('interns', () => {
     ];
     const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children })], 'repo:/w/api')!)[0]!;
     expect(desk.interns).toEqual([
-      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: true },
-      { agentId: 'r2', type: null, label: null, running: true, inRoom: true },
-      { agentId: 'f3', type: 'Explore', label: null, running: false, inRoom: false },
+      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: true, smoking: false, leisure: null },
+      { agentId: 'r2', type: null, label: null, running: true, inRoom: true, smoking: false, leisure: null },
+      // f3 waits for its running siblings: outside the (default closed) leisure window it's on a coffee break.
+      { agentId: 'f3', type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure: 'coffee' },
     ]);
     expect(desk.internsMore).toBe(2);
     const few = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: children.slice(0, 2) })], 'repo:/w/api')!)[0]!;
@@ -500,6 +503,72 @@ describe('interns', () => {
     const runs = [run('wf_0000aaaa-001', { agents: [runAgent('w1'), runAgent('w2'), runAgent('w3', { running: false })], agentsFinished: 1 })];
     const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children: [child('c1', 'Explore'), child('c2', 'Plan', false)], runs })], 'repo:/w/api')!)[0]!;
     expect(desk.agentsRunning).toBe(3);
+  });
+});
+
+describe('smoking (version 5, feature B)', () => {
+  it('shows a cigar on the desk only while a working or no_signal session has an actually open smoke-test tool', () => {
+    const lit = (extra: Partial<Session> = {}): boolean =>
+      occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', extra)], 'repo:/w/api')!)[0]!.smoking;
+    expect(lit({ openTool: { id: 't1', label: 'Bash: npm test -- smoke', startedAt: NOW - MIN, smoking: true } })).toBe(true);
+    expect(lit({ openTool: { id: 't1', label: 'Bash: npm run build', startedAt: NOW - MIN } })).toBe(false);
+    expect(lit()).toBe(false);
+    // A needs_you/done session has not actually run its open tool: a leftover smoking flag on it does not light a cigar.
+    for (const state of ['needs_you', 'done'] as const) {
+      const stale = occupants(buildFloorDetail(
+        [view('a', ws('/w/api', 'main'), state, { openTool: { id: 't1', label: 'Bash: npm test -- smoke', startedAt: NOW - MIN, smoking: true } })],
+        'repo:/w/api',
+      )!)[0]!;
+      expect([state, stale.smoking]).toEqual([state, false]);
+    }
+  });
+
+  it("carries a running child's or run agent's smoking flag, never a finished one's", () => {
+    const children = [child('r1', 'Explore', true, { smoking: true }), child('f1', 'Explore', false, { smoking: false })];
+    const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children })], 'repo:/w/api')!)[0]!;
+    expect(desk.interns.map((i) => [i.agentId, i.smoking])).toEqual([['r1', true], ['f1', false]]);
+
+    const runs = [run('wf_0000aaaa-001', { agents: [runAgent('a1', { smoking: true }), runAgent('a2', { running: false, smoking: false })] })];
+    const floor = buildFloorDetail([view('h', ws('/w/api', 'main'), 'in_meeting', { runs })], 'repo:/w/api')!;
+    expect(floor.rooms[0]!.agents.map((a) => [a.agentId, a.smoking])).toEqual([['a1', true], ['a2', false]]);
+  });
+});
+
+describe('leisure (version 5, feature A)', () => {
+  it('sends a lone waiter to the bar, and pairs two into biliardino, inside the window', () => {
+    const lone = [child('r1', 'Explore', true), child('f1', 'Explore', false)];
+    const desk1 = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: lone })], 'repo:/w/api', undefined, undefined, true)!)[0]!;
+    expect(desk1.interns.map((i) => [i.agentId, i.leisure])).toEqual([['r1', null], ['f1', 'gintonic']]);
+
+    const pair = [child('r1', 'Explore', true), child('f1', 'Explore', false), child('f2', 'Explore', false, { updatedAt: NOW - 2 * MIN })];
+    const desk2 = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: pair })], 'repo:/w/api', undefined, undefined, true)!)[0]!;
+    expect(desk2.interns.map((i) => [i.agentId, i.leisure])).toEqual([['r1', null], ['f1', 'biliardino'], ['f2', 'biliardino']]);
+  });
+
+  it('sends every waiter for coffee outside the window, and clears leisure once the whole cohort is done', () => {
+    const closed = [child('r1', 'Explore', true), child('f1', 'Explore', false)];
+    // leisureOpen defaults to false: the window is closed.
+    const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: closed })], 'repo:/w/api')!)[0]!;
+    expect(desk.interns.map((i) => [i.agentId, i.leisure])).toEqual([['r1', null], ['f1', 'coffee']]);
+
+    const allDone = [child('f1', 'Explore', false), child('f2', 'Explore', false, { updatedAt: NOW - 2 * MIN })];
+    const done = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'done', { children: allDone })], 'repo:/w/api', undefined, undefined, true)!)[0]!;
+    expect(done.interns.every((i) => i.leisure === null)).toBe(true);
+  });
+
+  it('sets a run agent leisure the same way, paired within its own run', () => {
+    const runs = [run('wf_0000aaaa-001', { agents: [runAgent('a1'), runAgent('a2', { running: false }), runAgent('a3', { running: false, updatedAt: NOW - 2 * MIN })] })];
+    const floor = buildFloorDetail([view('h', ws('/w/api', 'main'), 'in_meeting', { runs })], 'repo:/w/api', undefined, undefined, true)!;
+    expect(floor.rooms[0]!.agents.map((a) => [a.agentId, a.leisure])).toEqual([['a1', null], ['a2', 'biliardino'], ['a3', 'biliardino']]);
+  });
+
+  it('gives the same floor, byte for byte, whatever the order of the sessions, with the window open', () => {
+    const views = [
+      view('a', ws('/w/api', 'main'), 'working', { children: [child('r1', 'Explore', true), child('f1', 'Explore', false), child('f2', 'Explore', false, { updatedAt: NOW - 2 * MIN })] }),
+      view('b', ws('/w/api', 'main'), 'working', { children: [child('r2', 'Explore', true), child('g1', 'Explore', false)] }),
+    ];
+    const expected = JSON.stringify(buildFloorDetail(views, 'repo:/w/api', undefined, undefined, true));
+    expect(JSON.stringify(buildFloorDetail([...views].reverse(), 'repo:/w/api', undefined, undefined, true))).toBe(expected);
   });
 });
 
@@ -611,8 +680,9 @@ describe('meeting rooms', () => {
     const r = buildFloorDetail([view('h', ws('/w/api', 'main'), 'working', { runs: [run('wf_0000aaaa-001', { agents, agentsFinished: 25 })] })], 'repo:/w/api')!.rooms[0]!;
     expect(r.counts).toEqual({ running: 6, finished: 25 });
     expect(r.agents.map((a) => a.agentId)).toEqual(['r5', 'r4', 'r3', 'r2', 'r1', 'r0', ...Array.from({ length: 18 }, (_, i) => `f${String(19 - i).padStart(2, '0')}`)]);
-    expect(r.agents[5]).toEqual({ agentId: 'r0', label: 'Review the ledger', phase: 'Review', type: null, running: true });
-    expect(r.agents[6]).toEqual({ agentId: 'f19', label: null, phase: null, type: 'workflow-subagent', running: false });
+    expect(r.agents[5]).toEqual({ agentId: 'r0', label: 'Review the ledger', phase: 'Review', type: null, running: true, smoking: false, leisure: null });
+    // f19 waits for its running siblings: outside the (default closed) leisure window it's on a coffee break.
+    expect(r.agents[6]).toEqual({ agentId: 'f19', label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure: 'coffee' });
   });
 
   it('seats a working or in_meeting host at the head of its first room, keeping its robot', () => {

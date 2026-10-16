@@ -72,6 +72,7 @@ function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { update
       running: patch.running ?? true,
       lastAction: patch.lastAction ?? null,
       updatedAt: patch.updatedAt,
+      ...(patch.smoking ? { smoking: true } : {}),
     };
     children = [...s.children, child];
   } else {
@@ -263,18 +264,18 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
       {
         // Children first; then a run's agent. An agent a run dropped was counted when it finished. An id nobody knows makes
         // no subagent: it is the engine's own loop, or an agent whose start was missed, and there is nothing to show of it.
-        const child = s.children.some((c) => c.id === e.agentId);
+        const child = s.children.find((c) => c.id === e.agentId);
         const run = child ? undefined : runOfAgent(s, e.agentId);
         if (!child && !run && droppedAgent(s, e.agentId)) return s;
         const finished = run
           ? withRun(s, run.id, e.ts, (r) => {
             const stopped = r.agents.some((a) => a.id === e.agentId && a.running)
-              ? { ...withRunAgent(r, e.agentId, (a) => ({ ...a, running: false, updatedAt: Math.max(a.updatedAt, e.ts) })), agentsFinished: r.agentsFinished + 1 }
+              ? { ...withRunAgent(r, e.agentId, (a) => ({ ...a, running: false, updatedAt: Math.max(a.updatedAt, e.ts), ...(a.smoking ? { smoking: false } : {}) })), agentsFinished: r.agentsFinished + 1 }
               : r;
             return { ...stopped, onDisk: r.onDisk || e.source === 'fs' };
           })
           : child
-            ? withChild(s, e.agentId, { running: false, updatedAt: e.ts })
+            ? withChild(s, e.agentId, { running: false, updatedAt: e.ts, ...(child.smoking ? { smoking: false } : {}) })
             : s;
         return settleMeeting(e.source === 'fs' ? finished : endAgentWait(finished, e, e.agentId), e.ts);
       }
@@ -282,9 +283,19 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     case 'tool.finished': {
       if (!e.agentId) break;
       const run = runOfAgent(s, e.agentId);
+      const smoke = e.type === 'tool.started' && e.smoke === true;
       // A run's agent acting: no child is made for it.
-      if (run) return endAgentWait(withRun(s, run.id, e.ts, (r) => withRunAgent(r, e.agentId!, (a) => ({ ...a, updatedAt: Math.max(a.updatedAt, e.ts) }))), e, e.agentId);
-      const patch = e.type === 'tool.started' ? { lastAction: e.label, running: true, updatedAt: e.ts } : { updatedAt: e.ts };
+      if (run) {
+        return endAgentWait(withRun(s, run.id, e.ts, (r) => withRunAgent(r, e.agentId!, (a) => ({
+          ...a,
+          updatedAt: Math.max(a.updatedAt, e.ts),
+          ...(smoke ? { smoking: true } : e.type === 'tool.finished' && a.smoking ? { smoking: false } : {}),
+        }))), e, e.agentId);
+      }
+      const prior = s.children.find((c) => c.id === e.agentId);
+      const patch = e.type === 'tool.started'
+        ? { lastAction: e.label, running: true, updatedAt: e.ts, ...(smoke ? { smoking: true } : {}) }
+        : { updatedAt: e.ts, ...(prior?.smoking ? { smoking: false } : {}) };
       return endAgentWait(withChild(s, e.agentId, patch), e, e.agentId);
     }
     case 'workflow.started': {
@@ -355,7 +366,7 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
         ...setState(s, 'working', e.ts),
         waitReason: null,
         waitAgentId: null,
-        openTool: { id: e.toolId, label: e.label, startedAt: e.ts },
+        openTool: { id: e.toolId, label: e.label, startedAt: e.ts, smoking: e.smoke === true },
         lastAction: e.label,
         lastActionAt: e.ts,
         recentActions: s.recentActions.at(-1) === e.label ? s.recentActions : [...s.recentActions, e.label].slice(-MAX_RECENT_ACTIONS),

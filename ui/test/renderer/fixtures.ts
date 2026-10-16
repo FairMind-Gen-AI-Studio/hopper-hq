@@ -12,6 +12,7 @@ import {
   type Place,
   type PodDesk,
   type Robot,
+  type SceneLeisure,
   type ShownState,
 } from '../../../src/scene/types';
 import { HOME_AZIMUTH, cameraOffset, floorCenter, frustumFor } from '../../renderer/world';
@@ -60,6 +61,7 @@ export function makeOccupant(spec: DeskSpec, body: number, tie: number | null, c
     since: 1000,
     reason: null,
     activity: null,
+    smoking: false,
     agentsRunning: spec.agents ?? 0,
     summary: null,
     interns: spec.interns ?? [],
@@ -95,6 +97,16 @@ export interface RoomSpec {
   slot?: number;
 }
 
+/** A finished intern waiting for a running sibling, at this leisure, over at the break area rather than its desk. */
+export function leisureIntern(agentId: string, leisure: SceneLeisure): Intern {
+  return { agentId, type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure };
+}
+
+/** A finished room agent waiting for a running sibling, at this leisure, over at the break area rather than the table. */
+export function leisureAgent(agentId: string, leisure: SceneLeisure): MeetingAgent {
+  return { agentId, label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure };
+}
+
 /** The phases of the demo's run, in its Build phase. */
 export const PHASES: MeetingRoom['phases'] = [
   { title: 'Plan', state: 'done' },
@@ -112,6 +124,8 @@ export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: numb
     phase: live ? 'Build' : 'Plan',
     type: 'workflow-subagent',
     running: live,
+    smoking: false,
+    leisure: null,
   });
   const agents = [...Array.from({ length: running }, (_, k) => agent(k, true)), ...Array.from({ length: finished }, (_, k) => agent(running + k, false))];
   return {
@@ -170,6 +184,7 @@ export function makeFloor(checkouts: CheckoutSpec[], key = 'feature:checkout-v2'
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
     unseated: waiting,
     unseatedMore: 0,
   };
@@ -236,11 +251,17 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
  * The fullest floor (design §7.1): four checkouts of BLOCK_DESKS sessions take every desk of four blocks. Each checkout's
  * first session hosts a run at the head of its room's table, with SEATS_MAX agents at it, so that every room slot is open;
  * its next two rest in the lounge, which fills; the others work, need you, are done or lost their signal, but for the
- * very last, dormant, whose desk has its nameplate. INTERNS_MAX interns fly over every other desk.
+ * very last, dormant, whose desk has its nameplate. INTERNS_MAX interns fly over every other desk, every one of them
+ * running, and every running intern and room agent, and every occupant whose own open tool is a smoke test (`working` or
+ * `no_signal`: `Occupant.smoking`'s own doc, src/scene/types.ts), holds a cigar — the real worst case for the cigar's
+ * added meshes, not an arbitrary sample, so that the budget below is pinned to what a real floor could actually cost.
+ * Every intern and room agent is also typed to a Fairmind plugin, so every one of them wears the Fairmind badge
+ * (src/scene/fairmind.ts isFairmindAgent, ui/renderer/fairmind-badge.ts): the real worst case for its added meshes too.
  */
 export function fullestFloor(): FloorDetail {
   const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
-  const interns = (id: string): Intern[] => Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'Explore', label: 'Find the callers', running: true, inRoom: false }));
+  const interns = (id: string): Intern[] =>
+    Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'fairmind-coding:Software Engineer', label: 'Find the callers', running: true, inRoom: false, smoking: true, leisure: null }));
   const repos = ['storefront-web', 'orders-api', 'payments-svc', 'search-svc'];
   const checkouts = repos.map((repo, r): CheckoutSpec => ({
     key: `/demo/${repo}`,
@@ -256,7 +277,17 @@ export function fullestFloor(): FloorDetail {
     }),
   }));
   const rooms = checkouts.map((c, slot): RoomSpec => ({ runId: `wf_0000aaaa-00${slot + 1}`, host: c.desks[0]!.id, running: SEATS_MAX, finished: 4, seated: true, slot }));
-  return makeFloor(checkouts, 'feature:checkout-v2', rooms);
+  const floor = makeFloor(checkouts, 'feature:checkout-v2', rooms);
+  for (const pod of floor.pods) {
+    for (const desk of pod.desks) {
+      if (desk.occupant && (desk.occupant.state === 'working' || desk.occupant.state === 'no_signal')) desk.occupant.smoking = true;
+    }
+  }
+  for (const room of floor.rooms) for (const agent of room.agents) {
+    agent.smoking = agent.running;
+    agent.type = 'fairmind-coding:QA Engineer';
+  }
+  return floor;
 }
 
 /** Every session at a desk, with its desk, in desk order. */

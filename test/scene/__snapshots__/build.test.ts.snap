@@ -4,6 +4,12 @@ exports[`the demo building > matches the snapshot 1`] = `
 {
   "floors": [
     {
+      "breakArea": {
+        "h": 3,
+        "w": 8,
+        "x": 18,
+        "y": 15,
+      },
       "core": {
         "h": 2,
         "w": 4,
@@ -78,6 +84,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 ],
                 "sessionId": "demo-ps-d4",
                 "since": 1791709200027,
+                "smoking": false,
                 "state": "in_meeting",
                 "summary": null,
                 "title": "Support split payments across two cards",
@@ -120,6 +127,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-sw-b2",
                 "since": 1791709200022,
+                "smoking": false,
                 "state": "done",
                 "summary": null,
                 "title": "Rewrite checkout copy and empty states",
@@ -157,14 +165,18 @@ exports[`the demo building > matches the snapshot 1`] = `
                     "agentId": "demo-a1-explore",
                     "inRoom": true,
                     "label": "Find every caller of useCart()",
+                    "leisure": null,
                     "running": true,
+                    "smoking": false,
                     "type": "Explore",
                   },
                   {
                     "agentId": "demo-a1-review",
                     "inRoom": true,
                     "label": "Check the address form against the design",
+                    "leisure": null,
                     "running": true,
+                    "smoking": false,
                     "type": "general-purpose",
                   },
                 ],
@@ -182,6 +194,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-sw-a1",
                 "since": 1791709200000,
+                "smoking": false,
                 "state": "working",
                 "summary": null,
                 "title": "Build the address step of the new checkout",
@@ -257,6 +270,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-oa-c3",
                 "since": 1791709200024,
+                "smoking": false,
                 "state": "needs_you",
                 "summary": null,
                 "title": "Add idempotency keys to POST /orders",
@@ -342,9 +356,11 @@ exports[`the demo building > matches the snapshot 1`] = `
             {
               "agentId": "demo-wf-0",
               "label": "Map the split payment flow",
+              "leisure": null,
               "phase": "Plan",
               "running": true,
-              "type": "workflow-subagent",
+              "smoking": false,
+              "type": "fairmind-coding:Technical Lead / Architect",
             },
           ],
           "counts": {
@@ -391,15 +407,19 @@ exports[`the demo building > matches the snapshot 1`] = `
             {
               "agentId": "demo-a1-explore",
               "label": "Find every caller of useCart()",
+              "leisure": null,
               "phase": null,
               "running": true,
+              "smoking": false,
               "type": "Explore",
             },
             {
               "agentId": "demo-a1-review",
               "label": "Check the address form against the design",
+              "leisure": null,
               "phase": null,
               "running": true,
+              "smoking": false,
               "type": "general-purpose",
             },
           ],
@@ -434,9 +454,15 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 4,
+      "version": 6,
     },
     {
+      "breakArea": {
+        "h": 3,
+        "w": 8,
+        "x": 18,
+        "y": 15,
+      },
       "core": {
         "h": 2,
         "w": 4,
@@ -469,7 +495,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               "id": "p0-0",
               "occupant": {
                 "activity": {
-                  "label": "Bash: npm test",
+                  "label": "Bash: npm run test:smoke",
                   "running": true,
                   "since": 1791709200028,
                 },
@@ -499,6 +525,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-ss-e5",
                 "since": 1791709200004,
+                "smoking": true,
                 "state": "working",
                 "summary": null,
                 "title": "Tune BM25 weights with click data",
@@ -642,9 +669,15 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 4,
+      "version": 6,
     },
     {
+      "breakArea": {
+        "h": 3,
+        "w": 8,
+        "x": 18,
+        "y": 15,
+      },
       "core": {
         "h": 2,
         "w": 4,
@@ -708,6 +741,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-oa-h8",
                 "since": 1791709200006,
+                "smoking": false,
                 "state": "working",
                 "summary": null,
                 "title": "Bump dependencies and fix type errors",
@@ -755,6 +789,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "runs": [],
                 "sessionId": "demo-oa-g7",
                 "since": 1791709200029,
+                "smoking": false,
                 "state": "needs_you",
                 "summary": null,
                 "title": "Investigate duplicate confirmation emails",
@@ -887,7 +922,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 4,
+      "version": 6,
     },
   ],
   "scene": {
@@ -1095,7 +1130,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         ],
       },
     ],
-    "version": 4,
+    "version": 6,
   },
 }
 `;

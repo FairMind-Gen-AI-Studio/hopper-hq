@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { Box3, Mesh, Vector3, type Object3D } from 'three';
-import type { Robot } from '../../../src/scene/types';
+import { Box3, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three';
+import { PERSONAS } from '../../../src/scene/persona';
+import type { Pose, Robot } from '../../../src/scene/types';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import {
+  BILIARDINO_REACH,
   BOT,
+  GLASS,
+  FOOSBALL_HOVER_Y,
   HEAD_DOWN,
   HOVER_Y,
   KIND_SCALE,
   LAPTOP,
   LOOPS,
   POSES,
+  PUFF,
+  puffAt,
   STRIDE,
   animateRobot,
   buildRobot,
@@ -19,13 +25,14 @@ import {
   poseOf,
   poseRobot,
   rootHeight,
+  setSmoking,
   strideRobot,
   type Loop,
   type RobotKind,
   type RobotObject,
 } from '../../renderer/robot';
 import { dayTheme } from '../../renderer/theme';
-import { DESK_CHAIR, SEAT_Y, deskAnchor, labelAnchor, placeSpot, seatSpot, standSpot } from '../../renderer/world';
+import { DESK_CHAIR, FOOSBALL_REACH, FOOSBALL_ROD_Y, SEAT_Y, deskAnchor, foosballSpots, labelAnchor, placeSpot, seatSpot, standSpot } from '../../renderer/world';
 import { checkoutFloor, seatsOf } from './fixtures';
 
 function kit() {
@@ -102,6 +109,136 @@ describe('robots', () => {
     expect(POSES.waving.legs).toBe(0);
     expect(POSES.resting.lean).toBeLessThan(0);
     expect(POSES.holding.paper).toBe(true);
+    // Every leisure pose stands, like waving and holding: the break area has no chair.
+    expect([POSES.gintonic.legs, POSES.biliardino.legs, POSES.coffee.legs]).toEqual([0, 0, 0]);
+  });
+
+  it('holds its gin tonic over a gin tonic, a cup over a coffee, and nothing over a biliardino, never casting their shadow', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null }, geo, mats);
+    const spot = { x: 0, z: 0, facing: 0 };
+    const cases: Array<[pose: Pose, drink: boolean, cup: boolean]> = [
+      ['gintonic', true, false],
+      ['coffee', false, true],
+      ['biliardino', false, false],
+      ['still', false, false],
+    ];
+    for (const [pose, drink, cup] of cases) {
+      poseRobot(obj, { pose, badge: null }, spot);
+      expect([obj.rig.drink.visible, obj.rig.cup.visible], pose).toEqual([drink, cup]);
+    }
+    expect(obj.rig.cup.castShadow).toBe(false);
+    obj.rig.drink.traverse((o) => expect((o as Mesh).castShadow ?? false).toBe(false));
+    // On its way it holds nothing, whatever its pose.
+    poseRobot(obj, { pose: 'gintonic', badge: null }, spot);
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
+    expect([obj.rig.drink.visible, obj.rig.cup.visible]).toEqual([false, false]);
+  });
+
+  it('builds the gin tonic as a lathed balloon glass, its tonic, its ice, its lime wheel and its straw, each only in the drink', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'gintonic', badge: null, body: 0, tie: null }, geo, mats);
+    poseRobot(obj, { pose: 'gintonic', badge: null }, { x: 0, z: 0, facing: 0 });
+    const parts = obj.rig.drink.children as Mesh[];
+    // The shell (foot, stem, the bowl's own lathed round and its rim ring), the tonic (its own lathed fill and its
+    // flat surface cap), three ice cubes, two lime discs and a straw.
+    expect(parts).toHaveLength(12);
+    expect(parts.every((m) => m.isMesh)).toBe(true);
+    expect(parts.filter((m) => m.material === mats.surface.gtGlass)).toHaveLength(3);
+    expect(parts.filter((m) => m.material === mats.surface.gtRim)).toHaveLength(1);
+    expect(parts.filter((m) => m.material === mats.surface.tonic)).toHaveLength(2);
+    expect(parts.filter((m) => m.material === mats.surface.ice)).toHaveLength(3);
+    expect(parts.filter((m) => m.material === mats.surface.limeRind)).toHaveLength(1);
+    expect(parts.filter((m) => m.material === mats.surface.limeFlesh)).toHaveLength(1);
+    expect(parts.filter((m) => m.material === mats.surface.straw)).toHaveLength(1);
+    // The whole drink is a child of the hand that holds the paper (armR), so it rotates with a raised arm.
+    expect(obj.rig.drink.parent).toBe(obj.rig.armR);
+    // Not one of the drink's own parts is in `pickables` under a different pick: it is picked as the robot is.
+    for (const m of parts) expect(obj.pickables).toContain(m);
+  });
+
+  it('puts every kind\'s hand on the biliardino handle, by forward kinematics against FOOSBALL_ROD_Y and FOOSBALL_REACH, not eyeballed', () => {
+    const { geo, mats } = kit();
+    const rect = { x: 0, y: 0, w: 20, h: 20 };
+    const spot = foosballSpots(rect)[0]!;
+    const look: Pick<Robot, 'pose' | 'badge'> = { pose: 'biliardino', badge: null };
+    // The near handle itself: FOOSBALL_ROD_Y high, FOOSBALL_REACH past the stand spot in z (world.ts) — the exact
+    // same geometry props.ts draws the handle nub at. A tolerance of a centimetre: well inside the hand's own
+    // ~5 cm radius, so "on the handle" means actually touching it, not merely close by.
+    const TOL = 0.01;
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = buildRobot('s1', { ...look, body: 0, tie: null }, geo, mats, kind);
+      poseRobot(obj, look, spot);
+      obj.group.updateMatrixWorld(true);
+      // The hand is the ball joint at the forearm's own end, local (0, -BOT.arm, 0) in the arm pivot's frame —
+      // the same offset buildRobot places it at — carried to world space through the arm's actual posed matrix.
+      const handR = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armR.matrixWorld);
+      const handL = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armL.matrixWorld);
+      for (const [side, hand] of [['R', handR], ['L', handL]] as const) {
+        expect(Math.abs(hand.y - FOOSBALL_ROD_Y), `${kind} ${side} y`).toBeLessThan(TOL);
+        expect(Math.abs(hand.z - (spot.z + FOOSBALL_REACH)), `${kind} ${side} z`).toBeLessThan(TOL);
+      }
+      // BILIARDINO_REACH is positive and kind-specific: a shorter kind leans in further than a taller one, never
+      // less, to close the gap its own shorter reach leaves.
+      expect(BILIARDINO_REACH[kind], kind).toBeGreaterThan(0);
+    }
+    expect(BILIARDINO_REACH.intern).toBeGreaterThan(BILIARDINO_REACH.workflow);
+    expect(BILIARDINO_REACH.workflow).toBeGreaterThan(BILIARDINO_REACH.session);
+  });
+
+  it("hides a persona's held prop over holding/gintonic/biliardino/coffee and on its way, keeping its headgear shown throughout", () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null, persona: 'qa' }, geo, mats);
+    const spot = { x: 0, z: 0, facing: 0 };
+    const cases: Array<[pose: Pose, held: boolean]> = [
+      ['typing', true],
+      ['still', true],
+      ['waving', true],
+      ['resting', true],
+      ['holding', false],
+      ['gintonic', false],
+      ['biliardino', false],
+      ['coffee', false],
+    ];
+    for (const [pose, held] of cases) {
+      poseRobot(obj, { pose, badge: null }, spot);
+      expect([obj.rig.persona.heldGroup.visible, obj.rig.persona.headgearGroup.visible], pose).toEqual([held, true]);
+    }
+    // On its way it holds nothing either, whatever its pose, but its headgear is still its silhouette.
+    poseRobot(obj, { pose: 'typing', badge: null }, spot);
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
+    expect([obj.rig.persona.heldGroup.visible, obj.rig.persona.headgearGroup.visible]).toEqual([false, true]);
+  });
+
+  it("keeps the boss persona's bowler hat shown in every pose, including striding and holding (user-decisions.md OQ-1, 2026-10-16: a hat-less boss was unreadable whenever its held prop hid)", () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null, persona: 'boss' }, geo, mats);
+    const spot = { x: 0, z: 0, facing: 0 };
+    for (const pose of Object.keys(POSES) as Pose[]) {
+      poseRobot(obj, { pose, badge: null }, spot);
+      expect(obj.rig.persona.headgearGroup.visible, pose).toBe(true);
+    }
+    // On its way, the same hat; only the held mug hides, like every other persona's held prop.
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
+    expect([obj.rig.persona.headgearGroup.visible, obj.rig.persona.heldGroup.visible]).toEqual([true, false]);
+  });
+
+  it('widens and lengthens the tie for the boss persona only, its feature colour unchanged (user-decisions.md OQ-1, 2026-10-16: "Cappello + cravatta")', () => {
+    const { geo, mats } = kit();
+    const plain = buildRobot('s1', { pose: 'typing', badge: null, body: 0, tie: 3, persona: 'none' }, geo, mats);
+    const boss = buildRobot('s2', { pose: 'typing', badge: null, body: 0, tie: 3, persona: 'boss' }, geo, mats);
+    for (const obj of [plain, boss]) obj.group.updateMatrixWorld(true);
+    const tieExtent = (obj: RobotObject) => {
+      const box = new Box3();
+      for (const m of obj.pickables.filter((m) => m.material === mats.tie(3))) box.expandByObject(m);
+      return { w: box.max.x - box.min.x, h: box.max.y - box.min.y };
+    };
+    const plainTie = tieExtent(plain);
+    const bossTie = tieExtent(boss);
+    expect(bossTie.w).toBeGreaterThan(plainTie.w);
+    expect(bossTie.h).toBeGreaterThan(plainTie.h);
+    // Wider and longer, but still the same two meshes, in the same feature colour.
+    expect(boss.pickables.filter((m) => m.material === mats.tie(3))).toHaveLength(2);
   });
 
   it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {
@@ -172,6 +309,22 @@ describe('robots', () => {
       expect(labelAnchor(floor, desk, occupant).y - box.max.y, name).toBeGreaterThan(0.2);
     }
     expect([...sides].sort()).toEqual(['north', 'south']);
+  });
+
+  it("stays inside its desk cell with every persona's accessories, headgear and held prop alike", () => {
+    const { floor, desk, occupant } = posed()[0]!;
+    const { geo, mats } = kit();
+    for (const persona of PERSONAS) {
+      const obj = buildRobot(occupant.sessionId, { ...occupant.robot!, persona }, geo, mats);
+      poseRobot(obj, occupant.robot!, placeSpot(floor, desk, occupant)!);
+      obj.rig.laptop.removeFromParent();
+      obj.group.updateMatrixWorld(true);
+      const box = new Box3().setFromObject(obj.group);
+      expect(box.min.x, persona).toBeGreaterThan(desk.rect.x);
+      expect(box.max.x, persona).toBeLessThan(desk.rect.x + desk.rect.w);
+      expect(box.min.z, persona).toBeGreaterThan(desk.rect.y);
+      expect(box.max.z, persona).toBeLessThan(desk.rect.y + desk.rect.h);
+    }
   });
 
   it('builds a workflow agent at 0.8, in a hard hat of the hard-hat colour, with its legs and its tie', () => {
@@ -270,6 +423,11 @@ describe('robots', () => {
     expect(rootHeight('holding', 'workflow')).toBe(0);
     expect(rootHeight('typing', 'intern')).toBe(HOVER_Y);
     expect(rootHeight('typing', 'session')).toBe(rootHeight('typing'));
+    // At the foosball table, though, an intern floats low enough for its hands to meet the table's handles instead.
+    poseRobot(intern, { pose: 'biliardino', badge: null }, spot);
+    expect(intern.group.position.y).toBe(FOOSBALL_HOVER_Y);
+    expect(rootHeight('biliardino', 'intern')).toBe(FOOSBALL_HOVER_Y);
+    expect(FOOSBALL_HOVER_Y).toBeLessThan(HOVER_Y);
   });
 
   it('lets the hard hat cast a shadow, but not its brim, and an intern cast none', () => {
@@ -297,6 +455,115 @@ describe('robots', () => {
     buildRobot('e', { pose: 'typing', badge: null, body: 4, tie: null }, geo, mats, 'workflow');
     buildRobot('f', { pose: 'still', badge: null, body: 6, tie: 0 }, geo, mats, 'intern');
     expect(geo.size).toBe(kinds);
+  });
+});
+
+describe('the cigar', () => {
+  const look = { pose: 'typing', badge: 'typing', body: 0, tie: null } as const;
+
+  it('shows while its look says smoking, hidden otherwise (the default, with the field left out), on every kind', () => {
+    const { geo, mats } = kit();
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      expect(buildRobot('s-on', { ...look, smoking: true }, geo, mats, kind).rig.cigar.visible, kind).toBe(true);
+      expect(buildRobot('s-off', { ...look, smoking: false }, geo, mats, kind).rig.cigar.visible, kind).toBe(false);
+      expect(buildRobot('s-unset', look, geo, mats, kind).rig.cigar.visible, kind).toBe(false);
+    }
+  });
+
+  it('lights in every pose, and while striding, since a smoke test can be running in any of them', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, smoking: true }, geo, mats);
+    for (const pose of Object.keys(POSES) as Array<keyof typeof POSES>) {
+      poseRobot(obj, { pose, badge: null }, { x: 0, z: 0, facing: 0 });
+      expect(obj.rig.cigar.visible, pose).toBe(true);
+    }
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0.3);
+    expect(obj.rig.cigar.visible).toBe(true);
+  });
+
+  it('casts no shadow, from its body, its tip or its puff, on any kind', () => {
+    const { geo, mats } = kit();
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = buildRobot('s1', { ...look, smoking: true, body: 2, tie: 3 }, geo, mats, kind);
+      const before = obj.pickables.filter((m) => m.castShadow).length;
+      obj.rig.cigar.traverse((o) => {
+        if ((o as Mesh).isMesh) expect((o as Mesh).castShadow, kind).toBe(false);
+      });
+      // Showing it never turns a part into a shadow caster: the same larger parts cast as before.
+      expect(obj.pickables.filter((m) => m.castShadow).length, kind).toBe(before);
+    }
+  });
+
+  it('toggles with setSmoking, on the same robot, without rebuilding it', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, smoking: false }, geo, mats);
+    const size = geo.size;
+    expect(obj.rig.cigar.visible).toBe(false);
+    const { group, rig } = obj;
+    setSmoking(obj, true);
+    expect(obj.rig.cigar.visible).toBe(true);
+    setSmoking(obj, false);
+    expect(obj.rig.cigar.visible).toBe(false);
+    // Still the very same objects: no second buildRobot, no new geometry.
+    expect(obj.group).toBe(group);
+    expect(obj.rig).toBe(rig);
+    expect(geo.size).toBe(size);
+  });
+
+  it('sends up a column of puffs, smoke signals, that rise, grow and vanish while it shows, and sits still otherwise', () => {
+    const { geo, mats } = kit();
+    const m = new Matrix4();
+    const at = new Vector3();
+    const q = new Quaternion();
+    const size = new Vector3();
+    const puffs = (obj: ReturnType<typeof buildRobot>) =>
+      Array.from({ length: PUFF.puffs }, (_, i) => {
+        obj.rig.puff.getMatrixAt(i, m);
+        m.decompose(at, q, size);
+        return { y: at.y, scale: size.x };
+      });
+
+    const lit = buildRobot('s1', { ...look, smoking: true }, geo, mats);
+    poseRobot(lit, look, { x: 0, z: 0, facing: 0 });
+    // One instanced mesh, one draw, however many puffs, and none of them casts a shadow.
+    expect(lit.rig.puff.count).toBe(PUFF.puffs);
+    expect(PUFF.puffs).toBeGreaterThanOrEqual(5);
+    expect(lit.rig.puff.castShadow).toBe(false);
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let maxScale = -Infinity;
+    for (let k = 0; k <= 200; k++) {
+      animateRobot(lit, look, (k / 200) * (1 / PUFF.rate), 0);
+      const now = puffs(lit);
+      // Spread up the column, never in one clump: the puffs are a 1/PUFF.puffs of a cycle apart.
+      expect(new Set(now.map((p) => p.y.toFixed(6))).size, `t${k}`).toBe(PUFF.puffs);
+      for (const p of now) {
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+        maxScale = Math.max(maxScale, p.scale);
+        expect(p.scale).toBeGreaterThanOrEqual(-1e-6);
+      }
+    }
+    expect(minY).toBeGreaterThanOrEqual(PUFF.y - 1e-6);
+    expect(maxY).toBeLessThanOrEqual(PUFF.y + PUFF.rise + 1e-6);
+    // Smoke signals: the column rises far above the head, and its puffs swell well past the size they start at.
+    expect(PUFF.rise).toBeGreaterThan(0.5);
+    expect(maxY - minY).toBeGreaterThan(PUFF.rise * 0.9);
+    expect(maxScale).toBeLessThanOrEqual(1 + PUFF.grow);
+    expect(maxScale).toBeGreaterThan(1.5);
+
+    const unlit = buildRobot('s2', look, geo, mats);
+    poseRobot(unlit, look, { x: 0, z: 0, facing: 0 });
+    const rest = puffs(unlit);
+    for (let k = 0; k <= 10; k++) animateRobot(unlit, look, k * 0.3, 1.2);
+    expect(puffs(unlit)).toEqual(rest);
+  });
+
+  it('grows a puff as it rises and scales it to nothing at either end of its cycle', () => {
+    expect(puffAt(0).scale).toBeCloseTo(0, 9);
+    expect(puffAt(1).scale).toBeCloseTo(0, 9);
+    expect(puffAt(0.6).scale).toBeGreaterThan(puffAt(0.4).scale);
+    expect(puffAt(1).y).toBeCloseTo(PUFF.rise, 9);
   });
 });
 
@@ -346,6 +613,11 @@ describe('loops at rest', () => {
     [{ pose: 'resting', badge: null }, 'session', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
     [{ pose: 'still', badge: null }, 'intern', { 'root position.y': LOOPS.hover.bob }],
     [{ pose: 'still', badge: 'meeting' }, 'session', {}],
+    [{ pose: 'gintonic', badge: null }, 'intern', { 'root position.y': LOOPS.hover.bob }],
+    [{ pose: 'coffee', badge: null }, 'workflow', { 'waist rotation.x': LOOPS.breathe.lean, 'neck rotation.x': LOOPS.breathe.neck }],
+    [{ pose: 'biliardino', badge: null }, 'workflow', { 'armL rotation.x': LOOPS.foosball.arm, 'armR rotation.x': LOOPS.foosball.arm }],
+    // An intern plays too, at the biliardino's own low height (FOOSBALL_HOVER_Y, rootHeight), not its desk's hover.
+    [{ pose: 'biliardino', badge: null }, 'intern', { 'armL rotation.x': LOOPS.foosball.arm, 'armR rotation.x': LOOPS.foosball.arm }],
   ];
 
   it('starts each robot at a phase in [0, 2π) hashed from its id: the same for the same id, spread round the circle', () => {
@@ -375,8 +647,9 @@ describe('loops at rest', () => {
       seen.add(occupant.state);
     }
     expect([...seen].sort()).toEqual(Object.keys(want).sort());
-    for (const [look, kind] of looks()) expect(loopOf(look, kind), `${look.pose} ${kind}`).toBe(kind === 'intern' ? 'hover' : loopOf(look));
-    expect([loopOf({ pose: 'typing', badge: null }, 'workflow'), loopOf({ pose: 'waving', badge: 'needs' }, 'intern')]).toEqual(['type', 'hover']);
+    // An intern hovers in every pose but one: at the foosball table it plays like any other kind.
+    for (const [look, kind] of looks()) expect(loopOf(look, kind), `${look.pose} ${kind}`).toBe(kind === 'intern' && look.pose !== 'biliardino' ? 'hover' : loopOf(look));
+    expect([loopOf({ pose: 'typing', badge: null }, 'workflow'), loopOf({ pose: 'waving', badge: 'needs' }, 'intern'), loopOf({ pose: 'biliardino', badge: null }, 'intern')]).toEqual(['type', 'hover', 'foosball']);
     expect(LOOPS).toEqual({
       type: { rate: 15, arm: 0.08 },
       wave: { rate: 7, arm: 0.3 },
@@ -384,7 +657,9 @@ describe('loops at rest', () => {
       breathe: { rate: 1.6, lean: 0.03, neck: 0.03 },
       doze: { rate: 0.9, lean: 0.02, neck: 0.06 },
       hover: { rate: 3, bob: 0.03 },
+      foosball: { rate: 6, arm: 0.12 },
     });
+    expect([loopOf({ pose: 'gintonic', badge: null }), loopOf({ pose: 'coffee', badge: null }), loopOf({ pose: 'biliardino', badge: null })]).toEqual(['breathe', 'breathe', 'foosball']);
   });
 
   it('moves only the pivots of its loop, never further from its pose than the loop goes, and all the way to it', () => {
@@ -457,6 +732,36 @@ describe('loops at rest', () => {
         const hand = new Vector3(0, -BOT.arm, 0).applyMatrix4(obj.rig.armR.matrixWorld);
         expect(fromHead(hand.clone().applyMatrix4(obj.rig.neck.matrixWorld.clone().invert())), `${chair} ${k}: off the head`).toBeGreaterThanOrEqual(0.05);
         expect(back.distanceToPoint(hand), `${chair} ${k}: off the chair's back`).toBeGreaterThanOrEqual(0.05);
+      }
+    }
+  });
+
+  it('holds its gin tonic clear of its own head, at every kind (the pose that follows this test was tuned against this exact check; a straw-through-the-head regression at the old pose/anchor is what this guards)', () => {
+    const look: Look = { pose: 'gintonic', badge: null };
+    /** How far a point in the neck's frame is outside the head's rounded box (radius 0.04): negative inside. */
+    const fromHead = (p: Vector3) => {
+      const q = new Vector3(Math.abs(p.x) - 0.15, Math.abs(p.y - 0.2) - 0.1, Math.abs(p.z) - 0.09);
+      return new Vector3(Math.max(q.x, 0), Math.max(q.y, 0), Math.max(q.z, 0)).length() + Math.min(Math.max(q.x, q.y, q.z), 0) - 0.04;
+    };
+    // The straw (buildDrink) is the tallest single part, its tip well above the bowl's own rim; the belly
+    // (GLASS.bellyR) is the widest. A cylinder tall and wide enough to contain both, sampled at its surface,
+    // is a more pessimistic stand-in for the drink's own silhouette than the bowl alone would be.
+    const topH = GLASS.footH + GLASS.stemH + GLASS.bowlH + 0.22;
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = rested(look, kind);
+      obj.group.updateMatrixWorld(true);
+      const toNeck = obj.rig.neck.matrixWorld.clone().invert();
+      for (let h = 0; h <= topH + 1e-9; h += topH / 16) {
+        for (const r of [0.04, GLASS.bellyR]) {
+          for (let a = 0; a < 2 * Math.PI; a += Math.PI / 4) {
+            const p = new Vector3(r * Math.cos(a), h, r * Math.sin(a)).applyMatrix4(obj.rig.drink.matrixWorld).applyMatrix4(toNeck);
+            // A real margin (0.1 m), not just non-negative: the pose this replaced (armR [-0.3, 0.55], GLASS.hand
+            // at -BOT.arm + 0.08/0.1) never quite intersects this same rounded box either (its own worst sample
+            // margin is ~0.06), yet it was rejected on sight in every screenshot as clipping into the head — so a
+            // bare "not overlapping" bound would not have caught that regression. This margin does: ~0.1188 m here.
+            expect(fromHead(p), `${kind} h=${h.toFixed(3)} r=${r.toFixed(3)} a=${a.toFixed(2)}: off the head`).toBeGreaterThanOrEqual(0.1);
+          }
+        }
       }
     }
   });

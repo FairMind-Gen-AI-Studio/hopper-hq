@@ -83,9 +83,9 @@ export function standSpot(desk: Pick<PodDesk, 'rect' | 'chair'>): Spot {
   return { x: a.x + STAND_X, z: a.z + s * STAND_Z, facing: s === 1 ? 0 : Math.PI };
 }
 
-/** Poses that stand up from the desk; the others sit. */
+/** Poses that stand up from the desk; the others sit. Every leisure pose (robot.ts POSES) stands too: the break area has no chair. */
 export function isStanding(pose: Pose): boolean {
-  return pose === 'waving' || pose === 'holding';
+  return pose === 'waving' || pose === 'holding' || pose === 'gintonic' || pose === 'biliardino' || pose === 'coffee';
 }
 
 /**
@@ -141,6 +141,130 @@ export const ELEVATOR_STEP = 0.8;
 /** Just inside the elevator doors, facing south. */
 export function elevatorSpot(core: GridRect): Spot {
   return { x: core.x + core.w / 2, z: ELEVATOR_STEP, facing: 0 };
+}
+
+/**
+ * The break area (props.ts draws it): a little bar near its west edge, a coffee machine midway between them, and a
+ * biliardino table near its east edge, each with its own stand spot(s), far enough apart that walking between any two
+ * never crosses a third's spots.
+ */
+/**
+ * The bar's own footprint, blocked in the walk grid like any furniture (walk.ts): wide and deep enough to hold its
+ * back-bar shelf and its counter together, front to back. Grown well past the old bar cart's 1.0 x 0.5 so that a
+ * proper counter and a shelf of bottles both fit, and still clear of the coffee machine to its east.
+ */
+export const BAR_CART = { w: 2.2, d: 0.9 } as const;
+/** How far the bar's centre stands from the break area's west edge. */
+export const BAR_CART_X = 2;
+/** The back-bar shelf's own footprint, racked against the rear of BAR_CART, away from the customer side. */
+export const BAR_SHELF = { w: 1.9, d: 0.22 } as const;
+/** How far north of the bar's centre the shelf stands: flush with BAR_CART's own rear edge. */
+export const BAR_SHELF_OUT = BAR_CART.d / 2 - BAR_SHELF.d / 2;
+/**
+ * The back-bar rack's own height, posts and all: tall enough that even its top shelf's own bottles stand clear
+ * below `post`, with `cap` (a header plank, props.ts) sat on the posts to close the rack off at the top, so that no
+ * bottle ever pokes out above it like a flagpole.
+ */
+export const BAR_RACK_H = { post: 2.0, cap: 0.05 } as const;
+/** The counter's own footprint (its solid front panel): toward the front of BAR_CART, the customer side. Its top
+ * overhangs this a little on every side (props.ts), the lip of a bancone. */
+export const BAR_COUNTER = { w: 1.9, d: 0.5 } as const;
+/** How far south of the bar's centre the counter stands: flush with BAR_CART's own front edge. */
+export const BAR_COUNTER_OUT = BAR_CART.d / 2 - BAR_COUNTER.d / 2;
+/** How far south of the bar's centre its two stools stand, and how far apart: just past the counter, still inside
+ * BAR_CART's own walk clearance, so a robot's path is never drawn through one. */
+export const BAR_STOOL_OUT = BAR_CART.d / 2 + 0.15;
+export const BAR_STOOL_DX = 0.5;
+/** How far south of the bar's centre its four "standing with a glass" spots stand, clear of the stools, and how they
+ * space across the counter's own width. */
+export const BAR_SPOT_OUT = 1.0;
+export const BAR_SPOT_DX = [-0.75, -0.25, 0.25, 0.75] as const;
+
+/** Where the bar stands, centred in the break area's depth. */
+export function barCartCenter(rect: GridRect): Point {
+  return { x: rect.x + BAR_CART_X, z: rect.y + rect.h / 2 };
+}
+
+/**
+ * The 4 "standing with a glass" spots along the counter's front, the customer side, evenly spaced across it and each
+ * facing north, toward the bar (unlike the old cart, which stood free and so had a ring of spots all round it).
+ */
+export function barCartSpots(rect: GridRect): Spot[] {
+  const c = barCartCenter(rect);
+  return BAR_SPOT_DX.map((dx) => ({ x: c.x + dx, z: c.z + BAR_SPOT_OUT, facing: Math.PI }));
+}
+
+/** The biliardino table: wider east-west than deep, a row of little players along its long north and south sides. */
+export const FOOSBALL = { w: 1.6, d: 0.8 } as const;
+/** How far the table's centre stands from the break area's east edge. */
+export const FOOSBALL_X = 1.5;
+/** How far a handle spot stands from the table's long edge. */
+export const FOOSBALL_OUT = 0.5;
+/**
+ * How high the table's 8 rods (and so its players and its handles: one straight rod, the same height throughout)
+ * stand above the floor: props.ts's cabinet carries them through its raised rim, just above its own green field,
+ * and robot.ts's biliardino pose (session and workflow kinds, standing) reaches a hand to just this height. An
+ * intern, with no legs to stand on, floats low enough at this pose instead of its desk's HOVER_Y (robot.ts).
+ */
+export const FOOSBALL_ROD_Y = 0.62;
+/** How far a rod (and so its handle, the same straight rod: props.ts) pokes past the rim on either side. */
+export const FOOSBALL_ROD_OUT = 0.12;
+/** How far in from a rod's bare, poked-out tip the handle grip itself sits (props.ts): the short, thicker nub a
+ * robot's hand closes on, not the rod's last few centimetres of bare overhang. */
+export const FOOSBALL_HANDLE_IN = 0.045;
+/**
+ * How far past its stand spot (foosballSpots, below) the near handle sits, in z: the spot already stands
+ * FOOSBALL_OUT out from the table's long edge, and the handle sits FOOSBALL_ROD_OUT out from the rim less
+ * FOOSBALL_HANDLE_IN — the difference is the reach a hand still has to close. robot.ts's BILIARDINO_REACH (per
+ * kind, on top of whatever the pose's own bend already covers) closes exactly this, measured by forward
+ * kinematics (robot.test.ts), not eyeballed.
+ */
+export const FOOSBALL_REACH = FOOSBALL_OUT - (FOOSBALL_ROD_OUT - FOOSBALL_HANDLE_IN);
+
+/** Where the biliardino table stands, centred in the break area's depth. */
+export function foosballCenter(rect: GridRect): Point {
+  return { x: rect.x + rect.w - FOOSBALL_X, z: rect.y + rect.h / 2 };
+}
+
+/**
+ * v1's two handle spots, one per side, facing each other across the table: 1-v-1. Room stays beside each for a second
+ * handle spot, were the table ever to seat 4.
+ */
+export function foosballSpots(rect: GridRect): Spot[] {
+  const c = foosballCenter(rect);
+  return [
+    { x: c.x, z: c.z - FOOSBALL.d / 2 - FOOSBALL_OUT, facing: 0 },
+    { x: c.x, z: c.z + FOOSBALL.d / 2 + FOOSBALL_OUT, facing: Math.PI },
+  ];
+}
+
+/**
+ * The coffee machine (OQ-3: a finished sub-agent waiting outside the leisure window takes a coffee break here),
+ * centred between the cart and the table, in the free gap their own footprints and rings leave between them: the
+ * footprint of its counter (props.ts), a short wood cabinet in the bar's own tone, not the espresso machine's own
+ * smaller body, which stands on top of it.
+ */
+export const COFFEE_MACHINE = { w: 1.0, d: 0.5 } as const;
+/** The counter's own top surface, where the espresso machine, its cups and its grinder stand (props.ts): level with
+ * the bar's own counter top, give or take, so the two read as furniture of a kind. */
+export const COFFEE_COUNTER_H = 0.9;
+/**
+ * How far the one stand spot stands south of the counter's front edge, facing it: clear of the counter's own
+ * footprint, and, at the camera's own oblique angle, clear enough of the machine's height too that an intern's
+ * floating body (robot.ts's COFFEE_HOVER_Y, well below its desk's own hover) reads as standing at the counter, not
+ * astride it — a taller BAR_SPOT_OUT keeps the bar's own customers clear of its taller rack the same way.
+ */
+export const COFFEE_MACHINE_OUT = 0.8;
+
+/** Where the coffee machine stands: the break area's own centre, midway between the cart and the table. */
+export function coffeeMachineCenter(rect: GridRect): Point {
+  return rectCenter(rect);
+}
+
+/** The one "holding a coffee cup" stand spot, south of the machine, facing it (north). */
+export function coffeeMachineSpots(rect: GridRect): Spot[] {
+  const c = coffeeMachineCenter(rect);
+  return [{ x: c.x, z: c.z + COFFEE_MACHINE.d / 2 + COFFEE_MACHINE_OUT, facing: Math.PI }];
 }
 
 /** How far in from the core's south corners its plants stand. */

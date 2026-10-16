@@ -1,9 +1,10 @@
 /**
  * The floor's furniture from primitives: the shell (slab, walls with windows, the elevator and plants of the core), and
- * on the plan a rug, a lamp and four desks per pod, the lounge and a meeting room per room slot. Proportions follow
- * prototypes/floor-3d-mockup.html. The furniture (furniture.ts) is drawn by instanced meshes: the desks, the rooms'
- * tables and seats, the lounge's couches, coffee table and beanbags, and the plants. A dormant session's desk has a
- * nameplate of its own, a mesh with its name drawn on a canvas.
+ * on the plan a rug, a lamp and four desks per pod, the lounge, the break area and a meeting room per room slot.
+ * Proportions follow prototypes/floor-3d-mockup.html. The furniture (furniture.ts) is drawn by instanced meshes: the
+ * desks, the rooms' tables and seats, the lounge's couches, coffee table and beanbags, the break area's bar cart and
+ * biliardino table, and the plants. A dormant session's desk has a nameplate of its own, a mesh with its name drawn on
+ * a canvas.
  */
 import {
   BoxGeometry,
@@ -28,11 +29,20 @@ import { Furniture, frameAt, type Piece, type PieceOptions } from './furniture';
 import type { Target } from './index';
 import { DESK_OFF, type Materials } from './materials';
 import {
+  BAR_COUNTER,
+  BAR_COUNTER_OUT,
+  BAR_RACK_H,
+  BAR_SHELF,
+  BAR_SHELF_OUT,
+  BAR_STOOL_DX,
+  BAR_STOOL_OUT,
   BEANBAG_R,
   BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
   CHAIR_Z,
+  COFFEE_COUNTER_H,
+  COFFEE_MACHINE,
   COFFEE_TABLE,
   COUCH,
   COUCH_ARM,
@@ -40,6 +50,10 @@ import {
   COUCH_Z,
   DESK_CHAIR,
   DESK_TOP,
+  FOOSBALL,
+  FOOSBALL_HANDLE_IN,
+  FOOSBALL_ROD_OUT,
+  FOOSBALL_ROD_Y,
   PARTITION_H,
   PARTITION_T,
   ROOM_SEAT,
@@ -47,13 +61,17 @@ import {
   WALL_H,
   WALL_SIDES,
   WALL_T,
+  barCartCenter,
+  coffeeMachineCenter,
   deskAnchor,
   doorGap,
+  foosballCenter,
   headSpot,
   plantSpots,
   rectCenter,
   seatSpots,
   tableCenter,
+  type Point,
   type WallSide,
 } from './world';
 
@@ -194,7 +212,7 @@ export interface Shell {
  * and every room of the plan, open or not. Rebuilt only when the plan grows; what changes in between (rug colours, who
  * sits at a desk, which rooms are open) is updated in place.
  */
-export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>, geo: Geometries, mats: Materials): Shell {
+export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots' | 'breakArea'>, geo: Geometries, mats: Materials): Shell {
   const { w, h } = floor.size;
   const group = new Group();
   group.name = 'shell';
@@ -263,6 +281,7 @@ export function buildShell(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | '
   }
 
   buildLounge(group, floor.lounge.rect, furniture, geo, mats);
+  buildBreakArea(group, floor.breakArea, furniture, geo, mats);
 
   const rooms = floor.roomSlots.map((rect, slot) => {
     const obj = buildRoom(rect, slot, furniture, geo, mats);
@@ -336,6 +355,235 @@ function buildLounge(parent: Group, rect: GridRect, furniture: Furniture, geo: G
   add(geo.rod(0.06, 0.07, 0.1, 12), s.paper, c.x + 0.3, 0.5, c.z - 0.1, { cast: false });
   const squash = [BEANBAG_SCALE.across, BEANBAG_SCALE.up, BEANBAG_SCALE.across] as const;
   for (const [side, bean] of [[-1, s.beanA], [1, s.beanB]] as const) add(geo.ball(BEANBAG_R), bean, c.x + side * BEANBAG_X, 0.2, c.z, { scale: squash });
+}
+
+/**
+ * The break area (world.ts places its stand spots): a rug, a little bar near its west edge — a counter with a solid
+ * front panel and an overhanging top, a warm wooden back-bar racked with bottles behind it, a bowl of limes and a
+ * couple of glasses on the counter, and a stool either side of it, on the customer's side — the "macchinetta" midway
+ * between the bar and the table (an Italian office's own espresso machine, not a fridge: see buildBreakArea's own
+ * comment), and a biliardino table near its east edge: a box cabinet, a green field marked in white inside a low
+ * rim, 8 rods of little players through the rim's long sides and a ball at the centre spot (buildFoosball).
+ *
+ * The back-bar is a proper bancone fixture, not a lab rack: its two posts and two shelf planks stand in the counter's
+ * own wood tone (not the shelf's old frame grey), backed by a solid wood panel and closed at the top by a header
+ * plank (BAR_RACK_H.cap) so that no bottle, however tall, ever pokes out above the posts — and fronted, between the
+ * two shelf planks, by a glass mirror strip. The bar's panel and top, its shelf planks and header, its bottles, its
+ * lime bowl and its glasses' own bowls, and a stool's seat all cast a shadow; its shelf posts, its back panel and
+ * mirror, its glasses' own feet and a stool's leg are too thin to be worth it, like the espresso machine's tray,
+ * gauges, portafilters and steam wand, and the table's legs, rim, rods and players; the counter cabinet, the
+ * machine's own body and the table's cabinet each cast one.
+ */
+function buildBreakArea(parent: Group, rect: GridRect, furniture: Furniture, geo: Geometries, mats: Materials): void {
+  const s = mats.surface;
+  const add = (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => furniture.add(ON_FLOOR, geometry, material, x, y, z, opts);
+  const group = new Group();
+  group.name = 'break-area';
+  parent.add(group);
+  const c = rectCenter(rect);
+  part(group, geo.plane(rect.w - 0.4, rect.h - 0.4), s.rug, c.x, 0.004, c.z, { rx: -Math.PI / 2, cast: false });
+
+  // The bar. Its counter stands toward the customer side (south), its back-bar shelf behind it (north): the two read
+  // apart, counter in front, bottles racked behind, the way a real bancone does.
+  const cart = barCartCenter(rect);
+  const shelfZ = cart.z - BAR_SHELF_OUT;
+  const counterZ = cart.z + BAR_COUNTER_OUT;
+
+  // The back-bar: two uprights and two shelf planks, in the counter's own wood tone (not the old frame grey), backed
+  // by a solid wood panel and closed off at the top by a header plank — a proper bancone, not a cold lab rack. The
+  // posts stand tall enough (BAR_RACK_H.post) that even the top shelf's own tallest bottle clears the header with
+  // room to spare, so nothing pokes out above the rack like a flagpole; a glass mirror strip fills the gap between
+  // the two shelf planks. Its bottles stand a few shapes, heights and colours to a shelf — one, tall and green,
+  // unmistakably gin.
+  const rackTop = BAR_RACK_H.post + BAR_RACK_H.cap;
+  add(geo.rbox(BAR_SHELF.w + 0.1, rackTop, 0.04, 0.01), s.cart, cart.x, rackTop / 2, shelfZ - BAR_SHELF.d / 2 - 0.02, { cast: false }); // the solid back panel.
+  for (const side of [-1, 1]) add(geo.box(0.05, BAR_RACK_H.post, 0.05), s.cart, cart.x + side * (BAR_SHELF.w / 2 - 0.05), BAR_RACK_H.post / 2, shelfZ, { cast: false });
+  for (const y of [1.15, 1.55]) add(geo.rbox(BAR_SHELF.w, 0.045, BAR_SHELF.d, 0.015), s.cart, cart.x, y, shelfZ);
+  add(geo.rbox(BAR_SHELF.w, BAR_RACK_H.cap, BAR_SHELF.d, 0.015), s.cart, cart.x, BAR_RACK_H.post + BAR_RACK_H.cap / 2, shelfZ); // the header, closing the rack's top.
+  add(geo.plane(BAR_SHELF.w - 0.1, 0.355), s.mirror, cart.x, 1.35, shelfZ - BAR_SHELF.d / 2 + 0.005, { cast: false }); // the mirror strip, between the two shelf planks.
+  const tall = geo.rod(0.032, 0.038, 0.34, 10);
+  const medium = geo.rod(0.044, 0.05, 0.24, 10);
+  const short = geo.rod(0.05, 0.055, 0.17, 10);
+  const shelfDz = shelfZ - 0.02;
+  add(tall, s.plant, cart.x - 0.7, 1.34, shelfDz); // the gin: the shelf's only green bottle.
+  add(tall, s.bottle, cart.x - 0.3, 1.34, shelfDz);
+  add(medium, s.frame, cart.x + 0.1, 1.29, shelfDz);
+  add(medium, s.frame, cart.x + 0.4, 1.29, shelfDz);
+  add(short, s.monitor, cart.x + 0.7, 1.255, shelfDz);
+  add(medium, s.leg, cart.x - 0.3, 1.6925, shelfDz);
+  add(tall, s.bottle, cart.x + 0.2, 1.7425, shelfDz);
+
+  // The counter: a solid front panel, and a top that overhangs it a little on every side, a bancone's lip. A gin
+  // bottle (the shelf's own green, reused) and a bowl of limes stand on one half, a couple of glasses on the other.
+  const counterTop = 0.85; // the top panel's own top surface (0.815 + 0.07 / 2), where everything on the counter stands.
+  add(geo.rbox(BAR_COUNTER.w, 0.78, BAR_COUNTER.d, 0.03), s.cart, cart.x, 0.39, counterZ);
+  add(geo.rbox(BAR_COUNTER.w + 0.14, 0.07, BAR_COUNTER.d + 0.12, 0.02), s.cart, cart.x, 0.815, counterZ);
+  add(tall, s.plant, cart.x - 0.6, 1.02, counterZ - 0.05);
+  // The lime bowl: a light ceramic dome with a rim, not the old grey puck, with a few bright green limes piled in it.
+  add(geo.ball(0.1), s.bowl, cart.x - 0.2, counterTop + 0.042, counterZ, { scale: [1, 0.42, 1] });
+  add(geo.ring(0.075, 0.1), s.bowl, cart.x - 0.2, counterTop + 0.084, counterZ, { rx: -Math.PI / 2, cast: false });
+  for (const [dx, dz] of [[-0.05, -0.03], [0.03, -0.02], [-0.02, 0.04], [0.05, 0.02]] as const) {
+    add(geo.ball(0.038), s.plant, cart.x - 0.2 + dx, counterTop + 0.1, counterZ + dz, { cast: false });
+  }
+  // The two glasses: a foot tapering into a stem, under a bowl that swells to a belly and pinches back to a rim —
+  // a balloon glass, the gin tonic's own style (robot.ts), standing empty on the counter.
+  const glassBase = geo.rod(0.013, 0.035, 0.045, 10);
+  const glassBelly = geo.rod(0.07, 0.013, 0.05, 10);
+  const glassRim = geo.rod(0.04, 0.07, 0.045, 10);
+  for (const dx of [0.3, 0.5]) {
+    add(glassBase, s.glass, cart.x + dx, counterTop + 0.0225, counterZ + 0.05, { cast: false });
+    add(glassBelly, s.glass, cart.x + dx, counterTop + 0.07, counterZ + 0.05);
+    add(glassRim, s.glass, cart.x + dx, counterTop + 0.1175, counterZ + 0.05);
+  }
+
+  // A stool either side of the counter, on the customer's own side: a round seat on a single thin leg.
+  for (const dx of [-BAR_STOOL_DX, BAR_STOOL_DX]) {
+    add(geo.rod(0.17, 0.17, 0.05, 12), s.key, cart.x + dx, 0.47, cart.z + BAR_STOOL_OUT);
+    add(geo.rod(0.035, 0.035, 0.44, 8), s.leg, cart.x + dx, 0.22, cart.z + BAR_STOOL_OUT, { cast: false });
+  }
+
+  // The coffee machine: Italy's own "macchinetta" — the office's espresso bar, not a fridge. A short wood counter,
+  // the bar's own tone (s.cart), topped at COFFEE_COUNTER_H; on it a two-group espresso machine, wider than tall, in
+  // a polished chrome body, with a cup-warmer tray of its own cups on top, a group head and a dark portafilter handle
+  // either side at the front, a drip tray under them, a steam wand to one side and an amber ready light; a grinder
+  // and its bean hopper stand beside it, and a stack of cups and a sugar jar on the counter's other side.
+  const coffee = coffeeMachineCenter(rect);
+  const counterCabinetH = COFFEE_COUNTER_H - 0.06;
+  add(geo.rbox(COFFEE_MACHINE.w, counterCabinetH, COFFEE_MACHINE.d, 0.03), s.cart, coffee.x, counterCabinetH / 2, coffee.z);
+  add(geo.rbox(COFFEE_MACHINE.w + 0.08, 0.05, COFFEE_MACHINE.d + 0.08, 0.02), s.cart, coffee.x, COFFEE_COUNTER_H - 0.025, coffee.z, { cast: false });
+
+  // The machine's own body, a short way back from the counter's front edge so the portafilters and the drip tray
+  // still stand clear of it: wider than it is tall, the strongest single cue (with the group heads) that this is an
+  // espresso machine and not a fridge standing on end.
+  const MACHINE = { w: 0.56, d: 0.3, h: 0.24 } as const;
+  const machineZ = coffee.z - 0.04;
+  const bodyTop = COFFEE_COUNTER_H + MACHINE.h;
+  add(geo.rbox(MACHINE.w, MACHINE.h, MACHINE.d, 0.02), s.chrome, coffee.x, COFFEE_COUNTER_H + MACHINE.h / 2, machineZ);
+  // The cup-warmer tray on top, a few espresso cups standing upside down on it — staggered a little front-to-back
+  // (not lined up on one `z`), so from the side (az close to the counter's own long axis) they still read as three
+  // separate cups instead of stacking into one silhouette.
+  add(geo.rbox(MACHINE.w - 0.06, 0.012, MACHINE.d - 0.04, 0.004), s.chrome, coffee.x, bodyTop + 0.006, machineZ, { cast: false });
+  for (const [dx, dz] of [[-0.14, 0], [0, 0.045], [0.14, 0]] as const) add(geo.rod(0.02, 0.027, 0.035), s.paper, coffee.x + dx, bodyTop + 0.0295, machineZ + dz, { cast: false });
+  // Two round gauges and, between them, the amber ready light.
+  for (const dx of [-0.16, 0.16]) {
+    add(geo.rod(0.035, 0.035, 0.012, 16), s.frame, coffee.x + dx, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2, { rx: Math.PI / 2, cast: false });
+    add(geo.circle(0.026), s.paper, coffee.x + dx, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2 + 0.007, { rx: Math.PI / 2, cast: false });
+  }
+  add(geo.ball(0.014), s.coffeeLight, coffee.x, COFFEE_COUNTER_H + MACHINE.h - 0.06, machineZ + MACHINE.d / 2 + 0.01, { cast: false });
+
+  // The two group heads, low on the machine's front face, each with a dark portafilter handle reaching out toward
+  // the customer, and the drip tray along the base between them.
+  const frontZ = machineZ + MACHINE.d / 2;
+  const headY = COFFEE_COUNTER_H + 0.1;
+  for (const dx of [-0.13, 0.13]) {
+    add(geo.rod(0.028, 0.028, 0.05, 12), s.frame, coffee.x + dx, headY, frontZ + 0.02, { rx: Math.PI / 2 });
+    add(geo.rod(0.017, 0.017, 0.16, 10), s.leg, coffee.x + dx, headY - 0.015, frontZ + 0.125, { rx: Math.PI / 2, cast: false });
+    add(geo.ball(0.028), s.leg, coffee.x + dx, headY - 0.015, frontZ + 0.205, { cast: false });
+  }
+  add(geo.rbox(MACHINE.w - 0.08, 0.02, 0.1, 0.006), s.leg, coffee.x, COFFEE_COUNTER_H + 0.01, frontZ + 0.03, { cast: false });
+
+  // The steam wand, on the machine's own west side but out at the body's own front-left corner, well clear of it
+  // in both `x` and `z` (not flush against the side face, where a thin wand sat nearly in the body's own
+  // silhouette from most angles and so stayed barely legible at any of them) — so it reads as its own open shape
+  // against the counter from the front and from the side alike, thick enough, with its own tip nozzle, to read at
+  // the camera's usual distance, and the darker handle token rather than the lighter frame one, for contrast.
+  const wandX = coffee.x - MACHINE.w / 2 - 0.1;
+  const wandZ = frontZ + 0.06;
+  add(geo.rod(0.02, 0.02, 0.22, 8), s.leg, wandX, headY + 0.02, wandZ, { rx: Math.PI / 2 - 0.5, ry: -0.3, cast: false });
+  add(geo.ball(0.024), s.leg, wandX - 0.07, headY - 0.07, wandZ + 0.06, { cast: false });
+
+  // The grinder, its hopper tapering down into the burrs, on the counter beside the machine; a stack of cups and a
+  // sugar jar across on the other side.
+  const grinderX = coffee.x - MACHINE.w / 2 - 0.18;
+  const grinderZ = coffee.z + 0.06;
+  add(geo.rod(0.065, 0.075, 0.22, 14), s.chrome, grinderX, COFFEE_COUNTER_H + 0.11, grinderZ, { cast: false });
+  // The hopper, its beans the bar's own bottle tone, so it reads apart from the grinder's own chrome body.
+  add(geo.rod(0.08, 0.026, 0.16, 14), s.bottle, grinderX, COFFEE_COUNTER_H + 0.3, grinderZ, { cast: false });
+  const cupStack = { x: coffee.x + MACHINE.w / 2 + 0.2 } as const;
+  for (let i = 0; i < 3; i++) add(geo.rod(0.045, 0.05, 0.04), s.paper, cupStack.x, COFFEE_COUNTER_H + 0.02 + i * 0.04, coffee.z, { cast: false });
+  add(geo.rod(0.04, 0.04, 0.06, 12), s.bowl, cupStack.x, COFFEE_COUNTER_H + 0.03, coffee.z + 0.16);
+  add(geo.rod(0.028, 0.028, 0.015, 12), s.frame, cupStack.x, COFFEE_COUNTER_H + 0.0675, coffee.z + 0.16, { cast: false });
+
+  buildFoosball(foosballCenter(rect), add, geo, mats);
+}
+
+/** The two teams' player counts, rod by rod from west to east: keeper, defence, midfield, attack, mirrored. */
+const FOOSBALL_FORMATION = [1, 2, 5, 3, 3, 5, 2, 1] as const;
+/** How far below FOOSBALL_ROD_Y a cabinet's legs stand, and how tall the box cabinet is above them: the field
+ * (the box's top face) ends up at LEG_H + CABINET_H, a little under the rod — the rod runs through the raised
+ * rim just above the field, where the real rod of a real table does, not buried in the body of the cabinet. */
+const FOOSBALL_LEG_H = 0.12;
+const FOOSBALL_CABINET_H = 0.44;
+/** The field's height: the box cabinet's own top face. */
+const FOOSBALL_FIELD_Y = FOOSBALL_LEG_H + FOOSBALL_CABINET_H;
+/** The raised rim around the field: its height above the field, and its thickness. */
+const FOOSBALL_RIM_H = 0.11;
+const FOOSBALL_RIM_T = 0.035;
+/** The gap left open in the rim at each short end: the goal. */
+const FOOSBALL_GOAL_W = 0.3;
+
+/** `n` player spots evenly spread across a rod, inside the rim's inner edge; one sits at the rod's own centre. */
+function foosballPlayerSpots(n: number): number[] {
+  if (n === 1) return [0];
+  const span = 0.64;
+  return Array.from({ length: n }, (_, k) => -span / 2 + (k * span) / (n - 1));
+}
+
+/**
+ * The biliardino table, centred on `c`: a box cabinet on four short legs with a cross-bar either long side, a
+ * green field marked in white (a centre line and circle, and a line either end, like a 5-a-side pitch's boxes)
+ * inside a low rim, a dark goal mouth at each short end, 8 rods through the rim's long sides — one straight rod
+ * each, so a rod, its players and its handle (poking out for a robot to hold, robot.ts's biliardino pose) all
+ * stand at the same height, FOOSBALL_ROD_Y — carrying the classic 1-2-5-3 formation per team, mirrored and in
+ * two colours (s.foosballA, s.foosballB), and a ball at the centre spot. Every part but the cabinet is too thin
+ * to be worth a shadow.
+ */
+function buildFoosball(c: Point, add: (geometry: BufferGeometry, material: Material, x: number, y: number, z: number, opts?: PieceOptions) => Piece, geo: Geometries, mats: Materials): void {
+  const s = mats.surface;
+  const thin = { cast: false };
+  const { w, d } = FOOSBALL;
+  const legH = FOOSBALL_LEG_H;
+  const fieldY = FOOSBALL_FIELD_Y;
+  const rimH = FOOSBALL_RIM_H;
+  const rimT = FOOSBALL_RIM_T;
+  const goalW = FOOSBALL_GOAL_W;
+
+  // The box cabinet, on four short legs with a cross-bar either long side.
+  add(geo.rbox(w, FOOSBALL_CABINET_H, d, 0.02), s.leg, c.x, legH + FOOSBALL_CABINET_H / 2, c.z);
+  for (const lx of [-1, 1]) {
+    for (const lz of [-1, 1]) add(geo.box(0.05, legH, 0.05), s.leg, c.x + lx * (w / 2 - 0.08), legH / 2, c.z + lz * (d / 2 - 0.08), thin);
+  }
+  for (const lz of [-1, 1]) add(geo.box(w - 0.2, 0.03, 0.03), s.leg, c.x, legH / 2, c.z + lz * (d / 2 - 0.08), thin);
+
+  // The green field, its white lines (a centre line, two box lines and the centre circle) and the ball.
+  add(geo.box(w - 0.1, 0.004, d - 0.1), s.plant, c.x, fieldY + 0.002, c.z, thin);
+  const lineLen = d - 0.2;
+  for (const dx of [0, -0.5, 0.5]) add(geo.box(0.025, 0.004, lineLen), s.paper, c.x + dx, fieldY + 0.004, c.z, thin);
+  add(geo.ring(0.03, 0.05), s.paper, c.x, fieldY + 0.004, c.z, { rx: -Math.PI / 2, cast: false });
+  add(geo.ball(0.035), s.paper, c.x, fieldY + 0.04, c.z, thin);
+
+  // The raised rim, open a goal's width at each short end, and the dark goal mouth behind each opening.
+  for (const lz of [-1, 1]) add(geo.box(w, rimH, rimT), s.leg, c.x, fieldY + rimH / 2, c.z + lz * (d / 2 - rimT / 2), thin);
+  const endSeg = (d - goalW) / 2;
+  for (const lx of [-1, 1]) {
+    for (const lz of [-1, 1]) add(geo.box(rimT, rimH, endSeg), s.leg, c.x + lx * (w / 2 - rimT / 2), fieldY + rimH / 2, c.z + lz * (goalW / 2 + endSeg / 2), thin);
+    add(geo.box(0.01, rimH, goalW - 0.04), s.monitor, c.x + lx * (w / 2 - 0.005), fieldY + rimH / 2, c.z, thin);
+  }
+
+  // The 8 rods, their handles and their players, west to east: FOOSBALL_FORMATION's counts, the west half in
+  // s.foosballA, the east half, mirrored, in s.foosballB.
+  const rodLen = d + 2 * FOOSBALL_ROD_OUT;
+  const span = w - 0.3;
+  FOOSBALL_FORMATION.forEach((n, i) => {
+    const x = c.x + (i + 0.5 - FOOSBALL_FORMATION.length / 2) * (span / FOOSBALL_FORMATION.length);
+    add(geo.rod(0.014, 0.014, rodLen, 8), s.frame, x, FOOSBALL_ROD_Y, c.z, { rx: Math.PI / 2, cast: false });
+    for (const lz of [-1, 1]) add(geo.rod(0.024, 0.024, 0.09, 8), s.leg, x, FOOSBALL_ROD_Y, c.z + lz * (d / 2 + FOOSBALL_ROD_OUT - FOOSBALL_HANDLE_IN), { rx: Math.PI / 2, cast: false });
+    const team = i < FOOSBALL_FORMATION.length / 2 ? s.foosballA : s.foosballB;
+    for (const pz of foosballPlayerSpots(n)) {
+      add(geo.box(0.05, 0.05, 0.022), team, x, FOOSBALL_ROD_Y - 0.03, c.z + pz, thin);
+      add(geo.ball(0.018), team, x, FOOSBALL_ROD_Y + 0.02, c.z + pz, thin);
+    }
+  });
 }
 
 export interface DeskObject {

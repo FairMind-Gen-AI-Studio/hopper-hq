@@ -64,6 +64,39 @@ export function toolLabel(tool: string, input: unknown, cwd?: string): string {
   }
 }
 
+const SMOKE_RUNNER_PKG = /\b(npm|pnpm|yarn|npx|bun)\b/;
+const SMOKE_RUNNER_VERB = /\b(run|test)\b/;
+const SMOKE_RUNNER_TOOL = /\b(playwright|vitest|jest|cypress)\b/;
+const SMOKE_WORD = /\bsmoke\b/;
+const SMOKE_FILE = /[\w./-]*smoke[\w./-]*\.(spec|test)\.[tj]sx?/;
+const SMOKE_PATH_SEGMENT = /(^|[\s/])smoke([\s/]|$)/;
+const SMOKE_NPM_SCRIPT = /\b(test|run)[:\s-]*smoke\b/;
+
+/** A Bash command invokes a test runner: a package-manager runner with run/test, or a test-runner binary. */
+function isTestRunnerInvocation(command: string): boolean {
+  return (SMOKE_RUNNER_PKG.test(command) && SMOKE_RUNNER_VERB.test(command)) || SMOKE_RUNNER_TOOL.test(command);
+}
+
+function isSmokeBash(input: unknown): boolean {
+  const command = str(asRecord(input).command).split('\n')[0]?.toLowerCase() ?? '';
+  if (!command) return false;
+  const runner = isTestRunnerInvocation(command);
+  if (runner && SMOKE_WORD.test(command)) return true;
+  if (SMOKE_FILE.test(command)) return true;
+  if (runner && SMOKE_PATH_SEGMENT.test(command)) return true;
+  return SMOKE_NPM_SCRIPT.test(command);
+}
+
+/** Whether the tool call a session/sub-agent made runs a smoke test. Pure; no I/O, no Date. */
+export function isSmokeTest(tool: string, input: unknown): boolean {
+  if (tool === 'Bash') return isSmokeBash(input);
+  if (tool === 'Skill') return /smoke/i.test(str(asRecord(input).skill));
+  if (tool.startsWith('mcp__playwright__')) {
+    return Object.values(asRecord(input)).some((v) => typeof v === 'string' && SMOKE_FILE.test(v.toLowerCase()));
+  }
+  return false;
+}
+
 /** Tools whose call means the session now waits for the user. */
 export function waitingFromTool(tool: string, input: unknown): WaitReason | null {
   if (tool === 'AskUserQuestion') {

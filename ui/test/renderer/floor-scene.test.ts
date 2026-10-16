@@ -1,24 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Color, Matrix4, Mesh, OrthographicCamera, Vector2, Vector3, type BufferGeometry, type Material, type MeshStandardMaterial } from 'three';
 import { MAX_ZOOM, QUARTER } from '../../renderer/camera';
+import { FAIRMIND_BADGE_NAME } from '../../renderer/fairmind-badge';
 import { CONTACT_R, CONTACT_Y, FloorScene, HOVER_BLEND_MS, layoutSignature } from '../../renderer/floor-scene';
 import type { Piece } from '../../renderer/furniture';
 import { BURST_GAP_MS, DOOR_HOLD_MS, DOOR_MS, FLY_SPEED, WALK_SPEED, startTrip, tripAt, tripEnd, type Trip } from '../../renderer/motion';
 import { DESK_OFF, Materials, SCREEN_GLASS } from '../../renderer/materials';
 import { pickTarget } from '../../renderer/pick';
 import { DOOR_PANEL, DOOR_SLIDE, Geometries, NAMEPLATE } from '../../renderer/props';
-import { HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
+import { BILIARDINO_REACH, FOOSBALL_HOVER_Y, HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
 import type { Intern, Robot } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
 import {
+  COFFEE_COUNTER_H,
+  COFFEE_MACHINE,
   HOME_AZIMUTH,
   LABEL_Y,
   POLAR,
+  barCartSpots,
   cameraOffset,
+  coffeeMachineCenter,
+  coffeeMachineSpots,
   deskAnchor,
   elevatorSpot,
+  foosballSpots,
   frustumFor,
   headSpot,
   internSpots,
@@ -32,7 +39,7 @@ import {
   tableCenter,
   type Point,
 } from '../../renderer/world';
-import { checkoutFloor, checkoutSpecs, checkoutRooms, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec, type DeskSpec } from './fixtures';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, leisureAgent, leisureIntern, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec, type DeskSpec } from './fixtures';
 
 /** The checkout floor after a change: sw-a1 needs you, sw-c3 left and sw-x9 sat down at its desk. */
 function changedCheckouts(): CheckoutSpec[] {
@@ -57,6 +64,8 @@ const roomTarget = (id: string): Target => ({ kind: 'room', id });
 /** Where a robot stands and the way it faces, as a spot lists them. */
 const at = (o: { group: { position: { x: number; z: number }; rotation: { y: number } } }) => [o.group.position.x, o.group.position.z, o.group.rotation.y];
 const spot = (s: { x: number; z: number; facing: number }) => [s.x, s.z, s.facing];
+/** A stand spot, leaned `reach` m toward what it faces: where poseRobot puts a robot at the biliardino pose. */
+const leanIn = (s: { x: number; z: number; facing: number }, reach: number) => ({ x: s.x + reach * Math.sin(s.facing), z: s.z + reach * Math.cos(s.facing), facing: s.facing });
 /** Where a piece of furniture stands in the world. */
 const matrixOf = (piece: Piece) => new Matrix4().multiplyMatrices(piece.mesh!.matrixWorld, piece.mesh!.getMatrixAt(piece.index, new Matrix4()));
 /** A colour's channels, to the millionth: instanced meshes keep colours in 32-bit floats. */
@@ -204,6 +213,23 @@ describe('the floor scene', () => {
     expect(next.group.parent).toBeNull();
     fs.apply(checkoutFloor());
     expect(fs.sessions.get('sw-a1')!.robot!.group.parent).toBe(fs.scene);
+  });
+
+  it("lights a session's own cigar from its own smoking flag, in any pose, and toggles it without rebuilding its robot", () => {
+    const floor = checkoutFloor();
+    const occupant = seatOf(floor, 'sw-a1').occupant;
+    occupant.smoking = true;
+    const fs = sceneOf(floor);
+    const robot = fs.sessions.get('sw-a1')!.robot!;
+    expect(robot.rig.cigar.visible).toBe(true);
+    // ps-d4 (in a meeting, so resting its badge differently) never asked to smoke: no cigar.
+    expect(fs.sessions.get('ps-d4')!.robot!.rig.cigar.visible).toBe(false);
+    // Smoking stops; the same robot just hides its cigar, it is not rebuilt.
+    const off = checkoutFloor();
+    seatOf(off, 'sw-a1').occupant.smoking = false;
+    fs.apply(off);
+    expect(fs.sessions.get('sw-a1')!.robot).toBe(robot);
+    expect(robot.rig.cigar.visible).toBe(false);
   });
 
   it('keeps one robot per session wherever its occupant is: at its desk, resting in the lounge, at the head of its room', () => {
@@ -422,6 +448,16 @@ describe('meeting rooms in the floor scene', () => {
     expect(fs.scene.getObjectByName('agent wf_0000aaaa-002-a8')).toBeUndefined();
   });
 
+  it("lights a room agent's own cigar from its own smoking flag, independently of its table-mates", () => {
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, smoking: true } : a));
+    const fs = sceneOf(floor);
+    const first = entryOf(fs, 0);
+    const agents = [...first.agents.values()];
+    expect(agents[0]!.rig.cigar.visible).toBe(true);
+    expect(agents.slice(1).every((a) => !a.rig.cigar.visible)).toBe(true);
+  });
+
   it('opens a laptop before each agent at the table and before the host at the head, and none before a session at its desk', () => {
     const fs = sceneOf(roomFloor());
     const first = entryOf(fs, 0);
@@ -550,7 +586,7 @@ describe('meeting rooms in the floor scene', () => {
 
   it('takes away the interns of a session that leaves, also when two of them share an id', () => {
     const checkouts = checkoutSpecs();
-    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false })) };
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null })) };
     const fs = sceneOf(makeFloor(checkouts));
     for (let i = 0; i < 5; i++) fs.apply(makeFloor(checkouts));
     const interns = () => fs.scene.children.filter((o) => o.name.startsWith('intern ')).length;
@@ -575,7 +611,7 @@ describe('meeting rooms in the floor scene', () => {
 });
 
 describe('interns', () => {
-  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false });
+  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false, smoking: false, leisure: null });
   /** The checkout floor with these interns at sw-a1's desk, sw-a1 in this state, and on this lounge seat if given. */
   const withInterns = (interns: Intern[], state: CheckoutSpec['desks'][number]['state'] = 'working', lounge?: number) => {
     const checkouts = checkoutSpecs();
@@ -595,6 +631,14 @@ describe('interns', () => {
     });
     expect(fs.scene.getObjectByName('intern i3')).toBe(entry.interns.get('i3')!.group);
     expect(fs.sessions.get('sw-b2')!.interns.size).toBe(0);
+  });
+
+  it('lights each intern\'s own cigar from its own smoking flag, independently of its siblings and of its session', () => {
+    const fs = sceneOf(withInterns([{ ...intern('i1'), smoking: true }, intern('i2')]));
+    const entry = fs.sessions.get('sw-a1')!;
+    expect(entry.interns.get('i1')!.rig.cigar.visible).toBe(true);
+    expect(entry.interns.get('i2')!.rig.cigar.visible).toBe(false);
+    expect(entry.robot!.rig.cigar.visible).toBe(false);
   });
 
   it('leaves no intern flying over the desk for a subagent that sits in its session\'s room', () => {
@@ -675,6 +719,194 @@ describe('interns', () => {
     expect(at(entry.robot!)).not.toEqual(spot(seatSpot(entry.desk!)));
     fs.apply(withInterns([intern('i1')], 'dormant'));
     expect(entry.interns.size).toBe(0);
+  });
+});
+
+describe('the Fairmind badge', () => {
+  /** The checkout floor with these interns at sw-a1's desk. */
+  const withInterns = (interns: Intern[]) => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, state: 'working', interns };
+    return makeFloor(checkouts);
+  };
+  const badgeOf = (robot: RobotObject) => robot.group.getObjectByName(FAIRMIND_BADGE_NAME)!;
+
+  it('shows the badge over an intern spawned from a Fairmind plugin, and hides it for one spawned from anywhere else', () => {
+    const fairmind: Intern = { agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null };
+    const other: Intern = { agentId: 'i2', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null };
+    const fs = sceneOf(withInterns([fairmind, other]));
+    const entry = fs.sessions.get('sw-a1')!;
+    expect(badgeOf(entry.interns.get('i1')!).visible).toBe(true);
+    expect(badgeOf(entry.interns.get('i2')!).visible).toBe(false);
+  });
+
+  it("never shows a badge over a session's own robot: a session carries no agent type", () => {
+    const fs = sceneOf(checkoutFloor());
+    expect(fs.sessions.get('sw-a1')!.robot!.group.getObjectByName(FAIRMIND_BADGE_NAME)).toBeUndefined();
+  });
+
+  it('shows the badge over a room agent spawned from a Fairmind plugin, and hides it for one spawned from anywhere else', () => {
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, type: 'fairmind-coding:Software Engineer' } : a));
+    const fs = sceneOf(floor);
+    const agents = [...fs.rooms.get(roomKey(floor.rooms[0]!))!.agents.values()];
+    expect(badgeOf(agents[0]!).visible).toBe(true);
+    expect(agents.slice(1).every((a) => !badgeOf(a).visible)).toBe(true);
+  });
+
+  it('casts no shadow, over an intern or a room agent', () => {
+    const fs = sceneOf(withInterns([{ agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null }]));
+    const internBadge = badgeOf(fs.sessions.get('sw-a1')!.interns.get('i1')!);
+    expect(internBadge.children.every((m) => (m as Mesh).castShadow === false)).toBe(true);
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, type: 'fairmind-coding:Software Engineer' } : a));
+    const roomFs = sceneOf(floor);
+    const agentBadge = badgeOf([...roomFs.rooms.get(roomKey(floor.rooms[0]!))!.agents.values()][0]!);
+    expect(agentBadge.children.every((m) => (m as Mesh).castShadow === false)).toBe(true);
+  });
+});
+
+describe('leisure', () => {
+  /** The checkout floor with these interns at sw-a1's desk. */
+  const withLeisure = (interns: Intern[]) => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns };
+    return makeFloor(checkouts);
+  };
+
+  it('flies a gintonic intern to a bar cart spot, holding its drink, in its pose', () => {
+    const floor = withLeisure([leisureIntern('g1', 'gintonic')]);
+    const fs = sceneOf(floor);
+    const bot = fs.sessions.get('sw-a1')!.interns.get('g1')!;
+    expect(at(bot)).toEqual(spot(barCartSpots(floor.breakArea)[0]!));
+    expect([bot.kind, bot.rig.drink.visible, bot.rig.cup.visible]).toEqual(['intern', true, false]);
+  });
+
+  it('flies a biliardino pair to the foosball table, leaning in from its own spot toward the handles, facing each other across it, holding no prop', () => {
+    const floor = withLeisure([leisureIntern('f1', 'biliardino'), leisureIntern('f2', 'biliardino')]);
+    const fs = sceneOf(floor);
+    const entry = fs.sessions.get('sw-a1')!;
+    const spots = foosballSpots(floor.breakArea);
+    // An intern's reach falls shortest of its handle (BILIARDINO_REACH), so it stands this far in from its own spot.
+    expect(at(entry.interns.get('f1')!)).toEqual(spot(leanIn(spots[0]!, BILIARDINO_REACH.intern)));
+    expect(at(entry.interns.get('f2')!)).toEqual(spot(leanIn(spots[1]!, BILIARDINO_REACH.intern)));
+    expect(spots[0]!.facing).not.toBe(spots[1]!.facing);
+    for (const id of ['f1', 'f2']) {
+      const bot = entry.interns.get(id)!;
+      expect([bot.rig.drink.visible, bot.rig.cup.visible]).toEqual([false, false]);
+    }
+  });
+
+  it("flies a coffee intern to the coffee machine's one spot, holding its cup", () => {
+    const floor = withLeisure([leisureIntern('c1', 'coffee')]);
+    const fs = sceneOf(floor);
+    const bot = fs.sessions.get('sw-a1')!.interns.get('c1')!;
+    expect(at(bot)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+    expect([bot.rig.drink.visible, bot.rig.cup.visible]).toEqual([false, true]);
+  });
+
+  it('stands the coffee intern in front of the machine, on the counter\'s own customer side, clear of its box — not astride it', () => {
+    const floor = withLeisure([leisureIntern('c1', 'coffee')]);
+    const fs = sceneOf(floor);
+    const bot = fs.sessions.get('sw-a1')!.interns.get('c1')!;
+    const rect = floor.breakArea;
+    const c = coffeeMachineCenter(rect);
+    const counter = { minX: c.x - COFFEE_MACHINE.w / 2, maxX: c.x + COFFEE_MACHINE.w / 2, minZ: c.z - COFFEE_MACHINE.d / 2, maxZ: c.z + COFFEE_MACHINE.d / 2 };
+    // Its stand spot (world.ts) lies south of the counter's own footprint, the customer side, clear of it in z —
+    // never inside it, the mistake that once put the intern on top of the machine instead of in front of it.
+    const [x, z] = at(bot);
+    expect(z).toBeGreaterThan(counter.maxZ);
+    expect(x).toBeGreaterThan(counter.minX);
+    expect(x).toBeLessThan(counter.maxX);
+    // Its own body (every mesh of its rig, not the contact disc or badge) never dips below the floor — it floats,
+    // having no legs, but never through it — and never intersects the counter's own box, floor to its own top
+    // (COFFEE_COUNTER_H): the mistake a hover meant for a desk's own height (HOVER_Y) made before robot.ts gave the
+    // coffee pose its own low hover (COFFEE_HOVER_Y), the same way FOOSBALL_HOVER_Y does at the table.
+    const box = new Box3().setFromObject(bot.group);
+    expect(box.min.y).toBeGreaterThan(0);
+    const counterBox = new Box3(new Vector3(counter.minX, 0, counter.minZ), new Vector3(counter.maxX, COFFEE_COUNTER_H, counter.maxZ));
+    expect(box.intersectsBox(counterBox)).toBe(false);
+  });
+
+  it('walks a room agent that waits for its siblings out to the break area, and still lets it pick its room there', () => {
+    const floor = roomFloor();
+    const key = roomKey({ hostSessionId: 'ps-d4', runId: 'wf_0000aaaa-001' });
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [...floor.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    const fs = sceneOf(floor);
+    const entry = fs.rooms.get(key)!;
+    const bot = entry.agents.get('wf_0000aaaa-001-c0')!;
+    expect(at(bot)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+    expect([bot.kind, bot.rig.cup.visible]).toEqual(['workflow', true]);
+    const picks = new Set(fs.pickables());
+    expect(bot.pickables.every((m) => picks.has(m) && m.userData.pick?.id === 'wf_0000aaaa-001')).toBe(true);
+  });
+
+  it('keeps each leisure robot at the spot it took first, and leaves one beyond the bar cart\'s four spots undrawn until a spot frees', () => {
+    const ids = ['g0', 'g1', 'g2', 'g3', 'g4'];
+    const fs = sceneOf(withLeisure(ids.slice(0, 4).map((id) => leisureIntern(id, 'gintonic'))));
+    const entry = fs.sessions.get('sw-a1')!;
+    const spots = barCartSpots(withLeisure([]).breakArea);
+    const first = ids.slice(0, 4).map((id) => entry.interns.get(id)!);
+    first.forEach((bot, i) => expect(at(bot)).toEqual(spot(spots[i]!)));
+    // A fifth beyond the cart's four spots is not drawn; the first four keep theirs.
+    fs.apply(withLeisure(ids.map((id) => leisureIntern(id, 'gintonic'))));
+    expect([entry.interns.size, entry.interns.has('g4')]).toEqual([4, false]);
+    first.forEach((bot, i) => expect(at(bot)).toEqual(spot(spots[i]!)));
+    // g0 resumes running: its spot frees, and g4 takes it, the lowest free.
+    fs.apply(withLeisure([{ ...leisureIntern('g0', 'gintonic'), running: true, leisure: null }, ...ids.slice(1).map((id) => leisureIntern(id, 'gintonic'))]), 1000);
+    fs.frame(60_000);
+    expect(at(entry.interns.get('g4')!)).toEqual(spot(spots[0]!));
+  });
+
+  it('flies an intern back to its hover spot once its leisure clears and it runs again, re-pathing from the bar cart', () => {
+    const fs = sceneOf(withLeisure([leisureIntern('g1', 'gintonic')]));
+    const entry = fs.sessions.get('sw-a1')!;
+    const bot = entry.interns.get('g1')!;
+    expect(bot.rig.drink.visible).toBe(true);
+    fs.apply(withLeisure([{ ...leisureIntern('g1', 'gintonic'), running: true, leisure: null }]), 1000);
+    expect(entry.interns.get('g1')).toBe(bot);
+    fs.frame(60_000);
+    expect(at(bot)).toEqual(spot(internSpots(entry.desk!)[0]!));
+    expect(bot.rig.drink.visible).toBe(false);
+  });
+
+  it('walks a room agent back from the coffee machine to the table once its leisure clears and it runs again', () => {
+    const floor = roomFloor();
+    const key = roomKey({ hostSessionId: 'ps-d4', runId: 'wf_0000aaaa-001' });
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [...floor.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    const fs = sceneOf(floor);
+    const entry = fs.rooms.get(key)!;
+    const bot = entry.agents.get('wf_0000aaaa-001-c0')!;
+    expect(bot.rig.cup.visible).toBe(true);
+    const back = roomFloor();
+    const orig = back.rooms[0]!.agents;
+    const resumed = { ...leisureAgent('wf_0000aaaa-001-c0', 'coffee'), running: true, leisure: null };
+    // Running agents first, then finished: the resumed one joins their end, as the 4th running.
+    back.rooms[0] = { ...back.rooms[0]!, agents: [...orig.slice(0, 3), resumed, ...orig.slice(3)], counts: { running: 4, finished: 2 } };
+    fs.apply(back, 1000);
+    expect(fs.rooms.get(key)!.agents.get('wf_0000aaaa-001-c0')).toBe(bot);
+    fs.frame(60_000);
+    const seats = seatSpots(back.rooms[0]!.rect);
+    expect(at(bot)).toEqual(spot(seats[3]!));
+    expect(bot.rig.cup.visible).toBe(false);
+  });
+
+  it("shares the coffee machine's one spot across desks and rooms alike: whichever took it first keeps it", () => {
+    const floor = roomFloor();
+    floor.pods[0]!.desks[0]!.occupant = { ...floor.pods[0]!.desks[0]!.occupant!, interns: [leisureIntern('i0', 'coffee')] };
+    floor.rooms[0] = { ...floor.rooms[0]!, agents: [...floor.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    const fs = sceneOf(floor);
+    const intern = fs.sessions.get('sw-a1')!.interns.get('i0')!;
+    const key = roomKey({ hostSessionId: 'ps-d4', runId: 'wf_0000aaaa-001' });
+    expect(fs.rooms.get(key)!.agents.has('wf_0000aaaa-001-c0')).toBe(false);
+    expect(at(intern)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
+    // The intern's turn ends: the room agent, still waiting, now takes the spot it freed.
+    const next = roomFloor();
+    next.pods[0]!.desks[0]!.occupant = { ...next.pods[0]!.desks[0]!.occupant!, interns: [{ ...leisureIntern('i0', 'coffee'), running: true, leisure: null }] };
+    next.rooms[0] = { ...next.rooms[0]!, agents: [...next.rooms[0]!.agents, leisureAgent('wf_0000aaaa-001-c0', 'coffee')] };
+    fs.apply(next, 1000);
+    fs.frame(60_000);
+    expect(at(fs.rooms.get(key)!.agents.get('wf_0000aaaa-001-c0')!)).toEqual(spot(coffeeMachineSpots(floor.breakArea)[0]!));
   });
 });
 
@@ -1130,7 +1362,7 @@ describe('walking', () => {
 
 describe('loops at rest', () => {
   type Look = Pick<Robot, 'pose' | 'badge'>;
-  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false });
+  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null });
   /** The checkout floor with two interns over sw-a1's desk and both rooms open, ps-d4 at the head of the first. */
   function busyFloor() {
     const checkouts = checkoutSpecs();
@@ -1254,6 +1486,38 @@ describe('loops at rest', () => {
     expect(Math.max(...steps)).toBeLessThan(0.004);
     expect([Math.min(...heights), Math.max(...heights)]).toEqual([expect.closeTo(HOVER_Y - LOOPS.hover.bob, 2), expect.closeTo(HOVER_Y + LOOPS.hover.bob, 2)]);
     expect(HOVER_BLEND_MS).toBe(300);
+  });
+
+  it('jiggles a biliardino intern\'s hands at the foosball table while loops are on, from its own phase', () => {
+    const checkouts = checkoutSpecs();
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: [leisureIntern('f1', 'biliardino')] };
+    const floor = makeFloor(checkouts);
+    const fs = sceneOf(floor);
+    fs.loops = true;
+    const robot = fs.sessions.get('sw-a1')!.interns.get('f1')!;
+    const look: Look = { pose: 'biliardino', badge: null };
+    const phase = phaseOf(JSON.stringify(['intern', 'sw-a1', 'f1']));
+    const pose = POSES.biliardino;
+    const atRest = limbs(robot);
+    fs.frame(5250);
+    // It really does run the foosball loop, not hover: its forearms are off the pose's rest values (out of step with
+    // each other, LOOPS.foosball's own shape), and it floats at the table's own low height, FOOSBALL_HOVER_Y, nothing
+    // like its desk's HOVER_Y — this is what the "jiggle" and the "meets the handles" in the test's name actually mean.
+    expect(loopOf(look, 'intern')).toBe('foosball');
+    expect(robot.rig.armL.rotation.x).not.toBeCloseTo(pose.armL[0], 6);
+    expect(robot.rig.armR.rotation.x).not.toBeCloseTo(pose.armR[0], 6);
+    // Out of step with each other: one forearm moves off the pose while the other moves the same amount the other way.
+    expect(robot.rig.armL.rotation.x - pose.armL[0]).toBeCloseTo(-(robot.rig.armR.rotation.x - pose.armR[0]), 6);
+    expect(robot.group.position.y).toBe(FOOSBALL_HOVER_Y);
+    expect(robot.group.position.y).toBeLessThan(HOVER_Y);
+    expect(limbs(robot)).not.toEqual(atRest);
+    // Not `expected()`: that helper re-poses a reference robot from the already-posed one's own position, which at
+    // this one pose already leans BILIARDINO_REACH past its canonical spot (poseRobot) — feeding it back in as a
+    // fresh spot would lean the reference robot in twice. Re-pose from the real, un-leaned stand spot instead.
+    const ref = buildRobot('ref', { ...look, body: 0, tie: null }, new Geometries(), new Materials(dayTheme()), robot.kind);
+    poseRobot(ref, look, foosballSpots(floor.breakArea)[0]!);
+    animateRobot(ref, look, 5.25, phase);
+    expect(limbs(robot)).toEqual(limbs(ref));
   });
 
   it('keeps the tag anchor of a robot at its place from frame to frame, and works it out again with each floor update', () => {

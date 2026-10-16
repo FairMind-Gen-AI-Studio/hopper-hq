@@ -33,6 +33,12 @@ export const POD = { w: 6, h: 6 }, BLOCK = { w: 14, h: 6 };
 export const LOUNGE = { w: 14, h: 4 }, LOUNGE_SEATS = 8;
 /** Room slots per column of the meeting wing, and columns at most: ROOMS_MAX = ROOMS_PER_COL * ROOM_COLS_MAX. */
 export const ROOMS_PER_COL = 2, ROOM_COLS_MAX = 2;
+/**
+ * The break area (a bar cart and a biliardino table, world.ts/props.ts): as wide as a room slot, flush with the room
+ * column's west edge, below its two slots. Fixed regardless of how many blocks or room columns the plan has: the room
+ * column's first slot never moves, and a block's pods never reach east of it, so it never overlaps either.
+ */
+export const BREAK = { w: ROOM.w, h: 3 };
 
 /** How far a floor's plan has grown. */
 export interface PlanSize {
@@ -50,6 +56,8 @@ export interface PlanLayout {
   lounge: GridRect;
   /** By slot: column by column (west first), north to south. */
   rooms: GridRect[];
+  /** The break area: a bar cart and a biliardino table (world.ts spots, props.ts furniture). */
+  breakArea: GridRect;
 }
 
 /** A whole number in 1..max: fractions round down, NaN counts as 1. */
@@ -87,11 +95,13 @@ export function layoutPlan(plan: PlanSize): PlanLayout {
       rooms.push({ x: MARGIN + BLOCK.w + AISLE + c * (ROOM.w + AISLE), y: MARGIN + r * (ROOM.h + PAD), w: ROOM.w, h: ROOM.h });
     }
   }
+  const breakArea: GridRect = { x: MARGIN + BLOCK.w + AISLE, y: MARGIN + ROOMS_PER_COL * ROOM.h + (ROOMS_PER_COL - 1) * PAD, w: BREAK.w, h: BREAK.h };
   return {
     size: { w: MARGIN + BLOCK.w + AISLE + roomCols * ROOM.w + (roomCols - 1) * AISLE + MARGIN, h: lounge.y + LOUNGE.h + MARGIN },
     core: { x: MARGIN, y: MARGIN, w: CORE.w, h: CORE.h },
     pods,
     lounge,
     rooms,
+    breakArea,
   };
 }

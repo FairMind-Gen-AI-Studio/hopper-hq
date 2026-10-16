@@ -255,6 +255,7 @@ function occupantOf(f: FloorSpec, c: CheckoutSpec, d: DeskSpec): Occupant {
     since: d.since,
     reason: d.reason ?? null,
     activity: d.activity ?? null,
+    smoking: false,
     agentsRunning: d.agents ?? 0,
     summary: null,
     interns: [],
@@ -333,6 +334,7 @@ export function makeFloor(key: string): FloorDetail | null {
     pods,
     lounge: { rect: plan.lounge, seats: LOUNGE_SEATS },
     roomSlots: plan.rooms,
+    breakArea: plan.breakArea,
     unseated: [],
     unseatedMore: 0,
   };

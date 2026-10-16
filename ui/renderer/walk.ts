@@ -14,10 +14,12 @@
  */
 import type { FloorDetail, GridRect } from '../../src/scene/types';
 import {
+  BAR_CART,
   BEANBAG_R,
   BEANBAG_SCALE,
   BEANBAG_X,
   CHAIR_Z,
+  COFFEE_MACHINE,
   COFFEE_TABLE,
   COUCH,
   COUCH_ARM,
@@ -25,10 +27,14 @@ import {
   COUCH_Z,
   DESK_CHAIR,
   DESK_TOP,
+  FOOSBALL,
   ROOM_SEAT,
   TABLE,
+  barCartCenter,
+  coffeeMachineCenter,
   deskAnchor,
   doorGap,
+  foosballCenter,
   headSpot,
   plantSpots,
   rectCenter,
@@ -61,10 +67,11 @@ const PLANT_R = 0.3;
 
 /**
  * The floor's walkable cells: blocked are the outer walls, desks (top and monitor), every seat (desk chairs, room seats,
- * couch seats, beanbags), room glass except the door gaps, room tables, the couches with their arms, the coffee table and
- * the core's plants. Doors always count as open. The free cells form one connected area at every plan size.
+ * couch seats, beanbags), room glass except the door gaps, room tables, the couches with their arms, the coffee table,
+ * the break area's bar cart, coffee machine and biliardino table, and the core's plants. Doors always count as open.
+ * The free cells form one connected area at every plan size.
  */
-export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots'>): WalkGrid {
+export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lounge' | 'roomSlots' | 'breakArea'>): WalkGrid {
   const cols = Math.ceil(floor.size.w / WALK_CELL);
   const rows = Math.ceil(floor.size.h / WALK_CELL);
   const blocked = new Uint8Array(cols * rows);
@@ -122,6 +129,14 @@ export function walkGrid(floor: Pick<FloorDetail, 'size' | 'core' | 'pods' | 'lo
     block(lounge.x - half, Math.min(inner, front), lounge.x + half, Math.max(inner, front));
   }
   for (const side of [-1, 1]) round(lounge.x + side * BEANBAG_X, lounge.z, BEANBAG_FOOT);
+
+  // The break area: the bar cart, the coffee machine and the biliardino table, each blocking only its own footprint.
+  const cart = barCartCenter(floor.breakArea);
+  solid(cart.x - BAR_CART.w / 2, cart.z - BAR_CART.d / 2, cart.x + BAR_CART.w / 2, cart.z + BAR_CART.d / 2);
+  const coffee = coffeeMachineCenter(floor.breakArea);
+  solid(coffee.x - COFFEE_MACHINE.w / 2, coffee.z - COFFEE_MACHINE.d / 2, coffee.x + COFFEE_MACHINE.w / 2, coffee.z + COFFEE_MACHINE.d / 2);
+  const table = foosballCenter(floor.breakArea);
+  solid(table.x - FOOSBALL.w / 2, table.z - FOOSBALL.d / 2, table.x + FOOSBALL.w / 2, table.z + FOOSBALL.d / 2);
 
   for (const rect of floor.roomSlots) {
     // The door: the cells of the west glass inside its gap, CLEARANCE in from either post.

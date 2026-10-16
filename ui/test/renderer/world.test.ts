@@ -2,11 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { INTERNS_MAX, LOUNGE_SEATS, SEATS_MAX, layoutPlan } from '../../../src/scene/layout';
 import type { Occupant, Place, PodDesk } from '../../../src/scene/types';
 import {
+  BAR_CART,
+  BAR_COUNTER,
+  BAR_SHELF,
+  BAR_SPOT_DX,
+  BAR_SPOT_OUT,
+  BAR_STOOL_DX,
+  BAR_STOOL_OUT,
   BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
   CAMERA_DISTANCE,
   CHAIR_Z,
+  COFFEE_MACHINE,
+  COFFEE_MACHINE_OUT,
   COUCH,
   COUCH_ARM,
   COUCH_BACK,
@@ -15,6 +24,8 @@ import {
   DESK_TOP,
   DOOR_W,
   ELEVATOR_STEP,
+  FOOSBALL,
+  FOOSBALL_OUT,
   FRAME_MARGIN,
   HOME_AZIMUTH,
   LABEL_Y,
@@ -25,16 +36,23 @@ import {
   ROOM_SEAT,
   TABLE,
   azimuthOf,
+  barCartCenter,
+  barCartSpots,
   boardAnchor,
   cameraOffset,
   cellToWorld,
+  coffeeMachineCenter,
+  coffeeMachineSpots,
   deskAnchor,
   doorGap,
   elevatorSpot,
   floorCenter,
+  foosballCenter,
+  foosballSpots,
   frustumFor,
   headSpot,
   internSpots,
+  isStanding,
   labelAnchor,
   loungeSpots,
   placardAnchor,
@@ -89,6 +107,10 @@ describe('world maths', () => {
     expect([up.facing]).toEqual([Math.PI]);
     expect(up.x).toBeCloseTo(4.6, 10);
     expect(up.z).toBeCloseTo(7.52, 10);
+    // Waving and holding stand up from the chair; typing, dozing and resting sit; every leisure pose stands too, at the
+    // break area, which has no chair.
+    expect((['typing', 'still', 'resting'] as const).map(isStanding)).toEqual([false, false, false]);
+    expect((['waving', 'holding', 'gintonic', 'biliardino', 'coffee'] as const).map(isStanding)).toEqual([true, true, true, true, true]);
     // Every spot stays inside the desk's own cells.
     for (const s of [seat, stand, north, up]) {
       expect(s.x).toBeGreaterThan(RECT.x);
@@ -155,6 +177,67 @@ describe('world maths', () => {
       expect(s.z).toBeLessThan(lounge.y + lounge.h);
       for (const other of spots.slice(i + 1)) expect(dist(s, other)).toBeGreaterThanOrEqual(0.5);
     });
+  });
+
+  it("stands the bar near the break area's west edge, with 4 \"standing with a glass\" spots evenly spaced along the counter's front, each facing north toward it", () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = barCartCenter(rect);
+    const spots = barCartSpots(rect);
+    expect(spots).toHaveLength(4);
+    expect(spots).toEqual(BAR_SPOT_DX.map((dx) => ({ x: c.x + dx, z: c.z + BAR_SPOT_OUT, facing: Math.PI })));
+    // Evenly spaced, west to east.
+    for (let i = 1; i < spots.length; i++) expect(spots[i]!.x - spots[i - 1]!.x).toBeCloseTo(spots[1]!.x - spots[0]!.x);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    // Grown well past the old bar cart's 1.0 x 0.5, wide and deep enough to hold the shelf and the counter together.
+    expect(BAR_CART).toEqual({ w: 2.2, d: 0.9 });
+    // The shelf racks behind the bar's centre, the counter stands in front of it, and a stool stands either side of
+    // the counter, all inside BAR_CART's own footprint or its walk clearance, so neither needs blocking of its own.
+    expect(BAR_SHELF.w).toBeLessThan(BAR_CART.w);
+    expect(BAR_COUNTER.w).toBeLessThan(BAR_CART.w);
+    expect(BAR_SHELF.d + BAR_COUNTER.d).toBeLessThan(BAR_CART.d);
+    expect(BAR_STOOL_OUT).toBeGreaterThan(BAR_CART.d / 2);
+    expect(BAR_STOOL_DX).toBeLessThan(BAR_CART.w / 2);
+    // The spots stand clear of the stools, south of them, between the stools and the break area's own south edge.
+    expect(BAR_SPOT_OUT).toBeGreaterThan(BAR_STOOL_OUT);
+  });
+
+  it("stands the biliardino table near the break area's east edge, with its v1 handle spots, one per side, facing each other across it", () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = foosballCenter(rect);
+    const spots = foosballSpots(rect);
+    expect(spots).toEqual([
+      { x: c.x, z: c.z - FOOSBALL.d / 2 - FOOSBALL_OUT, facing: 0 },
+      { x: c.x, z: c.z + FOOSBALL.d / 2 + FOOSBALL_OUT, facing: Math.PI },
+    ]);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    // Far enough from the cart's ring that walking between them never crosses the other's spots.
+    for (const cart of barCartSpots(rect)) for (const s of spots) expect(dist(cart, s)).toBeGreaterThan(1);
+  });
+
+  it("stands the coffee machine (OQ-3) at the break area's own centre, midway between the cart and the table, with a single stand spot south of it, facing it", () => {
+    const rect = layoutPlan({ blocks: 1, roomCols: 1 }).breakArea;
+    const c = coffeeMachineCenter(rect);
+    expect(c).toEqual({ x: rect.x + rect.w / 2, z: rect.y + rect.h / 2 });
+    const spots = coffeeMachineSpots(rect);
+    expect(spots).toEqual([{ x: c.x, z: c.z + COFFEE_MACHINE.d / 2 + COFFEE_MACHINE_OUT, facing: Math.PI }]);
+    for (const s of spots) {
+      expect(s.x).toBeGreaterThan(rect.x);
+      expect(s.x).toBeLessThan(rect.x + rect.w);
+      expect(s.z).toBeGreaterThan(rect.y);
+      expect(s.z).toBeLessThan(rect.y + rect.h);
+    }
+    // Far enough from the cart's and the table's own spots that walking to any of the three never crosses another's.
+    for (const other of [...barCartSpots(rect), ...foosballSpots(rect)]) for (const s of spots) expect(dist(other, s)).toBeGreaterThan(1);
   });
 
   it('steps out of the elevator in the middle of the core, just inside the doors, facing south', () => {

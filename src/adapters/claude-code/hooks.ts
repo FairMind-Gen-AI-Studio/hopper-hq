@@ -1,5 +1,5 @@
 import { AGENT_ID, ANSWER_MAX, RUN_ID } from '../../core/reducer.js';
-import { toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
+import { isSmokeTest, toolLabel, truncate, waitingFromTool } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
 import { isSessionId } from '../../scene/text.js';
 import { promptText } from './transcript.js';
@@ -56,7 +56,8 @@ export function mapHookPayload(payload: unknown, receivedAt: number): RawEvent[]
       if (!toolName) return [];
       const wait = agentId ? null : waitingFromTool(toolName, p.tool_input);
       if (wait) return [{ ...base, type: 'waiting', reason: wait, agentId: null }];
-      return [{ ...base, type: 'tool.started', toolId, tool: toolName, label: toolLabel(toolName, p.tool_input, cwd || undefined), agentId }];
+      const smoke = isSmokeTest(toolName, p.tool_input);
+      return [{ ...base, type: 'tool.started', toolId, tool: toolName, label: toolLabel(toolName, p.tool_input, cwd || undefined), agentId, ...(smoke ? { smoke: true } : {}) }];
     }
     case 'PostToolUse':
     case 'PostToolUseFailure':

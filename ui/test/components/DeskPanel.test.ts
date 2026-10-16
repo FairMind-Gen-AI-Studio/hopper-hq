@@ -187,9 +187,9 @@ describe('DeskPanel', () => {
   it('lists its interns, running first, and how many more there are', () => {
     const { rows } = panel(CHECKOUT, 'sw-a1', NOW, (d) => {
       d.interns = [
-        { agentId: 'a1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: false },
-        { agentId: 'a2', type: null, label: null, running: true, inRoom: false },
-        { agentId: 'a3', type: 'general-purpose', label: 'Check the address form against the design', running: false, inRoom: false },
+        { agentId: 'a1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: false, smoking: false, leisure: null },
+        { agentId: 'a2', type: null, label: null, running: true, inRoom: false, smoking: false, leisure: null },
+        { agentId: 'a3', type: 'general-purpose', label: 'Check the address form against the design', running: false, inRoom: false, smoking: false, leisure: null },
       ];
       d.internsMore = 2;
     });
@@ -204,8 +204,8 @@ describe('DeskPanel', () => {
   it('lists two interns that share an id, each in its row', () => {
     const { rows } = panel(CHECKOUT, 'sw-a1', NOW, (d) => {
       d.interns = [
-        { agentId: 'same', type: 'Explore', label: 'Find the callers', running: true, inRoom: false },
-        { agentId: 'same', type: 'Plan', label: null, running: false, inRoom: false },
+        { agentId: 'same', type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null },
+        { agentId: 'same', type: 'Plan', label: null, running: false, inRoom: false, smoking: false, leisure: null },
       ];
     });
     expect(rows('Interns')).toEqual(['Explore | running | Find the callers', 'Plan | finished']);
@@ -235,7 +235,7 @@ describe('DeskPanel', () => {
   it('shows a hostile summary, intern and run name as text', () => {
     const { target } = panel(CHECKOUT, 'ps-d4', NOW, (d) => {
       d.summary = { text: '<img src=x onerror=alert(1)>', at: NOW, stale: false };
-      d.interns = [{ agentId: 'x', type: '<b>t</b>', label: '<script>x</script>', running: true, inRoom: false }];
+      d.interns = [{ agentId: 'x', type: '<b>t</b>', label: '<script>x</script>', running: true, inRoom: false, smoking: false, leisure: null }];
       d.runs = [{ runId: 'wf_x', name: '<i>run</i>', status: 'completed', startedAt: NOW - MIN, endedAt: NOW, counts: { running: 0, finished: 1 } }];
     });
     expect(text(target.querySelector('.s-text'))).toBe('<img src=x onerror=alert(1)>');
