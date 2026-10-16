@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SHOWCASE_LEAD_MS, SHOWCASE_SESSIONS, showcaseScript } from '../../src/adapters/showcase.js';
 import { DEMO_LEISURE_HOUR, demoSummaryLine } from '../../src/adapters/demo.js';
 import { Collector } from '../../src/collector.js';
+import { personaOf } from '../../src/scene/persona.js';
 
 const BASE = 1_800_000_000_000;
 const FLOOR = 'feature:checkout-v2';
@@ -52,6 +53,25 @@ describe('the showcase', () => {
     expect(seen.sessions).toBe(12);
     expect(seen.hosts.size).toBeGreaterThanOrEqual(4);
     expect(c.floor(FLOOR)!.rooms).toEqual([]);
+  });
+});
+
+describe('the showcase personas (hq-agent-personas TP3)', () => {
+  it('types its agents across at least 5 distinct personas, next to the plain explorer/generalist helpers', () => {
+    const b = SHOWCASE_LEAD_MS;
+    const types = showcaseScript().flatMap((step) => step.events(b + step.at)).flatMap((e) => (e.type === 'agent.started' ? [e.agentType] : []));
+    const personas = new Set(types.map((t) => personaOf(t)));
+    expect(personas.size).toBeGreaterThanOrEqual(5);
+    expect(personas).toEqual(new Set(['explorer', 'generalist', 'none', 'techlead', 'developer', 'security', 'qa', 'reviewer', 'librarian', 'designer']));
+  });
+
+  it("shows at least 6 distinct personas in a single frame, release-check's Build phase overlapping web2's helpers", async () => {
+    const { at } = await playShowcase();
+    const floor = at.get(40_000)!;
+    const release = floor!.rooms.find((r) => r.runId === 'wf_showcase-release')!;
+    const web2 = floor!.rooms.find((r) => r.runId === 'crew:sc-web-2')!;
+    const personas = new Set([...release.agents, ...web2.agents].map((a) => personaOf(a.type)));
+    expect(personas.size).toBeGreaterThanOrEqual(6);
   });
 });
 

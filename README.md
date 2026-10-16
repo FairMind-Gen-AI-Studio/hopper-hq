@@ -56,7 +56,7 @@ The mod makes hopper-hq report each session as things happen, with the exact rea
 
 ## Status
 
-Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-hopper-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md), and [the design of the smoke-test cigar and the aperitivo/biliardino leisure](docs/plans/2026-10-15-agent-moods.md).
+Early. The collector, the CLI, the tmux counter and the building in the browser work, with meeting rooms for workflow runs, interns for subagents, robots that walk between desks, rooms, the lounge and the elevator, and an optional line that says where each session stands. The archive is planned. See [the design document](docs/plans/2026-10-09-hopper-hq-design.md), [the design of rooms, interns and summaries](docs/plans/2026-10-13-m3a-detail-design.md), [the design of the floor plan and walking](docs/plans/2026-10-13-m3b-motion-design.md), [the design of the smoke-test cigar and the aperitivo/biliardino leisure](docs/plans/2026-10-15-agent-moods.md), and [the design of agent personas](docs/plans/2026-10-15-agent-personas.md).
 
 ## Demo
 
@@ -68,6 +68,7 @@ Early. The collector, the CLI, the tmux counter and the building in the browser 
 - Shows which sessions are waiting for you, and why.
 - Shows what runs inside each session: its workflow runs, phase by phase, and its subagents.
 - Shows a subagent running a smoke test puffing on a cigar, and a finished subagent whose siblings are still running heading for the office bar or a game of table football.
+- Dresses every typed sub-agent in a costume for its role, so you can tell a QA from a security engineer across the room.
 - Says in one line where each session stands, once you turn [summaries](#summaries) on.
 - Keeps a record of finished sessions (coming).
 
@@ -140,6 +141,29 @@ A floor has two rooms, and four once a third run goes on at the same time; its s
 A session or subagent running a smoke test (a test-runner command, script or file with "smoke" in it) holds a lit cigar, with a little smoke puff rising from its tip; it clears as soon as the tool finishes.
 
 When a subagent finishes while a sibling started by the same session or run keeps going, it waits for its cohort at the office's break area instead of just sitting idle: a lone waiter nurses a gin tonic at the bar cart, and waiters are paired up two at a time for a game of table football (biliardino) at the coffee machine's table, odd one out on the gin tonic. This only happens during the office's aperitivo hours, 17:00 to 02:00 viewer-local by default and configurable in `config.ts` (`DEFAULT_LEISURE_WINDOW`); outside that window every waiter gets a coffee at the machine instead. It all clears once the cohort finishes or the window closes.
+
+### Agent personas
+
+Every subagent and workflow agent wears a costume for its role — headgear, a prop held in its left hand, and an outfit coloured for the part — so you can tell a QA from a security engineer across the room without reading a single tag. The costume is a pure function of the agent's own type string (`Explore`, `general-purpose`, a plugin-namespaced role like `fairmind-coding:QA Engineer`, …), worked out client-side with no change to what is reported or stored:
+
+| Persona | Reads from a type naming… | Cues |
+| --- | --- | --- |
+| security | security, cyber, appsec, secops, infosec | dark sunglasses + earpiece |
+| techlead | tech/technical lead, architect, staff/lead engineer | campaign hat |
+| reviewer | review, code review | white wig + gavel |
+| qa | qa, tester, test, quality | deerstalker + magnifying glass |
+| debugger | debug, bug, troubleshooting | gas-mask goggles + spray wand |
+| librarian | docs, documentation, writer, technical writer | reading glasses + open book |
+| designer | design, frontend, ui, ux | beret + palette |
+| developer | developer, engineer, software, backend | thick glasses + headphones |
+| explorer | explore, research, scout | pith helmet + binoculars |
+| planner | plan, strategy, strategist | pencil behind the ear + blueprint roll |
+| generalist | general-purpose, handyman, utility | cap + wrench |
+| *(none)* | `workflow-subagent`, an unknown or empty type | today's plain look, no costume |
+
+The main session's own robot always wears a "boss" look instead — a black hat and an oversized wide tie kept in the feature colour, with a gold mug — whatever type a session's own subagents carry has no bearing on it, since a session itself carries no agent type at all. See [the design of agent personas](docs/plans/2026-10-15-agent-personas.md) for the full rule table, its priority tie-breaks and the mesh/shadow budget.
+
+An intern or workflow agent whose type is namespaced to a Fairmind plugin (`fairmind-coding:…`, `fairmind-team:…`) also carries a small Fairmind badge over its head, regardless of which persona it wears.
 
 The page's address names the floor, and the desk or the run on screen: a link opens it, and Back and reload keep your place.
 
