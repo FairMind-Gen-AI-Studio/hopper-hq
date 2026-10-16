@@ -1,0 +1,33 @@
+name: publish
+on:
+  push:
+    tags: ['v*']
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Tag matches the package and the plugin
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          package="$(node -p "require('./package.json').version")"
+          plugin="$(node -p "require('./mod/.claude-plugin/plugin.json').version")"
+          if [ "$tag" != "$package" ] || [ "$tag" != "$plugin" ]; then
+            echo "tag $tag, package $package, plugin $plugin: they must be the same" >&2
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
