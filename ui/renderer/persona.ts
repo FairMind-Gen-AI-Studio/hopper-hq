@@ -212,8 +212,13 @@ export function buildPersona(neck: Group, armL: Group, persona: Persona, geo: Ge
       // proven to read against the night floor (fix-round-2, the `monitor`/`leg` tokens crash to near-black there).
       // The gold mug stays as the one held prop; the watch is dropped outright rather than enlarged — the hat alone
       // now carries the role's always-visible cue, so a second, still-small wrist accessory added nothing.
+      // Round-2 fix (OQ-1 round 2): the brim was 0.165, *inside* the head box's own half-width (0.19, robot.ts
+      // `rbox(0.38, ...)`), so it never cleared the head's silhouette from any angle and rendered as a dark ball,
+      // not a hat — confirmed in all 14 round-1 screenshots. Widened to 0.21, past the head's half-width by the
+      // same kind of margin as the codebase's other two brimmed hats (techlead's campaign brim 0.22, explorer's
+      // pith brim 0.2) — those are the only two personas whose headgear already reads as a hat, for this reason.
       head(halfDome(geo, 'bowler dome', 0.135), s.outfitReviewer, 0, 0.335, 0);
-      head(disc(geo, 'bowler brim', 0.165, 0.016), s.outfitReviewer, 0, 0.308, 0);
+      head(disc(geo, 'bowler brim', 0.21, 0.016), s.outfitReviewer, 0, 0.308, 0);
       hand(geo.rod(0.045, 0.04, 0.07), s.bossGold, 0, HAND.y, HAND.z);
       break;
     case 'none':
