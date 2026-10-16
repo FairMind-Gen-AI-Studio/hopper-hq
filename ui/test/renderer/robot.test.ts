@@ -210,6 +210,37 @@ describe('robots', () => {
     expect([obj.rig.persona.heldGroup.visible, obj.rig.persona.headgearGroup.visible]).toEqual([false, true]);
   });
 
+  it("keeps the boss persona's bowler hat shown in every pose, including striding and holding (user-decisions.md OQ-1, 2026-10-16: a hat-less boss was unreadable whenever its held prop hid)", () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { pose: 'still', badge: null, body: 0, tie: null, persona: 'boss' }, geo, mats);
+    const spot = { x: 0, z: 0, facing: 0 };
+    for (const pose of Object.keys(POSES) as Pose[]) {
+      poseRobot(obj, { pose, badge: null }, spot);
+      expect(obj.rig.persona.headgearGroup.visible, pose).toBe(true);
+    }
+    // On its way, the same hat; only the held mug hides, like every other persona's held prop.
+    strideRobot(obj, { x: 1, z: 1, facing: 0 }, 0);
+    expect([obj.rig.persona.headgearGroup.visible, obj.rig.persona.heldGroup.visible]).toEqual([true, false]);
+  });
+
+  it('widens and lengthens the tie for the boss persona only, its feature colour unchanged (user-decisions.md OQ-1, 2026-10-16: "Cappello + cravatta")', () => {
+    const { geo, mats } = kit();
+    const plain = buildRobot('s1', { pose: 'typing', badge: null, body: 0, tie: 3, persona: 'none' }, geo, mats);
+    const boss = buildRobot('s2', { pose: 'typing', badge: null, body: 0, tie: 3, persona: 'boss' }, geo, mats);
+    for (const obj of [plain, boss]) obj.group.updateMatrixWorld(true);
+    const tieExtent = (obj: RobotObject) => {
+      const box = new Box3();
+      for (const m of obj.pickables.filter((m) => m.material === mats.tie(3))) box.expandByObject(m);
+      return { w: box.max.x - box.min.x, h: box.max.y - box.min.y };
+    };
+    const plainTie = tieExtent(plain);
+    const bossTie = tieExtent(boss);
+    expect(bossTie.w).toBeGreaterThan(plainTie.w);
+    expect(bossTie.h).toBeGreaterThan(plainTie.h);
+    // Wider and longer, but still the same two meshes, in the same feature colour.
+    expect(boss.pickables.filter((m) => m.material === mats.tie(3))).toHaveLength(2);
+  });
+
   it('strides on its way: on its feet at its point, facing its way, one leg forward and the other arm with it, bobbing at its size', () => {
     const { geo, mats } = kit();
     const obj = buildRobot('s1', { pose: 'holding', badge: 'done', body: 0, tie: null }, geo, mats);

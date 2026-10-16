@@ -47,7 +47,7 @@ export const PERSONA_MESHES: Record<Persona, number> = {
   explorer: 3,
   planner: 2,
   generalist: 3,
-  boss: 2,
+  boss: 3,
   none: 0,
 };
 
@@ -74,8 +74,10 @@ export const PERSONA_BODY: Partial<Record<Persona, Surface>> = {
   generalist: 'chair',
 };
 
-/** Personas whose headgear should suppress the workflow hard hat (robot.ts): every persona but 'none' and 'boss' (hat-less by design, user-decisions.md OQ-1) has one. */
-const HEADGEAR_PERSONAS = new Set<Persona>(['security', 'techlead', 'reviewer', 'qa', 'debugger', 'librarian', 'designer', 'developer', 'explorer', 'planner', 'generalist']);
+/** Personas whose headgear should suppress the workflow hard hat (robot.ts): every persona but 'none' has one — 'boss'
+ * included since the 2026-10-16 fix gave it a bowler hat (user-decisions.md OQ-1 round 2), a workflow agent never
+ * gets boss in practice, but the rule stays the one general one if it somehow did. */
+const HEADGEAR_PERSONAS = new Set<Persona>(['security', 'techlead', 'reviewer', 'qa', 'debugger', 'librarian', 'designer', 'developer', 'explorer', 'planner', 'generalist', 'boss']);
 
 /** `true` when this persona's headgear should suppress the workflow hard hat (robot.ts). */
 export function hasHeadgear(persona: Persona): boolean {
@@ -202,9 +204,17 @@ export function buildPersona(neck: Group, armL: Group, persona: Persona, geo: Ge
       hand(geo.rod(0.016, 0.022, 0.16), s.frame, 0, HAND.y, HAND.z, { rx: Math.PI / 2.4 });
       break;
     case 'boss':
-      // No headgear (hat-less, user-decisions.md OQ-1): a gold mug and a gold watch in the left hand.
+      // A black bowler (bombetta), dome and brim, on the neck — the always-visible primary cue a hat-less boss
+      // never had: a 2 cm watch and a mug the size of a fingertip at floor-view distance both vanish whenever a
+      // held prop hides (holding/leisure poses) or the robot walks, so the role read as unreadable (user-decisions.md
+      // OQ-1, 2026-10-16 revision: "Cappello + cravatta"). The dome and brim reuse `outfitReviewer`'s own fixed
+      // near-black (the judge's robe) rather than a new colour: it is already the one dark shade on this palette
+      // proven to read against the night floor (fix-round-2, the `monitor`/`leg` tokens crash to near-black there).
+      // The gold mug stays as the one held prop; the watch is dropped outright rather than enlarged — the hat alone
+      // now carries the role's always-visible cue, so a second, still-small wrist accessory added nothing.
+      head(halfDome(geo, 'bowler dome', 0.135), s.outfitReviewer, 0, 0.335, 0);
+      head(disc(geo, 'bowler brim', 0.165, 0.016), s.outfitReviewer, 0, 0.308, 0);
       hand(geo.rod(0.045, 0.04, 0.07), s.bossGold, 0, HAND.y, HAND.z);
-      hand(geo.rod(0.02, 0.02, 0.014), s.bossGold, 0, HAND.y - 0.09, HAND.z);
       break;
     case 'none':
       break;

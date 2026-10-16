@@ -457,10 +457,15 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   puff.frustumCulled = false;
   placePuffs(puff, robot.smoking ? 0 : null);
   cigar.add(puff);
-  // The tie: a knot and a tapered blade, in the feature colour.
+  // The tie: a knot and a tapered blade, in the feature colour — clearly wider and longer for the boss persona only
+  // (user-decisions.md OQ-1, 2026-10-16: "Cappello + cravatta"), its colour unchanged, the knot's bottom edge and
+  // the blade's top edge kept flush at either size so the two never gap or overlap.
+  const isBoss = persona === 'boss';
   const knotY = BOT.torso - 0.05;
-  part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
-  part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08, cast: false });
+  const knotH = isBoss ? 0.05 : 0.04;
+  const bladeLen = isBoss ? 0.26 : 0.2;
+  part(waist, geo.box(isBoss ? 0.075 : 0.05, knotH, 0.03), tie, 0, knotY, 0.125, small);
+  part(waist, tieBlade(geo, isBoss), tie, 0, knotY - knotH / 2 - bladeLen / 2, 0.121, { rx: 0.08, cast: false });
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
   // Leisure props, in the hand that holds the paper: the gin tonic (buildDrink), or a coffee cup on its own saucer,
   // both in the paper's own white — small enough, at an espresso cup's own scale, that only the cup's shape (not a
@@ -710,9 +715,14 @@ function dome(geo: Geometries) {
   return geo.shared('hard hat', () => new SphereGeometry(0.155, 20, 8, 0, Math.PI * 2, 0, Math.PI / 2));
 }
 
-function tieBlade(geo: Geometries) {
-  return geo.shared('tie blade', () => {
-    const g = new CylinderGeometry(0.03, 0.05, 0.2, 4);
+/**
+ * The tie's tapered blade: `wide` widens and lengthens it for the boss (user-decisions.md OQ-1, 2026-10-16: "Cappello
+ * + cravatta") — the session's own feature-colour tie, widened for that one persona only, never recoloured. Shared
+ * under its own key so the two sizes never collide in the geometry cache.
+ */
+function tieBlade(geo: Geometries, wide: boolean) {
+  return geo.shared(wide ? 'tie blade boss' : 'tie blade', () => {
+    const g = new CylinderGeometry(wide ? 0.055 : 0.03, wide ? 0.09 : 0.05, wide ? 0.26 : 0.2, 4);
     g.rotateY(Math.PI / 4);
     g.scale(1, 1, 0.35);
     return g;

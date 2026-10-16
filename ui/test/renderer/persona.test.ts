@@ -71,9 +71,10 @@ describe('persona accessories', () => {
     for (const m of withHeadgear.rig.hardHat) expect(m.visible).toBe(false);
     const plain = buildRobot('a2', { ...robot, persona: 'none' }, geo, mats, 'workflow');
     for (const m of plain.rig.hardHat) expect(m.visible).toBe(true);
-    // 'boss' has no headgear either: a workflow agent never gets boss in practice, but the hat stays if it did.
+    // 'boss' has its own headgear too (the 2026-10-16 bowler fix): a workflow agent never gets boss in practice,
+    // but the general headgear-vs-hard-hat rule suppresses it the same way as any other persona if it somehow did.
     const boss = buildRobot('a3', { ...robot, persona: 'boss' }, geo, mats, 'workflow');
-    for (const m of boss.rig.hardHat) expect(m.visible).toBe(true);
+    for (const m of boss.rig.hardHat) expect(m.visible).toBe(false);
   });
 
   it('defaults to no persona (today\'s plain look) when the look leaves persona out', () => {

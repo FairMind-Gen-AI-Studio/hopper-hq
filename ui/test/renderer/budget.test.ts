@@ -16,8 +16,18 @@ import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixture
  * which used to cast a shadow, is now hidden instead: a real drop in casters, not a bug, the same way an intern
  * never casting one already was. As measured, with a tenth to spare, rounded down: 3,899 meshes and 217 instanced
  * meshes, which draw 1,656 instances, in 4,116 draw calls, and 423 of them cast a shadow.
+ *
+ * Re-measured again for the 2026-10-16 boss fix (user-decisions.md OQ-1 revision, "Cappello + cravatta"): the boss
+ * traded its hat-less two held meshes (a mug and a 2 cm watch, both invisible whenever a held prop hides or the
+ * robot walks) for a bowler hat that is always shown (two headgear meshes, like every other persona) plus the one
+ * gold mug held prop — the tie also grew wider and longer for this persona, but as a resize of the same two
+ * existing meshes, not a mesh-count change. Net mesh count up by 35 across every boss-persona session robot on
+ * the floor (desks, the lounge and seated room hosts): instanced meshes/instances are untouched (no persona ever
+ * adds one), and casters are unchanged — the hat and the resized tie are still `{ cast: false }`, same as before.
+ * As measured, with a tenth to spare, rounded down: 3,934 meshes and 217 instanced meshes, which draw 1,656
+ * instances, in 4,151 draw calls, and 423 of them cast a shadow.
  */
-const BUDGET = { meshes: 4288, draws: 4527, casters: 465 };
+const BUDGET = { meshes: 4327, draws: 4566, casters: 465 };
 /**
  * What its furniture alone costs, the shell, as measured, with a tenth to spare, rounded down: 232 draw calls, 151
  * meshes and 81 instanced meshes drawing 704 instances, and 41 of them cast a shadow — raised from 216/40 when the
@@ -114,8 +124,13 @@ describe('the budget of the fullest floor', () => {
  * with a tenth to spare, rounded down: 467 draw calls, 78 shadow casters — unchanged from before the personas
  * merged in: none of the leisure interns is a workflow kind, so none has a hard hat to suppress, and no persona
  * accessory ever casts a shadow.
+ *
+ * Re-measured again for the 2026-10-16 boss fix (user-decisions.md OQ-1 revision): checkoutSpecs' own session
+ * robots now carry the boss's always-shown bowler hat instead of its old hat-less two held meshes, the same net
+ * +1-mesh-per-robot trade as the fullest-floor budget above; casters unchanged (the hat and the widened tie still
+ * cast none). As measured, with a tenth to spare, rounded down: 474 draw calls, 78 shadow casters.
  */
-const LEISURE_BUDGET = { draws: 513, casters: 85 };
+const LEISURE_BUDGET = { draws: 521, casters: 85 };
 
 /**
  * checkoutSpecs' six desks that are not dormant (ps-f7 has no robot, so none of its interns could be drawn), with seven
