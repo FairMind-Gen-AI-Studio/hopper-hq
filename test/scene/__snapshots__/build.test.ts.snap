@@ -360,7 +360,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               "phase": "Plan",
               "running": true,
               "smoking": false,
-              "type": "workflow-subagent",
+              "type": "fairmind-coding:Technical Lead / Architect",
             },
           ],
           "counts": {

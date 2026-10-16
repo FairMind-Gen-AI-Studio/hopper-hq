@@ -65,6 +65,14 @@ const SWEEP = { runId: 'wf_showcase-a11y', name: 'a11y-sweep', summary: 'Check e
  * (two or more of its agents finish together while a later phase's agents keep running) — no separate cohort was added
  * for this; it falls out of the existing helpers and run. The pay3 session's `Bash: npm run test:smoke -- retry` from
  * sec 18 to 45 holds a cigar (Feature B).
+ *
+ * release-check and a11y-sweep type their agents to plugin roles (hq-agent-personas TP3), so a single frame between
+ * sec 15 and sec 39 shows release-check's tech lead (idle, Plan already done), developer and security engineer
+ * (Build, running) next to web2's own explorer and generalist helpers: five distinct personas at once, six once
+ * a11y-sweep's designer (Frontend Engineer) joins from sec 40. release-check's later Review/Ship agents add the
+ * reviewer, the librarian (Technical Writer) and QA. migration-replay keeps the plain `workflow-subagent` type, so
+ * it shows no persona, for contrast. Every typed agent carries the `fairmind-coding:` namespace, so each also wears
+ * the Fairmind badge — exercising the classifier's prefix handling end to end.
  */
 export function showcaseScript(): DemoStep[] {
   const s = SHOWCASE_SESSIONS;
@@ -76,7 +84,7 @@ export function showcaseScript(): DemoStep[] {
       at(who.id, b, { type: 'prompt', text: who.prompt }),
       at(who.id, b, { type: 'tool.started', toolId: `${who.id}-t1`, tool, label, agentId: null, ...(smoke ? { smoke: true } : {}) }),
     ]);
-  const agent = (_host: ShowcaseSession, run: { runId: string }, n: string, phase: string, description: string): Body => ({ type: 'agent.started', agentId: `${run.runId}-${n}`, agentType: 'workflow-subagent', description, runId: run.runId, phase });
+  const agent = (_host: ShowcaseSession, run: { runId: string }, n: string, phase: string, description: string, agentType = 'workflow-subagent'): Body => ({ type: 'agent.started', agentId: `${run.runId}-${n}`, agentType, description, runId: run.runId, phase });
   const done = (run: { runId: string }, n: string): Body => ({ type: 'agent.finished', agentId: `${run.runId}-${n}` });
   const helper = (id: string, type: string, description: string): Body => ({ type: 'agent.started', agentId: id, agentType: type, description });
   const start = (run: typeof RELEASE): Body => ({ type: 'workflow.started', runId: run.runId, name: run.name, summary: run.summary, phases: [...run.phases] });
@@ -101,15 +109,15 @@ export function showcaseScript(): DemoStep[] {
     arrive(s.api2, 1, 'Bash', 'Bash: npm run build'),
     arrive(s.pay2, 4, 'Edit', 'Edit src/ledger/split.ts'),
     // release-check: web1 hands the checkout to a workflow and goes into the meeting room with its agents.
-    step(7, (b) => [at(s.web1.id, b, start(RELEASE)), at(s.web1.id, b, agent(s.web1, RELEASE, '0', 'Plan', 'Map the checkout flow'))]),
+    step(7, (b) => [at(s.web1.id, b, start(RELEASE)), at(s.web1.id, b, agent(s.web1, RELEASE, '0', 'Plan', 'Map the checkout flow', 'fairmind-coding:Technical Lead / Architect'))]),
     arrive(s.web3, 9, 'Edit', 'Edit src/components/EmptyState.tsx'),
     // Two helpers: web2 and its subagents meet in a room of their own.
     step(11, (b) => [at(s.web2.id, b, helper('sc-web2-a', 'Explore', 'Find every caller of useCart()')), at(s.web2.id, b, helper('sc-web2-b', 'general-purpose', 'Check each caller against the new cart type'))]),
     arrive(s.api3, 13, 'Read', 'Read src/orders/states.ts'),
     step(15, (b) => [
-      at(s.web1.id, b, agent(s.web1, RELEASE, '1', 'Build', 'Build the address step')),
-      at(s.web1.id, b, agent(s.web1, RELEASE, '2', 'Build', 'Build the payment step')),
-      at(s.web1.id, b, agent(s.web1, RELEASE, '3', 'Build', 'Build the review step')),
+      at(s.web1.id, b, agent(s.web1, RELEASE, '1', 'Build', 'Build the address step', 'fairmind-coding:Software Engineer')),
+      at(s.web1.id, b, agent(s.web1, RELEASE, '2', 'Build', 'Build the payment step', 'fairmind-coding:Security Engineer')),
+      at(s.web1.id, b, agent(s.web1, RELEASE, '3', 'Build', 'Build the review step', 'fairmind-coding:QA Engineer')),
       at(s.web1.id, b, done(RELEASE, '0')),
     ]),
     // orders-api-2 stops to ask before it rebuilds dist.
@@ -137,8 +145,8 @@ export function showcaseScript(): DemoStep[] {
     step(34, (b) => [at(s.web2.id, b, stop('sc-web2-a'))]),
     step(36, (b) => [at(s.api2.id, b, { type: 'prompt', text: 'Yes, rebuild it.' }), at(s.pay4.id, b, { type: 'session.started' })]),
     step(39, (b) => [
-      at(s.web1.id, b, agent(s.web1, RELEASE, '4', 'Review', 'Review the three steps against the design')),
-      at(s.web1.id, b, agent(s.web1, RELEASE, '5', 'Review', 'Review the copy and the empty states')),
+      at(s.web1.id, b, agent(s.web1, RELEASE, '4', 'Review', 'Review the three steps against the design', 'fairmind-coding:Code Reviewer')),
+      at(s.web1.id, b, agent(s.web1, RELEASE, '5', 'Review', 'Review the copy and the empty states', 'fairmind-coding:Technical Writer')),
       at(s.web1.id, b, done(RELEASE, '1')),
       at(s.web1.id, b, done(RELEASE, '2')),
       at(s.web1.id, b, done(RELEASE, '3')),
@@ -154,14 +162,14 @@ export function showcaseScript(): DemoStep[] {
     step(45, (b) => [at(s.pay3.id, b, { type: 'tool.finished', toolId: `${s.pay3.id}-t1`, ok: true, agentId: null })]),
     step(47, (b) => [at(s.pay1.id, b, stop('sc-pay1-a')), at(s.pay1.id, b, helper('sc-pay1-c', 'general-purpose', 'Write the refund tests'))]),
     step(50, (b) => [at(s.web3.id, b, { type: 'prompt', text: 'Yes, sweep the pages.' })]),
-    step(51, (b) => [at(s.web1.id, b, agent(s.web1, RELEASE, '6', 'Ship', 'Run the checkout suite on staging')), at(s.web1.id, b, done(RELEASE, '4')), at(s.web1.id, b, done(RELEASE, '5'))]),
+    step(51, (b) => [at(s.web1.id, b, agent(s.web1, RELEASE, '6', 'Ship', 'Run the checkout suite on staging', 'fairmind-coding:QA Engineer')), at(s.web1.id, b, done(RELEASE, '4')), at(s.web1.id, b, done(RELEASE, '5'))]),
     step(54, (b) => [at(s.pay1.id, b, stop('sc-pay1-b')), at(s.api1.id, b, done(MIGRATION, '4')), at(s.api1.id, b, finishRun(MIGRATION))]),
-    step(56, (b) => [at(s.web3.id, b, start(SWEEP)), at(s.web3.id, b, agent(s.web3, SWEEP, '0', 'Crawl', 'List every page of the storefront'))]),
+    step(56, (b) => [at(s.web3.id, b, start(SWEEP)), at(s.web3.id, b, agent(s.web3, SWEEP, '0', 'Crawl', 'List every page of the storefront', 'fairmind-coding:Frontend Engineer'))]),
     step(58, (b) => [at(s.web1.id, b, done(RELEASE, '6')), at(s.web1.id, b, finishRun(RELEASE))]),
     step(60, (b) => [
-      at(s.web3.id, b, agent(s.web3, SWEEP, '1', 'Audit', 'Audit the product pages')),
-      at(s.web3.id, b, agent(s.web3, SWEEP, '2', 'Audit', 'Audit the cart and checkout')),
-      at(s.web3.id, b, agent(s.web3, SWEEP, '3', 'Audit', 'Audit the account pages')),
+      at(s.web3.id, b, agent(s.web3, SWEEP, '1', 'Audit', 'Audit the product pages', 'fairmind-coding:Frontend Engineer')),
+      at(s.web3.id, b, agent(s.web3, SWEEP, '2', 'Audit', 'Audit the cart and checkout', 'fairmind-coding:Frontend Engineer')),
+      at(s.web3.id, b, agent(s.web3, SWEEP, '3', 'Audit', 'Audit the account pages', 'fairmind-coding:Frontend Engineer')),
       at(s.web3.id, b, done(SWEEP, '0')),
     ]),
     step(62, (b) => [
@@ -173,7 +181,7 @@ export function showcaseScript(): DemoStep[] {
     step(64, (b) => [at(s.pay1.id, b, stop('sc-pay1-c'))]),
     step(68, (b) => [at(s.pay2.id, b, end()), at(s.web4.id, b, end())]),
     step(72, (b) => [
-      at(s.web3.id, b, agent(s.web3, SWEEP, '4', 'Report', 'Write up the findings')),
+      at(s.web3.id, b, agent(s.web3, SWEEP, '4', 'Report', 'Write up the findings', 'fairmind-coding:Frontend Engineer')),
       at(s.web3.id, b, done(SWEEP, '1')),
       at(s.web3.id, b, done(SWEEP, '2')),
       at(s.web3.id, b, done(SWEEP, '3')),

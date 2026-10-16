@@ -8,6 +8,7 @@ import type { RawEvent } from '../../src/core/types.js';
 import type { FloorDetail } from '../../src/scene/types.js';
 import { startDaemon } from '../../src/daemon.js';
 import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../src/scene/palette.js';
+import { personaOf } from '../../src/scene/persona.js';
 import { cleanText } from '../../src/scene/text.js';
 import { SUMMARY_MAX, summaryInput } from '../../src/summary/input.js';
 
@@ -51,6 +52,14 @@ describe('demoScript', () => {
       expect(times.every((t) => t >= 0 && t < DEMO_LOOP_MS)).toBe(true);
     }
   });
+
+  it("spawns agents across at least 5 distinct personas (hq-agent-personas TP3), alongside the plain explorer/generalist interns", () => {
+    const BASE = 1_000_000_000;
+    const types = demoScript().flatMap((step) => step.events(BASE + step.at)).flatMap((e) => (e.type === 'agent.started' ? [e.agentType] : []));
+    const personas = new Set(types.map((t) => personaOf(t)));
+    expect(personas.size).toBeGreaterThanOrEqual(5);
+    expect([...personas].sort()).toEqual(['developer', 'explorer', 'generalist', 'none', 'qa', 'reviewer', 'security', 'techlead'].sort());
+  });
 });
 
 const BASE = 1_000_000_000;
@@ -93,7 +102,7 @@ describe('the demo workflow run', () => {
         summary: 'Verify split payments end to end',
         phases: [{ title: 'Plan', state: 'current' }, { title: 'Build', state: 'upcoming' }, { title: 'Review', state: 'upcoming' }, { title: 'Ship', state: 'upcoming' }],
         counts: { running: 1, finished: 0 },
-        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: true, smoking: false, leisure: null }],
+        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'fairmind-coding:Technical Lead / Architect', running: true, smoking: false, leisure: null }],
         look,
         rect: { x: 18, y: 2, w: 8, h: 6 },
         slot: 0,

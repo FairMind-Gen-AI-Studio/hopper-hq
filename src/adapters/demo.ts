@@ -88,6 +88,13 @@ export function demoRunIds(loop = 0, run: 'checkout' | 'replay' = 'checkout'): {
  * completes once its own checkout run has begun: a meeting room is always open. The address desk has two interns.
  * Every session that ends a turn replies first.
  *
+ * The checkout-verify run's five agents are typed to plugin roles instead of the plain `workflow-subagent`, so the
+ * meeting room shows five distinct personas at once (hq-agent-personas TP3): Plan's agent reads as the tech lead
+ * (Hartman), the two Build agents as the developer (nerd) and the security engineer (secret service), Review's agent
+ * as the reviewer (English judge), and Ship's as QA (Sherlock). Each carries the `fairmind-coding:` namespace, so
+ * they also wear the Fairmind badge. The replay run on the orders desk keeps the plain `workflow-subagent` type (no
+ * persona), on purpose: the two runs side by side show a typed cast next to the untyped default.
+ *
  * The drop-ins (DEMO_DROP_INS) come to the checkout floor one by one and end one by one: while they are all there, the
  * floor holds nine sessions, one more than a block has desks, so in the first loop it grows a block. One of them is
  * cleared, as by /clear, and waits idle in the lounge until its next prompt.
@@ -106,7 +113,7 @@ export function demoScript(loop = 0): DemoStep[] {
   const checkout = demoRunIds(loop);
   const { runId } = checkout;
   const replay = demoRunIds(loop, 'replay');
-  const runAgent = (n: number, phase: string, description: string, run = checkout): Body => ({ type: 'agent.started', agentId: run.agent(n), agentType: 'workflow-subagent', description, runId: run.runId, phase });
+  const runAgent = (n: number, phase: string, description: string, run = checkout, agentType = 'workflow-subagent'): Body => ({ type: 'agent.started', agentId: run.agent(n), agentType, description, runId: run.runId, phase });
   const finish = (n: number, run = checkout): Body => ({ type: 'agent.finished', agentId: run.agent(n) });
   const [gift, states, legs, estimate, retry] = DEMO_DROP_INS as [DemoSession, DemoSession, DemoSession, DemoSession, DemoSession];
   /** A drop-in comes to work: seen as it starts (the earliest start is kept), asked, and at its first tool. */
@@ -152,7 +159,7 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-oa-c3', b + 23, { type: 'tool.started', toolId: 'c3-t1', tool: 'Bash', label: 'Bash: rm -rf dist && npm run build', agentId: null }),
         at('demo-oa-c3', b + 24, { type: 'waiting', reason: { kind: 'permission', text: 'Bash', detail: 'Bash: rm -rf dist && npm run build' }, agentId: null }),
         at('demo-ps-d4', b + 25, { type: 'workflow.started', runId, name: DEMO_RUN.name, summary: DEMO_RUN.summary, phases: [...DEMO_RUN.phases] }),
-        at('demo-ps-d4', b + 25, runAgent(0, 'Plan', 'Map the split payment flow')),
+        at('demo-ps-d4', b + 25, runAgent(0, 'Plan', 'Map the split payment flow', checkout, 'fairmind-coding:Technical Lead / Architect')),
         at('demo-ps-d4', b + 27, { type: 'answer', text: 'Split payments are in. I started checkout-verify to check them end to end.' }),
         at('demo-ps-d4', b + 27, { type: 'turn.finished', backgroundTasks: 0 }),
         // A smoke test: the mega sigaro (Feature B) shows on this desk from here until the tool.finished at 45s.
@@ -168,8 +175,8 @@ export function demoScript(loop = 0): DemoStep[] {
     {
       at: 8_000,
       events: (b) => [
-        at('demo-ps-d4', b, runAgent(1, 'Build', 'Implement the split ledger entries')),
-        at('demo-ps-d4', b, runAgent(2, 'Build', 'Implement the refund path')),
+        at('demo-ps-d4', b, runAgent(1, 'Build', 'Implement the split ledger entries', checkout, 'fairmind-coding:Software Engineer')),
+        at('demo-ps-d4', b, runAgent(2, 'Build', 'Implement the refund path', checkout, 'fairmind-coding:Security Engineer')),
         at('demo-ps-d4', b, finish(0)),
       ],
     },
@@ -186,14 +193,14 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-oa-h8', b, { type: 'turn.finished', backgroundTasks: 0 }),
       ],
     },
-    { at: 28_000, events: (b) => [at('demo-ps-d4', b, runAgent(3, 'Review', 'Review the ledger and refund changes')), at('demo-ps-d4', b, finish(2))] },
+    { at: 28_000, events: (b) => [at('demo-ps-d4', b, runAgent(3, 'Review', 'Review the ledger and refund changes', checkout, 'fairmind-coding:Code Reviewer')), at('demo-ps-d4', b, finish(2))] },
     { at: 29_000, events: (b) => arrive(estimate, b, 'Edit', 'Edit src/checkout/ReviewStep.tsx') },
     { at: 30_000, events: (b) => [at('demo-sw-a1', b, { type: 'agent.finished', agentId: 'demo-a1-review' })] },
     { at: 34_000, events: (b) => [at('demo-sw-a1', b, { type: 'waiting', reason: { kind: 'question', text: 'Keep the old address form behind a flag?' }, agentId: null })] },
     { at: 36_000, events: (b) => [at(states.id, b, { type: 'prompt', text: loop === 0 ? 'Which states can a refund be in?' : null })] },
     // The ninth session on the floor: one more than a block has desks.
     { at: 37_000, events: (b) => arrive(retry, b, 'Bash', 'Bash: npm test -- retry') },
-    { at: 40_000, events: (b) => [at('demo-ps-d4', b, runAgent(4, 'Ship', 'Run the checkout suite on staging')), at('demo-ps-d4', b, finish(3))] },
+    { at: 40_000, events: (b) => [at('demo-ps-d4', b, runAgent(4, 'Ship', 'Run the checkout suite on staging', checkout, 'fairmind-coding:QA Engineer')), at('demo-ps-d4', b, finish(3))] },
     { at: 42_000, events: (b) => [at('demo-oa-g7', b, { type: 'prompt', text: loop === 0 ? 'Use Postgres.' : null })] },
     { at: 43_000, events: (b) => [end(gift, b)] },
     {
