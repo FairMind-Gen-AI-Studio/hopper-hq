@@ -112,6 +112,15 @@ describe('materials', () => {
     expect(limeFlesh).not.toBe(paper);
   });
 
+  it("gives the planner's blueprint roll the glass colour but opaque, unlike the see-through partitions", () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    expect(hex(m.surface.blueprint.color)).toBe(theme.colors['scene-glass']);
+    expect(m.surface.blueprint.transparent).toBe(false);
+    expect(m.surface.blueprint.opacity).toBe(1);
+    expect(m.surface.blueprint).not.toBe(m.surface.glass);
+  });
+
   it('gives each repo slot a body, darker joints and a rug, and each feature slot a tie', () => {
     const theme = dayTheme();
     const m = new Materials(theme);
@@ -168,15 +177,53 @@ describe('materials', () => {
     expect(hex(m.surface.couch.color)).toBe('#8e5a47');
   });
 
+  it("gives a persona outfit either a theme token (debugger's hazmat amber, the working state's) or a fixed shade the theme never touches", () => {
+    const m = new Materials(dayTheme());
+    const theme = dayTheme();
+    expect(hex(m.surface.outfitDebugger.color)).toBe(theme.colors['s-working']);
+    expect(hex(m.surface.bossGold.color)).toBe(theme.colors['s-working']);
+    expect(m.surface.bossGold).not.toBe(m.surface.outfitDebugger);
+    for (const [name, shade] of [
+      ['outfitTechlead', '#5c5f3a'],
+      ['outfitSecurity', '#3a3e4c'],
+      ['outfitLibrarian', '#6b2737'],
+      ['outfitDesigner', '#e8e4d8'],
+      ['outfitExplorer', '#9c8f5e'],
+      ['outfitPlanner', '#1f3350'],
+      ['outfitReviewer', '#3a3240'],
+    ] as const) {
+      expect(hex(m.surface[name].color), name).toBe(shade);
+    }
+    m.applyTheme(nightTheme());
+    expect(hex(m.surface.outfitDebugger.color)).toBe('#ffd27a');
+    expect(hex(m.surface.bossGold.color)).toBe('#ffd27a');
+    for (const [name, shade] of [
+      ['outfitTechlead', '#5c5f3a'],
+      ['outfitSecurity', '#3a3e4c'],
+      ['outfitLibrarian', '#6b2737'],
+      ['outfitDesigner', '#e8e4d8'],
+      ['outfitExplorer', '#9c8f5e'],
+      ['outfitPlanner', '#1f3350'],
+      ['outfitReviewer', '#3a3240'],
+    ] as const) {
+      // Fixed shades never move with the theme — the whole point of outfitSecurity/outfitReviewer replacing the
+      // near-black `monitor`/`leg` tokens they used to reuse (fix-round-2): those crashed to #0e1015/#15181f at
+      // night and read as the torso merging into the floor.
+      expect(hex(m.surface[name].color), name).toBe(shade);
+    }
+  });
+
   it('frees every material once', () => {
     const m = new Materials(dayTheme());
     let freed = 0;
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    // The surfaces (48, with the espresso machine's own chrome and its ready light), a body, joint and rug per repo
-    // slot, the ties, the screens, the ring, the contact disc, and the Fairmind badge's disc and its mark.
-    expect(m.all().length).toBe(48 + 3 * 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1);
+    // The surfaces (58: the espresso machine's own chrome and its ready light, plus the 7 persona outfits, the
+    // boss's gold and the planner's opaque blueprint roll, all appended at the end), a body, joint and rug per repo
+    // slot, the ties, the no-tie neutral, the screens, the ring, the contact disc, and the Fairmind badge's disc
+    // and its mark.
+    expect(m.all().length).toBe(58 + 3 * 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

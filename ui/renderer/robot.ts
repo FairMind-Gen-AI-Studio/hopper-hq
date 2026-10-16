@@ -6,8 +6,10 @@
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
 import { CylinderGeometry, Euler, Group, InstancedMesh, LatheGeometry, Object3D, Quaternion, SphereGeometry, Vector2, type Mesh } from 'three';
+import { type Persona } from '../../src/scene/persona';
 import type { Pose, Robot } from '../../src/scene/types';
 import type { Materials } from './materials';
+import { PERSONA_BODY, buildPersona, hasHeadgear, setPersonaVisible, type PersonaRig } from './persona';
 import { part, type Geometries, type PickData } from './props';
 import { SEAT_Y, isStanding, type Spot } from './world';
 
@@ -19,12 +21,13 @@ export type RobotKind = 'session' | 'intern' | 'workflow';
 
 /**
  * A robot's look, as the renderer builds and poses it: `Robot` (the wire type, outline §2.6) plus
- * whether it holds a lit cigar. `smoking` stays out of the shared `Robot` type — it never goes over
- * the wire on its own; the server sends it as `Occupant`/`Intern`/`MeetingAgent.smoking` instead
- * (src/scene/types.ts) and the renderer folds it in here. Optional, so every existing look literal
- * that has no `smoking` field still reads as not smoking.
+ * whether it holds a lit cigar, and which persona's costume it wears. Neither stays in the shared
+ * `Robot` type — `smoking` never goes over the wire on its own (the server sends it as
+ * `Occupant`/`Intern`/`MeetingAgent.smoking`, src/scene/types.ts); `persona` is never sent at all
+ * (src/scene/persona.ts, a pure function of the agent-type string the renderer already has). Both
+ * optional, so every existing look literal reads as not smoking and persona 'none'.
  */
-export type Look = Robot & { smoking?: boolean };
+export type Look = Robot & { smoking?: boolean; persona?: Persona };
 /** How big each kind stands. */
 export const KIND_SCALE: Readonly<Record<RobotKind, number>> = { session: 1, intern: 0.55, workflow: 0.8 };
 /** How high an intern floats: its feet would be here, and its body above the top of the desk's monitor. */
@@ -158,6 +161,10 @@ export interface RobotRig {
   /** Its coffee cup and saucer, in its right hand, counter-rotated against the coffee pose's own arm swing the same
    * way the drink is against gintonic's: shown only in the coffee pose. */
   cup: Group;
+  /** Its persona's accessories (persona.ts): headgear on the neck, always shown, and a held prop on armL, hidden in some poses. */
+  persona: PersonaRig;
+  /** A workflow agent's hard-hat meshes (empty for every other kind): hidden when its persona has its own headgear. */
+  hardHat: Mesh[];
 }
 
 /**
@@ -368,6 +375,8 @@ export interface RobotObject {
   /** The colour slots it was built with; a change of either rebuilds the robot. */
   readonly body: number;
   readonly tie: number | null;
+  /** The persona it was built with (persona.ts); a change rebuilds the robot (floor-scene.ts cast()). */
+  readonly persona: Persona;
   readonly pickables: readonly Mesh[];
 }
 
@@ -379,7 +388,11 @@ export interface RobotObject {
 export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats: Materials, kind: RobotKind = 'session'): RobotObject {
   const s = mats.surface;
   const small = { cast: false };
-  const body = mats.body(robot.body);
+  const persona = robot.persona ?? 'none';
+  // A persona's outfit recolours the torso (user-decisions.md OQ-3); 'none' and 'boss' keep the repo colour, the
+  // desk's own cue (persona.ts PERSONA_BODY).
+  const bodySurface = PERSONA_BODY[persona];
+  const body = bodySurface ? s[bodySurface] : mats.body(robot.body);
   const joint = mats.joint(robot.body);
   const tie = mats.tie(robot.tie);
   const group = new Group();
@@ -414,10 +427,13 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   part(neck, geo.rbox(0.38, 0.28, 0.26, 0.04), s.shell, 0, 0.2, 0);
   part(neck, geo.rbox(0.31, 0.2, 0.02, 0.008), s.monitor, 0, 0.2, 0.125, small);
   part(neck, geo.box(0.18, 0.035, 0.012), s.visor, 0, 0.21, 0.137, small);
-  // A workflow agent's hard hat: a dome on the top of the head and a brim, longer at the front.
+  // A workflow agent's hard hat: a dome on the top of the head and a brim, longer at the front. Hidden, not left
+  // unbuilt, when its persona has its own headgear: the more specific signal (persona.ts hasHeadgear).
+  const hardHat: Mesh[] = [];
   if (kind === 'workflow') {
-    part(neck, dome(geo), s.hardhat, 0, 0.34, 0);
-    part(neck, geo.rod(0.205, 0.205, 0.025, 24), s.hardhat, 0, 0.34, 0.02, small);
+    hardHat.push(part(neck, dome(geo), s.hardhat, 0, 0.34, 0));
+    hardHat.push(part(neck, geo.rod(0.205, 0.205, 0.025, 24), s.hardhat, 0, 0.34, 0.02, small));
+    if (hasHeadgear(persona)) for (const m of hardHat) m.visible = false;
   }
   // An intern's jetpack: two tanks on its back, each with a nozzle under it.
   if (kind === 'intern') {
@@ -461,6 +477,8 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   armR.add(cup);
   part(cup, geo.rod(0.036, 0.029, 0.05), s.paper, 0, 0.025, 0, small);
   part(cup, geo.rod(0.058, 0.058, 0.009), s.paper, 0, -0.0045, 0, small);
+  // The persona's own accessories: headgear on the neck, a held prop in the left hand (persona.ts).
+  const personaRig = buildPersona(neck, armL, persona, geo, mats);
 
   const laptop = buildLaptop(group, kind, geo, mats);
 
@@ -473,7 +491,16 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
       pickables.push(o as Mesh);
     }
   });
-  return { sessionId, kind, group, rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff, drink, cup }, body: robot.body, tie: robot.tie, pickables };
+  return {
+    sessionId,
+    kind,
+    group,
+    rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff, drink, cup, persona: personaRig, hardHat },
+    body: robot.body,
+    tie: robot.tie,
+    persona,
+    pickables,
+  };
 }
 
 /** Shows or hides a robot's cigar (and its tip and puff with it), in any pose, without rebuilding it. */
@@ -510,7 +537,16 @@ export function strideRobot(obj: RobotObject, at: { x: number; z: number; facing
   r.laptop.visible = false;
   r.drink.visible = false;
   r.cup.visible = false;
+  // Its held prop goes too, like the paper/glass/cup; its headgear, the persona's primary cue, stays shown.
+  setPersonaVisible(r.persona, { headgear: true, held: false });
 }
+
+/**
+ * Poses with a hand already busy (the gin tonic, the coffee cup, the foosball table's handle) or on the way
+ * (strideRobot): a persona's held prop hides there too, same as the right hand's own props (design: held prop vs
+ * right-hand props).
+ */
+const HELD_PROP_HIDDEN: ReadonlySet<Pose> = new Set(['holding', 'gintonic', 'biliardino', 'coffee']);
 
 /**
  * Puts the robot on its spot, facing its way, in the pose of its state; with `laptop`, its laptop open before it.
@@ -533,6 +569,7 @@ export function poseRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badge'>
   r.laptop.visible = laptop && !isStanding(robot.pose);
   r.drink.visible = robot.pose === 'gintonic';
   r.cup.visible = robot.pose === 'coffee';
+  setPersonaVisible(r.persona, { headgear: true, held: !HELD_PROP_HIDDEN.has(robot.pose) });
 }
 
 /**

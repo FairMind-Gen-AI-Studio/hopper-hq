@@ -110,7 +110,14 @@ function textViolations(file: string, source: string): string[] {
 }
 
 /** What `ui/` may import from `src/`: the browser-safe scene modules, and the core types as types only (outline §2.1). */
-const SHARED = new Set(['../src/scene/types', '../src/scene/palette', '../src/scene/text', '../src/scene/layout', '../src/scene/fairmind']);
+const SHARED = new Set([
+  '../src/scene/types',
+  '../src/scene/palette',
+  '../src/scene/text',
+  '../src/scene/layout',
+  '../src/scene/fairmind',
+  '../src/scene/persona',
+]);
 const PACKAGES = /^(?:svelte|three)(?:\/|$)/;
 
 function importViolations(file: string, source: string): string[] {

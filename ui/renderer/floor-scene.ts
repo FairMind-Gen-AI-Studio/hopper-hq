@@ -25,6 +25,7 @@
  */
 import { DirectionalLight, Group, HemisphereLight, Mesh, Scene, type Object3D } from 'three';
 import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
+import { personaOf } from '../../src/scene/persona';
 import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot, SceneLeisure } from '../../src/scene/types';
 import { attachFairmindBadge, orientFairmindBadge, setFairmindBadge } from './fairmind-badge';
 import type { Target } from './index';
@@ -528,7 +529,9 @@ export class FloorScene {
     }
     const at = occupant.at;
     const place = at.kind === 'lounge' ? `lounge ${at.seat}` : at.kind === 'room' ? `room ${at.slot}` : `desk ${desk.id} ${isStanding(robot.pose) ? 'stand' : 'seat'}`;
-    const look: Look = { ...robot, smoking: occupant.smoking, ...(at.kind === 'lounge' ? { pose: 'resting' as const } : {}) };
+    // The session's own robot always wears the boss persona (user-decisions.md OQ-1): a session carries no
+    // sub-agent type of its own, and every one of them gets the manager look, whatever a type would classify to.
+    const look: Look = { ...robot, smoking: occupant.smoking, persona: personaOf(null, 'session'), ...(at.kind === 'lounge' ? { pose: 'resting' as const } : {}) };
     const near = at.kind === 'desk' ? `desk ${desk.id}` : undefined;
     wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, laptop: at.kind === 'room', type: null, join: (r) => (it.robot = r) });
     const spots = internSpots(desk);
@@ -545,7 +548,7 @@ export class FloorScene {
         to: spots[seat]!,
         kind: 'intern',
         owner: id,
-        look: { ...crew, smoking: byAgent.get(agentId)?.smoking ?? false },
+        look: { ...crew, smoking: byAgent.get(agentId)?.smoking ?? false, persona: personaOf(byAgent.get(agentId)?.type) },
         name: `intern ${agentId}`,
         run: null,
         laptop: false,
@@ -559,7 +562,7 @@ export class FloorScene {
       if (!i.leisure) continue;
       const b = this.leisureSpot(i.leisure, internKey(id, i.agentId));
       if (!b) continue;
-      const look: Look = { pose: i.leisure, badge: null, body: robot.body, tie: robot.tie, smoking: i.smoking };
+      const look: Look = { pose: i.leisure, badge: null, body: robot.body, tie: robot.tie, smoking: i.smoking, persona: personaOf(i.type) };
       wanted.push({
         id: internKey(id, i.agentId),
         gait: 'fly',
@@ -603,7 +606,7 @@ export class FloorScene {
         to: b.spot,
         kind: 'workflow',
         owner: a.agentId,
-        look: { pose: a.leisure, badge: null, body: room.look.body, tie: room.look.tie, smoking: a.smoking },
+        look: { pose: a.leisure, badge: null, body: room.look.body, tie: room.look.tie, smoking: a.smoking, persona: personaOf(a.type) },
         name: `agent ${a.agentId}`,
         run: room.runId,
         laptop: false,
@@ -619,7 +622,7 @@ export class FloorScene {
         to: spots[seat]!,
         kind: 'workflow',
         owner: agentId,
-        look: { ...look, smoking: byAgent.get(agentId)?.smoking ?? false },
+        look: { ...look, smoking: byAgent.get(agentId)?.smoking ?? false, persona: personaOf(byAgent.get(agentId)?.type) },
         name: `agent ${agentId}`,
         run: room.runId,
         laptop: true,
@@ -636,7 +639,7 @@ export class FloorScene {
   private cast(wanted: Cast[], now: number): void {
     for (const c of wanted) {
       let mover = this.movers.get(c.id);
-      if (mover && (mover.robot.body !== c.look.body || mover.robot.tie !== c.look.tie)) {
+      if (mover && (mover.robot.body !== c.look.body || mover.robot.tie !== c.look.tie || mover.robot.persona !== (c.look.persona ?? 'none'))) {
         this.drop(c.id, mover);
         mover = undefined;
       }
