@@ -95,6 +95,36 @@ test('jumps without asking tmux when the daemon does not say which tmux session 
   ])
 })
 
+const XIRP_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d'
+const XIRP_ATTENTION = { ...ATTENTION, items: ATTENTION.items.map(i => (i.id === 'S2' ? { ...i, tmuxSession: `xirp-${XIRP_ID}` } : i)) }
+
+test('inside Xirp, Go opens the waiting session in the app and never switches tmux', async ($, on) => {
+  const ran: string[][] = []
+  daemon(on, XIRP_ATTENTION, { ...IN_TMUX, CHIRP_SESSION_ID: 'S-OWN', CHIRP_EDITION: 'external' }, ran)
+  const clock = mock.clock(on)
+  await $.session.start(START)
+  await clock.advance(3100)
+  const ui = await $.ui.mount({ plugin: 'hopper-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await ui.press({ key: 'go' })
+  await ui.unmount()
+  expect(ran).toEqual([['open', `xirp://launch?action=open-session&sessionId=${XIRP_ID}`]])
+})
+
+for (const [why, attention, edition] of [
+  ['a session it cannot name', ATTENTION, 'external'],
+  ['an edition it does not know', XIRP_ATTENTION, 'core'],
+] as const) {
+  test(`inside Xirp, offers no Go for ${why}`, async ($, on) => {
+    daemon(on, attention, { ...IN_TMUX, CHIRP_SESSION_ID: 'S-OWN', CHIRP_EDITION: edition }, [])
+    const clock = mock.clock(on)
+    await $.session.start(START)
+    await clock.advance(3100)
+    const ui = await $.ui.mount({ plugin: 'hopper-hq', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect(await ui.find({ key: 'go' })).toBeUndefined()
+    await ui.unmount()
+  })
+}
+
 test('offers no jump outside tmux', async ($, on) => {
   daemon(on, ATTENTION, { HOME: '/home/dev' }, [])
   const clock = mock.clock(on)
