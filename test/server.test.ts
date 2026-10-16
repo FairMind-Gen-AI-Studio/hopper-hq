@@ -7,6 +7,7 @@ import { Collector } from '../src/collector.js';
 import { createApiServer } from '../src/server/http.js';
 
 const TOKEN = 'test-token-0123456789abcdef0123456789abcdef';
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 const permission = readFileSync(new URL('./fixtures/hooks/PermissionRequest.json', import.meta.url), 'utf8');
 const SID = JSON.parse(permission).session_id as string;
 
@@ -56,7 +57,7 @@ describe('API security', () => {
 describe('API routes', () => {
   it('reports health', async () => {
     const r = await call({ path: '/api/health' });
-    expect(r).toEqual({ status: 200, json: { ok: true, version: '0.1.0' } });
+    expect(r).toEqual({ status: 200, json: { ok: true, version } });
   });
 
   it('accepts hook payloads and reflects them in attention', async () => {
