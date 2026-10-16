@@ -113,6 +113,15 @@ export function poseOf(robot: Pick<Robot, 'pose' | 'badge'>, kind: RobotKind = '
 export const FOOSBALL_HOVER_Y = 0.28;
 
 /**
+ * How high an intern floats at the coffee machine: low enough that its body, and the cup in its hand (the coffee
+ * pose's own bend), sit at about the counter's own top (world.ts's COFFEE_COUNTER_H), not its desk's HOVER_Y — a
+ * hover meant for floating over a desk and its monitor, a good half a metre above any counter. Without it an intern
+ * at this pose floats at head height over the machine instead of standing at it, the same mismatch FOOSBALL_HOVER_Y
+ * fixes at the table.
+ */
+export const COFFEE_HOVER_Y = 0.3;
+
+/**
  * How far past its stand spot (`foosballSpots`, world.ts) each kind leans in, in z, to put its hand on the near
  * handle at the biliardino pose: the pose's own bend (`BILIARDINO_BY_KIND`) and a standing kind's floor-level root
  * both leave a shorter kind further from the handle than a taller one — closing the same vertical gap by bending
@@ -122,9 +131,10 @@ export const FOOSBALL_HOVER_Y = 0.28;
  */
 export const BILIARDINO_REACH: Readonly<Record<RobotKind, number>> = { session: 0.072, workflow: 0.163, intern: 0.231 };
 
-/** Height of the robot's feet: a seated robot sinks until its hips, at its size, rest on the chair; an intern hovers. */
+/** Height of the robot's feet: a seated robot sinks until its hips, at its size, rest on the chair; an intern hovers,
+ * low over the foosball table's own rods or the coffee counter's own top, desk-high everywhere else. */
 export function rootHeight(pose: Pose, kind: RobotKind = 'session'): number {
-  if (kind === 'intern') return pose === 'biliardino' ? FOOSBALL_HOVER_Y : HOVER_Y;
+  if (kind === 'intern') return pose === 'biliardino' ? FOOSBALL_HOVER_Y : pose === 'coffee' ? COFFEE_HOVER_Y : HOVER_Y;
   return isStanding(pose) ? 0 : SEAT_Y - BOT.hip * KIND_SCALE[kind];
 }
 
@@ -145,8 +155,9 @@ export interface RobotRig {
   puff: InstancedMesh;
   /** Its gin tonic (buildDrink), in its right hand: shown only in the gintonic pose. */
   drink: Group;
-  /** Its coffee cup, in its right hand: shown only in the coffee pose. */
-  cup: Mesh;
+  /** Its coffee cup and saucer, in its right hand, counter-rotated against the coffee pose's own arm swing the same
+   * way the drink is against gintonic's: shown only in the coffee pose. */
+  cup: Group;
 }
 
 /**
@@ -435,10 +446,21 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   part(waist, geo.box(0.05, 0.04, 0.03), tie, 0, knotY, 0.125, small);
   part(waist, tieBlade(geo), tie, 0, knotY - 0.12, 0.121, { rx: 0.08, cast: false });
   const paper = part(armR, geo.box(0.2, 0.015, 0.26), s.paper, -0.07, -BOT.arm - 0.03, 0.05, { rx: 2.6 });
-  // Leisure props, in the hand that holds the paper: the gin tonic (buildDrink), or a coffee cup. The cup casts no
-  // shadow: at this size it would cost a draw for a texel or two of it; the drink's own parts are built the same way.
+  // Leisure props, in the hand that holds the paper: the gin tonic (buildDrink), or a coffee cup on its own saucer,
+  // both in the paper's own white — small enough, at an espresso cup's own scale, that only the cup's shape (not a
+  // second colour) has to read as "coffee". Like the drink, the cup is its own group, counter-rotated against the
+  // coffee pose's own arm swing (POSES.coffee.armR) so it stands upright in the hand instead of lying on its side
+  // wherever the raised forearm points; neither it nor the saucer casts a shadow, at this size each would cost a
+  // draw for a texel or two of it, the drink's own parts built the same way.
   const drink = buildDrink(armR, geo, mats);
-  const cup = part(armR, geo.rod(0.035, 0.03, 0.06), s.paper, 0, -BOT.arm + 0.04, 0.05, small);
+  const cup = new Group();
+  cup.name = 'cup';
+  cup.visible = false;
+  cup.position.set(0, -BOT.arm - 0.04, 0.02);
+  cup.quaternion.copy(new Quaternion().setFromEuler(new Euler(POSES.coffee.armR[0], 0, POSES.coffee.armR[1])).invert());
+  armR.add(cup);
+  part(cup, geo.rod(0.036, 0.029, 0.05), s.paper, 0, 0.025, 0, small);
+  part(cup, geo.rod(0.058, 0.058, 0.009), s.paper, 0, -0.0045, 0, small);
 
   const laptop = buildLaptop(group, kind, geo, mats);
 

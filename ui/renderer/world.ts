@@ -240,11 +240,21 @@ export function foosballSpots(rect: GridRect): Spot[] {
 
 /**
  * The coffee machine (OQ-3: a finished sub-agent waiting outside the leisure window takes a coffee break here),
- * centred between the cart and the table, in the free gap their own footprints and rings leave between them.
+ * centred between the cart and the table, in the free gap their own footprints and rings leave between them: the
+ * footprint of its counter (props.ts), a short wood cabinet in the bar's own tone, not the espresso machine's own
+ * smaller body, which stands on top of it.
  */
-export const COFFEE_MACHINE = { w: 0.6, d: 0.5 } as const;
-/** How far the one stand spot stands south of the machine's centre, facing it. */
-export const COFFEE_MACHINE_OUT = 0.5;
+export const COFFEE_MACHINE = { w: 1.0, d: 0.5 } as const;
+/** The counter's own top surface, where the espresso machine, its cups and its grinder stand (props.ts): level with
+ * the bar's own counter top, give or take, so the two read as furniture of a kind. */
+export const COFFEE_COUNTER_H = 0.9;
+/**
+ * How far the one stand spot stands south of the counter's front edge, facing it: clear of the counter's own
+ * footprint, and, at the camera's own oblique angle, clear enough of the machine's height too that an intern's
+ * floating body (robot.ts's COFFEE_HOVER_Y, well below its desk's own hover) reads as standing at the counter, not
+ * astride it — a taller BAR_SPOT_OUT keeps the bar's own customers clear of its taller rack the same way.
+ */
+export const COFFEE_MACHINE_OUT = 0.8;
 
 /** Where the coffee machine stands: the break area's own centre, midway between the cart and the table. */
 export function coffeeMachineCenter(rect: GridRect): Point {

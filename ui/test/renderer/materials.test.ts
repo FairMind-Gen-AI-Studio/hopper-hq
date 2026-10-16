@@ -174,9 +174,9 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    // The surfaces, a body, joint and rug per repo slot, the ties, the screens, the ring, the contact disc, and the
-    // Fairmind badge's disc and its mark.
-    expect(m.all().length).toBe(46 + 3 * 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1);
+    // The surfaces (48, with the espresso machine's own chrome and its ready light), a body, joint and rug per repo
+    // slot, the ties, the screens, the ring, the contact disc, and the Fairmind badge's disc and its mark.
+    expect(m.all().length).toBe(48 + 3 * 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

@@ -259,10 +259,15 @@ describe('the shell', () => {
       // counter: its panel and its overhanging top, its lime bowl and its rim, its four limes, and its two glasses'
       // feet, bellies and rims. A stool's seat and its leg.
       ...[1, 2, 2, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 4, 2, 2, 2, 2, 2],
-      // The coffee machine's body, its tray and its cup; the biliardino table's cabinet, legs and cross-bars, its
-      // field, lines, circle and ball, its rim's long walls and short segments and its two goal mouths, its 8 rods
-      // and their handles, and its players' bodies and heads, in each team's colour.
-      ...[1, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
+      // The espresso machine (OQ-3, no longer a fridge-like box): its counter cabinet and its overhanging top; its
+      // own chrome body and its cup-warmer tray plate; the tray's three cups; its two gauges' bezels and dials; its
+      // ready light; its two group heads, their portafilter shafts and grip balls; its drip tray; its steam wand and
+      // its own tip nozzle (round 1: moved clear of the body and given a ball tip of its own so it reads as a wand
+      // at the camera's usual angles, not just a thin rod lost against the chrome); its grinder's own body and its
+      // bean hopper; its stack of three cups; and its sugar jar's body and lid. Then the biliardino table's cabinet,
+      // legs and cross-bars, its field, lines, circle and ball, its rim's long walls and short segments and its two
+      // goal mouths, its 8 rods and their handles, and its players' bodies and heads, in each team's colour.
+      ...[1, 1, 1, 1, 3, 2, 2, 1, 2, 2, 2, 1, 1, 1, 1, 1, 3, 1, 1, 1, 4, 2, 1, 3, 1, 1, 2, 4, 2, 8, 16, 11, 11, 11, 11],
       // The rooms: each table, its two pedestals, and its nine seats.
       ...[r, 2 * r, 9 * r],
     ]);
@@ -299,7 +304,7 @@ describe('the shell', () => {
     }
   });
 
-  it('furnishes the break area: a bar cart with bottles and glasses, a coffee machine with a cup, and a biliardino table with a green field, 8 rods and two teams of players, all inside its rect', () => {
+  it('furnishes the break area: a bar cart with bottles and glasses, an espresso machine on its own counter, and a biliardino table with a green field, 8 rods and two teams of players, all inside its rect', () => {
     const { geo, mats } = kit();
     const floor = checkoutFloor();
     const shell = buildShell(floor, geo, mats);
@@ -308,26 +313,33 @@ describe('the shell', () => {
     const inArea = (b: Box3) => b.min.x > rect.x && b.max.x < rect.x + rect.w && b.min.z > rect.y && b.max.z < rect.y + rect.h;
     const of = (m: Material) => drawn(shell.group, m).filter(inArea);
     // The back-bar's own wood (its back panel, two posts, two shelf planks and header) and the counter's panel and
-    // its overhanging top, all s.cart; its two amber bottles; its two balloon glasses' feet, bellies and rims, all
-    // s.glass; and its mirror strip, s.mirror.
-    expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length, of(s.mirror).length]).toEqual([8, 2, 6, 1]);
-    // The coffee machine's body (apart from the elevator doors, which lie outside the break area) and its cup, apart
-    // from the lounge's own coffee-table cup, which also shares s.paper but lies outside the break area.
-    const machine = of(s.elevator);
+    // its overhanging top, s.cart, with the espresso machine's own counter cabinet and overhanging top, two more of
+    // the same; its two amber bottles, s.bottle, with the grinder's own bean hopper, one more; its two balloon
+    // glasses' feet, bellies and rims, all s.glass, untouched; and its mirror strip, s.mirror.
+    expect([of(s.cart).length, of(s.bottle).length, of(s.glass).length, of(s.mirror).length]).toEqual([10, 3, 6, 1]);
+    // The espresso machine's own polished body, its cup-warmer tray and its grinder's own body, all s.chrome, and
+    // its amber ready light, s.coffeeLight (OQ-3: a fridge-like box once stood here instead).
+    const machine = of(s.chrome);
+    expect([machine.length, of(s.coffeeLight).length]).toEqual([3, 1]);
+    // Its own cups — three upside down on the tray, three stacked by the grinder — and its gauges' dials, apart from
+    // the lounge's own coffee-table cup and the foosball ball and net dividers, which also share s.paper but lie
+    // nearer the table.
     const paper = of(s.paper);
-    expect(machine.length).toBe(1);
     const table = foosballCenter(rect);
     const nearTable = paper.filter((b) => Math.abs(b.getCenter(new Vector3()).x - table.x) < FOOSBALL.w / 2);
-    expect([nearTable.length, paper.length - nearTable.length]).toEqual([5, 1]);
-    // Its 8 rods and the bar's two frame-coloured bottles, apart from the window and partition frames elsewhere on
-    // the floor; its two goal mouths and the bar's one monitor-dark bottle, apart from the desks' and the elevator's
-    // own monitors.
-    expect(of(s.frame).length).toBe(10);
+    expect([nearTable.length, paper.length - nearTable.length]).toEqual([5, 8]);
+    // Its two group heads and its two gauges' bezels and its sugar jar's lid (round 1: its steam wand moved to the
+    // darker handle token, s.leg, for contrast against the chrome body — not this one, any more), with the bar's
+    // two frame-coloured bottles and its 8 rods, apart from the window and partition frames elsewhere on the floor;
+    // its two goal mouths and the bar's one monitor-dark bottle, apart from the desks' and the elevator's own
+    // monitors.
+    expect(of(s.frame).length).toBe(15);
     expect(of(s.monitor).length).toBe(3);
     // Its two teams of 11 players each (a body and a head apiece), in colours found nowhere else on the floor.
     expect([of(s.foosballA).length, of(s.foosballB).length]).toEqual([22, 22]);
-    // Every stand spot of the cart, the coffee machine and the table lies inside the break area, clear of its own
-    // furniture: the cart, the machine's body, and every leg, cross-bar, rim segment and handle of the table (s.leg).
+    // Every stand spot of the cart, the espresso machine and the table lies inside the break area, clear of its own
+    // furniture: the cart and the machine's own counter (s.cart), its own body (s.chrome), and every leg, cross-bar,
+    // rim segment and handle of the table (s.leg).
     const furniture = [...of(s.cart), ...machine, ...of(s.leg)];
     for (const spot of [...barCartSpots(rect), ...coffeeMachineSpots(rect), ...foosballSpots(rect)]) {
       expect(spot.x).toBeGreaterThan(rect.x);

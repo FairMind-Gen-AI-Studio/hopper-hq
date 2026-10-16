@@ -109,6 +109,18 @@ const SURFACES = {
    * and the accent blue, already in every theme, so no new token is needed for a pair of jerseys. */
   foosballA: { color: 's-needs', roughness: 0.6 },
   foosballB: { color: 'accent', roughness: 0.6 },
+  /**
+   * The espresso machine's own polished steel body (props.ts): the frame token's own darker steel-blue, not the
+   * elevator's own lighter one — that first cut landed in the same pale grey-value family as the elevator doors
+   * and the robot heads (both close to `scene-elevator` itself) and so read as just another grey box, not a
+   * separately metallic one. Lifted only a third of the way to paper white (so it keeps real value apart from
+   * `scene-elevator`/`bot-shell`) and far less rough than a wall panel reads as, for the sharper, shinier highlight
+   * a polished machine throws under the floor's own lights — with no new theme token for a prop this small.
+   */
+  chrome: { color: 'scene-frame', mix: ['scene-paper', 0.3], roughness: 0.05 },
+  /** The machine's own amber ready light, glowing the same way the cigar's lit tip does (an ember, no state meaning
+   * here either): the working state's own amber, reused as a plain accent. */
+  coffeeLight: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
 } as const satisfies Record<string, Recipe>;
 
 export type Surface = keyof typeof SURFACES;
