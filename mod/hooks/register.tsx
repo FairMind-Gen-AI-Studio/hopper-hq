@@ -134,6 +134,28 @@ async function jump($: EngineInterface, pane: string, session: string | null) {
   await $.process.run(['tmux', 'select-pane', '-t', pane])
 }
 
+// Xirp runs each agent in its own tmux session, `xirp-<id>`, one client per app tab: a tmux switch from a tab would
+// move that tab onto the other session. Its sessions are focused through the app's deep link instead.
+const XIRP_SESSION = /^xirp-([0-9a-f-]{36})$/
+const XIRP_SCHEMES: Record<string, string> = { external: 'xirp', internal: 'xirp-internal' }
+
+// The deep link that focuses the Xirp session `tmuxSession` names, or null when the edition or the name is not known.
+function xirpLink(edition: string | undefined, tmuxSession: string | null): string | null {
+  const scheme = edition === undefined ? undefined : XIRP_SCHEMES[edition]
+  const id = tmuxSession === null ? undefined : XIRP_SESSION.exec(tmuxSession)?.[1]
+  return scheme && id ? `${scheme}://launch?action=open-session&sessionId=${id}` : null
+}
+
+async function openLink($: EngineInterface, link: string) {
+  try {
+    const r = await $.process.run(['open', link], { timeoutMs: 5000 })
+    if (r.exitCode === 0) return
+  } catch {
+    // Falls through to the toast.
+  }
+  $.ui.toast('Could not open the session in Xirp')
+}
+
 // Whether this tmux server has `pane` in `session`. A tmux that fails, or does not answer in time, says no.
 async function inSession($: EngineInterface, pane: string, session: string): Promise<boolean> {
   try {
@@ -241,14 +263,19 @@ export const register: Register = on => {
     const done = a.items.filter(i => i.state === 'done' && i.id !== own).length
     if (waiting.length === 0 && done === 0) return next(e)
     const inTmux = (await $.env.get('TMUX')) !== undefined
+    // Inside Xirp, Go is the app's focus; a tmux switch there would take over this session's tab.
+    const inXirp = (await $.env.get('CHIRP_SESSION_ID')) !== undefined
+    const edition = await $.env.get('CHIRP_EDITION')
     const first = waiting[0]
     const pane = first?.tmuxPane ?? null
     const session = first?.tmuxSession ?? null
+    const link = inXirp ? xirpLink(edition, session) : null
+    const canJump = inXirp ? link !== null : pane !== null && inTmux
     const { Box, Button, Text } = $.ui.resolve(e)
     return (
       <Box>
         {first ? <Text color="red">◉ {waiting.length} waiting · {first.name ?? first.repo}: {first.reason?.text ?? 'needs you'} </Text> : null}
-        {pane && inTmux ? <Button key="go" label="Go" onPress={() => jump($, pane, session)} /> : null}
+        {canJump ? <Button key="go" label="Go" onPress={() => (link ? openLink($, link) : jump($, pane!, session))} /> : null}
         {done > 0 ? <Text color="green"> ✓ {done} done</Text> : null}
         <Button key="building" label="Open building" onPress={async () => $.ui.toast((await openBuilding($)) ?? NOT_INSTALLED)} />
       </Box>
