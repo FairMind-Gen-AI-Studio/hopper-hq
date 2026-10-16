@@ -32,7 +32,7 @@ An isometric office building where every Claude Code session gets a desk, and a 
 
 </div>
 
-Provided by [FairMind](https://fairmind.ai), and open source under the Apache License 2.0.
+Provided by [FairMind](https://fairmind.ai/?utm_source=github&utm_medium=oss&utm_campaign=hopper-hq&utm_content=readme-top), and open source under the Apache License 2.0.
 
 Every session gets a desk in an isometric office building: one floor per feature, pods of desks for each checkout, interns for subagents, meeting rooms for workflows, a lounge for idle sessions, and a basement archive for finished work. Robots walk between them as sessions change state. A red window on the façade means someone is waiting for you.
 
@@ -379,6 +379,6 @@ hopper-hq is provided by FairMind and is not affiliated with or endorsed by Anth
 
 ## License
 
-[Apache-2.0](LICENSE). hopper-hq is provided by [FairMind](https://fairmind.ai); see [NOTICE](NOTICE).
+[Apache-2.0](LICENSE). hopper-hq is provided by [FairMind](https://fairmind.ai/?utm_source=github&utm_medium=oss&utm_campaign=hopper-hq&utm_content=readme-footer); see [NOTICE](NOTICE).
 
 The browser UI bundles the Archivo, IBM Plex Sans and IBM Plex Mono typefaces, under the SIL Open Font License 1.1, and the Svelte, clsx and three.js libraries, under the MIT licence: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
