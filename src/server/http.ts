@@ -15,6 +15,8 @@ const VERSION = (createRequire(import.meta.url)('../../package.json') as { versi
 export interface ApiOptions {
   collector: Collector;
   token: string;
+  /** An additional loopback port used by an SSH forward, also used in sign-in links. */
+  viaPort?: number | null;
   maxBodyBytes?: number;
   now?: () => number;
   /** Sign-in codes and cookies; share one with the daemon so it can mint codes itself. */
@@ -37,6 +39,7 @@ function withDefaults(o: ApiOptions): Deps {
   return {
     collector: o.collector,
     token: o.token,
+    viaPort: o.viaPort ?? null,
     maxBodyBytes: o.maxBodyBytes ?? 1_000_000,
     now: o.now ?? Date.now,
     auth: o.auth ?? new UiAuth({ token: o.token, now: o.now }),
@@ -52,7 +55,7 @@ interface Ctx {
   req: IncomingMessage;
   res: ServerResponse;
   url: URL;
-  /** The port this request arrived on. */
+  /** The validated Host port, used to name the browser cookie. */
   port: number;
   /** Groups captured by a pattern path. */
   params: string[];
@@ -142,12 +145,20 @@ function send(res: ServerResponse, status: number, body?: unknown): void {
   res.writeHead(status, { ...API_HEADERS, 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(body));
 }
 
-export function allowedHost(host: string | undefined, port: number): boolean {
-  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+export function allowedHost(host: string | undefined, port: number, viaPort?: number | null): boolean {
+  return (
+    host === `127.0.0.1:${port}` || host === `localhost:${port}` ||
+    (viaPort != null && (host === `127.0.0.1:${viaPort}` || host === `localhost:${viaPort}`)) ||
+    ((port === 80 || viaPort === 80) && (host === '127.0.0.1' || host === 'localhost'))
+  );
 }
 
-export function allowedOrigin(origin: string | undefined, port: number): boolean {
-  return origin === undefined || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+export function allowedOrigin(origin: string | undefined, port: number, viaPort?: number | null): boolean {
+  return (
+    origin === undefined || origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}` ||
+    (viaPort != null && (origin === `http://127.0.0.1:${viaPort}` || origin === `http://localhost:${viaPort}`)) ||
+    ((port === 80 || viaPort === 80) && (origin === 'http://127.0.0.1' || origin === 'http://localhost'))
+  );
 }
 
 function redirect(res: ServerResponse, status: 302 | 303, location: string, headers: Record<string, string> = {}): void {
@@ -180,9 +191,10 @@ function readBody(req: IncomingMessage, limit: number): Promise<string | null> {
 }
 
 async function handle(d: Deps, table: Route[], req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const port = req.socket.localPort ?? 0;
-  if (!allowedHost(req.headers.host, port)) return send(res, 403, { error: 'Host not allowed' });
-  if (!allowedOrigin(req.headers.origin, port)) return send(res, 403, { error: 'Origin not allowed' });
+  const listeningPort = req.socket.localPort ?? 0;
+  if (!allowedHost(req.headers.host, listeningPort, d.viaPort)) return send(res, 403, { error: 'Host not allowed' });
+  if (!allowedOrigin(req.headers.origin, listeningPort, d.viaPort)) return send(res, 403, { error: 'Origin not allowed' });
+  const port = Number(req.headers.host!.split(':')[1] ?? '80');
 
   // An absolute-form target ('GET http://… HTTP/1.1') can be any text.
   const target = req.url ?? '/';
@@ -266,7 +278,7 @@ function postShutdown(d: Deps, res: ServerResponse): void {
 
 function postLoginCode(d: Deps, { res, port }: Ctx): void {
   const { code, expiresAt } = d.auth.issueCode();
-  send(res, 200, { url: loginUrl(port, code), expiresAt });
+  send(res, 200, { url: loginUrl(d.viaPort ?? port, code), expiresAt });
 }
 
 const EXPIRED_PAGE = `<!doctype html>

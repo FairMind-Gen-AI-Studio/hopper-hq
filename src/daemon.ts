@@ -24,6 +24,8 @@ import { Summarizer } from './summary/summarizer.js';
 
 export interface DaemonOptions {
   port?: number;
+  /** The laptop's loopback port when reaching this daemon through SSH. */
+  viaPort?: number;
   claudeDir?: string;
   dataDir?: string;
   /** Watch ~/.claude on disk (default true). The mod works either way. */
@@ -172,7 +174,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
   let requestStop!: () => void;
   const stopRequested = new Promise<void>((resolve) => (requestStop = resolve));
-  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, onShutdown: () => requestStop() });
+  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, viaPort: opts.viaPort, onShutdown: () => requestStop() });
 
   let port: number;
   try {
@@ -215,7 +217,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
     port,
     dataDir: paths.dataDir,
     collector,
-    loginUrl: (ttlMs) => loginUrl(port, auth.issueCode(ttlMs).code),
+    loginUrl: (ttlMs) => loginUrl(opts.viaPort ?? port, auth.issueCode(ttlMs).code),
     stopRequested,
     stop: async () => {
       summarizer.stop();
