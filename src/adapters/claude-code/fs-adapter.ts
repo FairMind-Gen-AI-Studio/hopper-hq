@@ -1,7 +1,7 @@
 import { access, readdir, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { RawEvent } from '../../core/types.js';
-import type { WorkspaceResolver } from '../git.js';
+import type { BranchResolver, WorkspaceResolver } from '../git.js';
 import { readHeadLines, readNewLines, readTailLines, type TailState } from './jsonl.js';
 import { isSameProcess, psProbe, readSessionsDir, type LiveSessionFile, type ProcessProbe } from './sessions-dir.js';
 import { parseTranscriptLine } from './transcript.js';
@@ -11,6 +11,14 @@ export interface FsAdapterOptions {
   claudeDir: string;
   emit: (e: RawEvent) => void;
   resolveWorkspace: WorkspaceResolver;
+  /**
+   * The branch a checkout is on, asked of git. A transcript's branch is only a hint: Claude Code stamps a session's lines
+   * with the branch of the checkout it last looked at, a subagent's worktree while one runs. Without it, the transcript's
+   * branch is taken as it is.
+   */
+  resolveBranch?: BranchResolver;
+  /** How long a branch check that got no answer waits before it asks again; the wait doubles with each answer missed in a row. */
+  branchRetryMs?: number;
   probe?: ProcessProbe;
   now?: () => number;
   /** A subagent transcript written within this window counts as running. */
@@ -31,7 +39,19 @@ interface Tracked {
   file: LiveSessionFile;
   transcript: string | null;
   tail: TailState | null;
+  /** The last branch the transcript stamped, and when. */
   branch: string | null;
+  branchAt: number | null;
+  /** The branch is to be checked: the stamp changed, or the last check got no answer. */
+  branchStale: boolean;
+  /** Checks in a row that got no answer, and when the next may ask. */
+  branchMisses: number;
+  branchRetryAt: number;
+  /** The file git rewrites when the checkout's HEAD moves, and its identity when last checked: a switch the transcript does not show changes it. */
+  watch: string | null;
+  watchId: string | null;
+  /** The last branch reported. */
+  reportedBranch: string | null;
   statusAt: number | null;
   children: Map<string, boolean>;
   metas: Map<string, { type: string; description: string | null }>;
@@ -49,6 +69,18 @@ export function encodeProjectDir(cwd: string): string {
 /** A session's directory, next to its transcript: its subagents and workflow runs live there. */
 function sessionDirOf(transcript: string): string {
   return join(dirname(transcript), basename(transcript, '.jsonl'));
+}
+
+const BRANCH_RETRY_MAX_MS = 5 * 60_000;
+
+/** A file's inode and mtime: git replaces the files it watches by renaming, so two writes within one mtime tick still differ. */
+async function fileId(path: string): Promise<string | null> {
+  try {
+    const s = await stat(path);
+    return `${s.ino}:${s.mtimeMs}`;
+  } catch {
+    return null;
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -120,6 +152,7 @@ export class FsAdapter {
         this.o.emit({ type: 'session.status', sessionId: f.sessionId, ts: f.statusUpdatedAt, source: 'fs', cwd: f.cwd, status: f.status, waitingFor: f.waitingFor });
       }
       await this.follow(t, now);
+      await this.checkBranch(t, now);
       await this.scanSubagents(t, now);
     }
 
@@ -162,6 +195,14 @@ export class FsAdapter {
       transcript,
       tail: null,
       branch: null,
+      branchAt: null,
+      // The first check finds the checkout's HEAD file, to watch from then on.
+      branchStale: true,
+      branchMisses: 0,
+      branchRetryAt: 0,
+      watch: null,
+      watchId: null,
+      reportedBranch: null,
       statusAt: null,
       children: new Map(),
       metas: new Map(),
@@ -207,6 +248,9 @@ export class FsAdapter {
     if (!found) return;
     t.transcript = found;
     await this.announce(t.file, found, now);
+    // The announce's workspace may be a cached one, older than the branch reported since: the branch is reported again.
+    t.reportedBranch = null;
+    t.branchStale = true;
     await this.backfill(t, found);
   }
 
@@ -225,8 +269,46 @@ export class FsAdapter {
     for (const launch of parsed.launches ?? []) t.workflows.noteLaunch(launch);
     if (parsed.branch && parsed.branch !== t.branch) {
       t.branch = parsed.branch;
-      this.o.emit({ type: 'branch', sessionId: t.file.sessionId, ts: parsed.ts ?? this.now(), source: 'fs', cwd: t.file.cwd, branch: parsed.branch });
+      t.branchAt = parsed.ts ?? this.now();
+      t.branchStale = true;
     }
+  }
+
+  /**
+   * Reports the session's branch once the stamp changed or the checkout's HEAD moved: the checkout says whether the
+   * session moved, or a subagent's worktree only lent its branch. Git is asked at most once a scan, however many lines
+   * the scan read.
+   */
+  private async checkBranch(t: Tracked, now: number): Promise<void> {
+    if (!this.o.resolveBranch) {
+      if (t.branchStale && t.branch) this.reportBranch(t, t.branch, t.branchAt ?? now);
+      t.branchStale = false;
+      return;
+    }
+    const id = t.watch ? await fileId(t.watch) : null;
+    if (!t.branchStale && id === t.watchId) return;
+    if (now < t.branchRetryAt) return;
+    const found = await this.o.resolveBranch(t.file.cwd).catch(() => null);
+    if (!found) {
+      // Asked again later, as a stamp is not repeated and a HEAD that moved does not move again. Outside git, in a
+      // checkout that is gone, or with a git that hangs, the answer stays missing: the waits grow, to five minutes.
+      t.branchStale = true;
+      t.branchMisses++;
+      t.branchRetryAt = now + Math.min((this.o.branchRetryMs ?? 5000) * 2 ** (t.branchMisses - 1), BRANCH_RETRY_MAX_MS);
+      return;
+    }
+    t.branchStale = false;
+    t.branchMisses = 0;
+    t.watchId = found.watch === t.watch ? id : await fileId(found.watch);
+    t.watch = found.watch;
+    // The stamp's time when the checkout confirms the stamp, else now: the answer is about the checkout as it is.
+    this.reportBranch(t, found.branch, found.branch === t.branch && t.branchAt !== null ? t.branchAt : now);
+  }
+
+  private reportBranch(t: Tracked, branch: string, ts: number): void {
+    if (branch === t.reportedBranch) return;
+    t.reportedBranch = branch;
+    this.o.emit({ type: 'branch', sessionId: t.file.sessionId, ts, source: 'fs', cwd: t.file.cwd, branch });
   }
 
   private async findTranscript(sessionId: string, cwd: string): Promise<string | null> {

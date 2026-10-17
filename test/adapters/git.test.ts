@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
-import { createGitResolver, resolveWorkspace, type GitRunner } from '../../src/adapters/git.js';
+import { createBranchResolver, createGitResolver, resolveWorkspace, runGit, type GitRunner } from '../../src/adapters/git.js';
 import { floorKeyOf } from '../../src/core/view.js';
 
 const execFileP = promisify(execFile);
@@ -98,6 +98,64 @@ describe('resolveWorkspace', () => {
   it('falls back to the directory name when git is unavailable', async () => {
     const failing: GitRunner = async () => null;
     expect(await resolveWorkspace('/x/y/storefront', failing)).toEqual({ cwd: '/x/y/storefront', repoRoot: null, repoName: 'storefront', worktree: false, branch: null, root: null });
+  });
+});
+
+describe('createBranchResolver', () => {
+  it("says the branch of the checkout asked about, not of a worktree beside it, and where its HEAD is", async () => {
+    const branchOf = createBranchResolver();
+    expect(await branchOf(repo)).toEqual({ branch: 'feat/checkout-v2', watch: join(repo, '.git', 'HEAD') });
+    expect(await branchOf(join(base, 'wt-other'))).toEqual({ branch: 'feat/other', watch: join(repo, '.git', 'worktrees', 'wt-other', 'HEAD') });
+    expect(await branchOf(join(base, 'wt-detached'))).toEqual({ branch: 'HEAD', watch: join(repo, '.git', 'worktrees', 'wt-detached', 'HEAD') });
+    const plain = join(base, 'plain-branch');
+    await mkdir(plain);
+    expect(await branchOf(plain)).toBeNull();
+  });
+
+  it('says the branch of a repository with no commit yet', async () => {
+    const fresh = join(base, 'fresh');
+    await mkdir(fresh);
+    await git(fresh, 'init', '-q', '-b', 'main');
+    expect((await createBranchResolver()(fresh))?.branch).toBe('main');
+  });
+
+  it('asks git afresh each time', async () => {
+    await git(repo, 'checkout', '-q', '-b', 'feat/refunds');
+    try {
+      expect((await createBranchResolver()(repo))?.branch).toBe('feat/refunds');
+    } finally {
+      await git(repo, 'checkout', '-q', 'feat/checkout-v2');
+    }
+  });
+
+  it("watches a reftable repository's list of tables, which a switch rewrites while HEAD stays as it is", async (ctx) => {
+    const reftable = join(base, 'reftable');
+    // Git 2.45 and later: an older one cannot make a reftable repository.
+    if (!(await git(base, 'init', '-q', '-b', 'main', '--ref-format=reftable', reftable).then(() => true, () => false))) return ctx.skip();
+    await git(reftable, 'commit', '-q', '--allow-empty', '-m', 'init');
+    const wt = join(base, 'reftable-wt');
+    await git(reftable, 'worktree', 'add', '-q', '-b', 'worktree-agent-a1b2', wt);
+    const branchOf = createBranchResolver();
+    const main = await branchOf(reftable);
+    expect(main).toEqual({ branch: 'main', watch: join(reftable, '.git', 'reftable', 'tables.list') });
+    expect(await branchOf(wt)).toEqual({ branch: 'worktree-agent-a1b2', watch: join(reftable, '.git', 'worktrees', 'reftable-wt', 'reftable', 'tables.list') });
+    // Whole seconds: a fraction of a millisecond would not survive the round trip through the file system.
+    const old = Math.floor(Date.now() / 1000) - 60;
+    await utimes(main!.watch, old, old);
+    await utimes(join(reftable, '.git', 'HEAD'), old, old);
+    await git(reftable, 'switch', '-q', '-c', 'feat/refunds');
+    expect((await stat(main!.watch)).mtimeMs).toBeGreaterThan(old * 1000);
+    expect((await stat(join(reftable, '.git', 'HEAD'))).mtimeMs).toBe(old * 1000);
+    expect((await branchOf(reftable))?.branch).toBe('feat/refunds');
+    // A reftable HEAD file always names a ref, detached or not.
+    await git(wt, 'switch', '-q', '--detach');
+    expect((await branchOf(wt))?.branch).toBe('HEAD');
+  });
+
+  it('cannot tell when git fails to name the branch of a HEAD that holds one', async () => {
+    const failing: GitRunner = async (cwd, args) => (args[0] === 'symbolic-ref' ? null : runGit(cwd, args));
+    expect(await createBranchResolver(failing)(repo)).toBeNull();
+    expect(await createBranchResolver(failing)(join(base, 'wt-detached'))).toMatchObject({ branch: 'HEAD' });
   });
 });
 

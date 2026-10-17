@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { Workspace } from '../core/types.js';
@@ -61,6 +61,30 @@ export async function resolveWorkspace(cwd: string, run: GitRunner = runGit): Pr
 }
 
 export type WorkspaceResolver = (cwd: string) => Promise<Workspace>;
+
+/** A checkout's branch ('HEAD' when detached), and the file git rewrites when its HEAD moves. */
+export interface CheckoutBranch {
+  branch: string;
+  /** HEAD itself, or in a reftable repository, which keeps HEAD in its tables, the list of those tables. */
+  watch: string;
+}
+
+/** Asks git afresh each time; null outside git, or when git cannot tell. */
+export type BranchResolver = (cwd: string) => Promise<CheckoutBranch | null>;
+
+export function createBranchResolver(run: GitRunner = runGit): BranchResolver {
+  return async (cwd) => {
+    const paths = await run(cwd, ['rev-parse', '--path-format=absolute', '--git-path', 'HEAD', '--git-path', 'reftable/tables.list']);
+    if (!paths) return null;
+    const [headFile = '', tables = ''] = paths.split('\n');
+    // A reftable repository never rewrites its HEAD file, and rewrites its list of tables on every ref update.
+    const watch = tables && (await access(tables).then(() => true, () => false)) ? tables : headFile;
+    const branch = await run(cwd, ['symbolic-ref', '--short', '-q', 'HEAD']);
+    if (branch) return { branch, watch };
+    // symbolic-ref fails alike on a detached HEAD and on any error: rev-parse names a detached HEAD 'HEAD'.
+    return (await run(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])) === 'HEAD' ? { branch: 'HEAD', watch } : null;
+  };
+}
 
 export function createGitResolver(ttlMs = 30_000, run: GitRunner = runGit, now: () => number = Date.now): WorkspaceResolver {
   const cache = new Map<string, { at: number; ws: Promise<Workspace> }>();
