@@ -905,3 +905,14 @@ describe('determinism', () => {
     expect(views).toEqual(copy);
   });
 });
+
+it('keeps agent metrics on the host after a workflow room closes and cleans the model text', () => {
+  const telemetry = { model: 'claude-\u0000sonnet', usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 }, costUSD: null, startedAt: NOW - MIN, endedAt: NOW, complete: true };
+  const floor = buildFloorDetail([view('h', ws('/w/api', 'main'), 'done', {
+    runs: [run('wf_0000aaaa-001', { status: 'completed', endedAt: NOW, agents: [runAgent('a1', { running: false, telemetry })] })],
+  })], 'repo:/w/api')!;
+  expect(floor.rooms).toEqual([]);
+  const summary = occupants(floor)[0]!.runs[0]!;
+  expect(summary.counts).toEqual({ running: 0, finished: 1 });
+  expect(summary.agents?.[0]?.telemetry).toMatchObject({ model: 'claude-sonnet', usage: { inputTokens: 10, outputTokens: 20 } });
+});

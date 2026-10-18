@@ -56,6 +56,64 @@
   let clock = $state(now());
   let stage: HTMLElement | undefined = $state();
   let panel: HTMLElement | undefined = $state();
+  const PANEL_WIDTH_KEY = 'hopper-hq.panel-width';
+  let preferredWidth = $state(loadPanelWidth());
+  let mainWidth = $state(0);
+  const maximumWidth = $derived(mainWidth > 0 ? Math.max(280, Math.min(720, mainWidth - 372)) : 720);
+  const panelWidth = $derived(Math.max(280, Math.min(preferredWidth, maximumWidth)));
+  let drag: { pointerId: number; x: number; width: number; handle: HTMLElement } | null = $state(null);
+
+  function loadPanelWidth(): number {
+    try {
+      const value = Number(storage?.getItem(PANEL_WIDTH_KEY));
+      return Number.isFinite(value) && value >= 280 && value <= 720 ? value : 360;
+    } catch { return 360; }
+  }
+
+  function savePanelWidth(): void {
+    try { storage?.setItem(PANEL_WIDTH_KEY, String(panelWidth)); } catch {
+      // Resizing still works when browser storage is unavailable.
+    }
+  }
+
+  function startResize(e: PointerEvent): void {
+    if (e.button !== 0 || drag) return;
+    const handle = e.currentTarget as HTMLElement;
+    drag = { pointerId: e.pointerId, x: e.clientX, width: panelWidth, handle };
+    try { handle.setPointerCapture(e.pointerId); } catch { /* Window events also track the pointer. */ }
+    e.preventDefault();
+  }
+
+  function moveResize(e: PointerEvent): void {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    preferredWidth = Math.max(280, Math.min(maximumWidth, drag.width + drag.x - e.clientX));
+    e.preventDefault();
+  }
+
+  function stopResize(e?: PointerEvent): void {
+    if (!drag || (e && e.pointerId !== drag.pointerId)) return;
+    const previous = drag;
+    drag = null;
+    savePanelWidth();
+    try { previous.handle.releasePointerCapture(previous.pointerId); } catch { /* Capture may already be lost. */ }
+  }
+
+  function resizeWithKey(e: KeyboardEvent): void {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const step = e.shiftKey ? 80 : 20;
+    const width = e.key === 'ArrowLeft' ? panelWidth + step : e.key === 'ArrowRight' ? panelWidth - step
+      : e.key === 'Home' ? 280 : e.key === 'End' ? maximumWidth : null;
+    if (width === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    preferredWidth = Math.max(280, Math.min(maximumWidth, width));
+    savePanelWidth();
+  }
+
+  function resetPanelWidth(): void {
+    preferredWidth = 360;
+    savePanelWidth();
+  }
   /** The element that last had focus, and the attention chip it sat in, for when an update takes it away. */
   let lastFocus: { el: Element; group: Element | null; index: number } | null = null;
 
@@ -221,7 +279,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} onfocusin={onFocusIn} onfocusout={onFocusOut} />
+<svelte:window onpointermove={moveResize} onpointerup={stopResize} onpointercancel={stopResize} onblur={() => stopResize()} onkeydown={onKeydown} onhashchange={onHashChange} onpagehide={onPageHide} onpageshow={onPageShow} onfocusin={onFocusIn} onfocusout={onFocusOut} />
 
 <div class="app">
   <!-- What the page cannot draw (two entries for one session, say) stops the drawing, not the page: it offers a reload. -->
@@ -239,7 +297,7 @@
     {#if scene}
       <AttentionBar attention={scene.attention} now={clock} onOpen={openEntry} onGo={(entry) => focus(entry.sessionId)} />
     {/if}
-    <main class="main">
+    <main class="main" class:resizing={drag !== null} bind:clientWidth={mainWidth} style:--panel-width="{panelWidth}px">
       <section class="stage" aria-label={route.floor === null ? 'Building' : 'Floor'} bind:this={stage}>
         {#if route.floor === null}
           {#if scene}
@@ -269,7 +327,14 @@
           <p class="hint">This floor is empty now.</p>
         {/if}
       </section>
-      <aside class="panel" aria-label="Details" bind:this={panel}>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A focusable separator is the ARIA window splitter pattern.) -->
+      <div
+        class="divider" role="separator" tabindex="0" aria-label="Resize details panel" aria-orientation="vertical"
+        aria-controls="details-panel" aria-valuemin={280} aria-valuemax={maximumWidth} aria-valuenow={panelWidth}
+        aria-valuetext={`${panelWidth} pixels`} title="Drag to resize. Arrow keys adjust width; double-click resets."
+        onpointerdown={startResize} onlostpointercapture={stopResize} onkeydown={resizeWithKey} ondblclick={resetPanelWidth}
+      ></div>
+      <aside id="details-panel" class="panel" aria-label="Details" bind:this={panel}>
         {#if route.floor === null}
           {#if scene}
             <BuildingPanel floors={scene.floors} onFloor={(key) => navigate({ floor: key, desk: null, run: null })} />
@@ -318,7 +383,9 @@
 
 <style>
   .app { height: 100%; display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; }
-  .main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; }
+  .main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 12px var(--panel-width, 360px); }
+  .resizing { cursor: col-resize; user-select: none; }
+  .divider { position: relative; cursor: col-resize; touch-action: none; outline-offset: -2px; }
   .stage {
     position: relative;
     min-height: 0;
@@ -354,7 +421,8 @@
   }
   @media (max-width: 900px) {
     .app { height: auto; }
-    .main { grid-template-columns: minmax(0, 1fr); }
+    .main { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .divider { display: none; }
     .stage { height: 460px; }
     .panel { overflow: visible; }
   }

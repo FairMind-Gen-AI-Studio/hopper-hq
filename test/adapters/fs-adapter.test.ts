@@ -47,6 +47,30 @@ async function writeTranscript(dirName: string, entries: object[]) {
 }
 
 describe('FsAdapter', () => {
+  it('drains workflow usage after the host process exits', async () => {
+    await writeSession(SESSION);
+    await writeTranscript(encodeProjectDir(CWD), []);
+    const dir = join(root, 'projects', encodeProjectDir(CWD), 'S1', 'subagents', 'workflows', 'wf_pending');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'journal.jsonl'), JSON.stringify({ type: 'started', agentId: 'a1', label: 'impl:1' }) + '\n');
+    const entries = [1, 2, 3].map((i) => JSON.stringify({ type: 'assistant', pad: 'x'.repeat(190000), message: {
+      id: `m${i}`, model: 'sonnet', usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    } }));
+    await writeFile(join(dir, 'agent-a1.jsonl'), entries.join('\n') + '\n');
+    const a = adapter();
+    await a.poll();
+    await rm(join(root, 'sessions', '4242.json'));
+    now += 1000;
+    await a.poll();
+    events = [];
+    now += 1000;
+    await a.poll();
+    expect(events).toContainEqual(expect.objectContaining({ type: 'agent.metrics', telemetry: expect.objectContaining({
+      usage: { inputTokens: 30, outputTokens: 60, cacheReadTokens: 0, cacheWriteTokens: 0 }, complete: true,
+    }) }));
+    expect(events.some((e) => e.type === 'session.ended')).toBe(false);
+  });
+
   it('encodes project directories like Claude Code', () => {
     expect(encodeProjectDir('/Users/me/Projects/fairmind.ai')).toBe('-Users-me-Projects-fairmind-ai');
   });

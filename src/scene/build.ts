@@ -146,7 +146,7 @@ function internsOf(v: SessionView, inRoom: boolean, leisureOpen: boolean): { int
 }
 
 function countsOf(r: WorkflowRun): { running: number; finished: number } {
-  return { running: r.agents.filter((a) => a.running).length, finished: r.agentsFinished };
+  return { running: r.agents.filter((a) => a.running).length, finished: r.status === 'running' ? r.agentsFinished : Math.max(r.agentsFinished, r.agents.filter((a) => !a.running).length) };
 }
 
 /**
@@ -164,6 +164,7 @@ function runsOf(v: SessionView): RunSummary[] {
     startedAt: r.startedAt,
     endedAt: r.endedAt,
     counts: countsOf(r),
+    ...(r.agents.some((a) => a.telemetry) ? { agents: meetingAgentsOf(r, false, r.agents.length) } : {}),
   }));
 }
 
@@ -182,11 +183,12 @@ function phasesOf(r: WorkflowRun): MeetingRoom['phases'] {
 }
 
 /** Running agents first, in start order, then finished ones, the latest to finish first; one per id once cleaned; at most MEETING_AGENTS_MAX. */
-function meetingAgentsOf(r: WorkflowRun, leisureOpen: boolean): MeetingAgent[] {
+function meetingAgentsOf(r: WorkflowRun, leisureOpen: boolean, limit = MEETING_AGENTS_MAX): MeetingAgent[] {
   const running = r.agents.filter((a) => a.running).sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   const finished = r.agents.filter((a) => !a.running).sort((a, b) => b.updatedAt - a.updatedAt || b.startedAt - a.startedAt || byCodeUnit(a.id, b.id));
   const leisure = leisureMapOf(r.agents, leisureOpen);
-  return firstOfEach([...running, ...finished], (a) => a.id).slice(0, MEETING_AGENTS_MAX).map((a) => ({
+  return firstOfEach([...running, ...finished], (a) => a.id).slice(0, limit).map((a) => ({
+    ...(a.telemetry ? { telemetry: { ...a.telemetry, model: cleanOrNull(a.telemetry.model, 120) } } : {}),
     agentId: capKey(a.id),
     label: cleanOrNull(a.label),
     phase: cleanOrNull(a.phase, PHASE_MAX),

@@ -3,7 +3,7 @@
  * Every string is cleaned by the server (control and bidi characters removed, length capped).
  * Grid: integer cells; x grows east, y grows south. The renderer maps cells to world units.
  */
-import type { AgentKind, RunStatus, SessionState, WaitKind } from '../core/types.js';
+import type { AgentTelemetry, AgentKind, RunStatus, SessionState, WaitKind } from '../core/types.js';
 
 export const SCENE_VERSION = 7;
 
@@ -125,6 +125,8 @@ export interface Intern {
 
 /** One run of a session, for its desk panel. */
 export interface RunSummary {
+  /** Retained agent details, available after its room closes too. */
+  agents?: MeetingAgent[];
   runId: string;
   name: string | null;
   status: RunStatus;
@@ -136,6 +138,7 @@ export interface RunSummary {
 export type PhaseState = 'done' | 'current' | 'upcoming';
 
 export interface MeetingAgent {
+  telemetry?: AgentTelemetry;
   agentId: string;
   label: string | null;
   phase: string | null;
