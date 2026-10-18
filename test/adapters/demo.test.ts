@@ -17,6 +17,17 @@ afterEach(() => {
 });
 
 describe('demoScript', () => {
+  it('shows Codex and Claude Code together, including Codex drop-ins', async () => {
+    const { c, play } = demoCollector();
+    await play(0, BASE);
+    for (const session of [...DEMO_SESSIONS, ...DEMO_DROP_INS]) {
+      expect(c.session(session.id)!.agentKind).toBe(session.agentKind ?? 'claude-code');
+    }
+    expect(c.session('demo-sw-a1')!.agentKind).toBe('codex');
+    expect(c.session('demo-ps-d4')!.agentKind).toBe('claude-code');
+    expect(c.session('demo-ps-k11')!.agentKind).toBe('codex');
+  });
+
   it('opens with three floors and two sessions waiting', async () => {
     const base = 1_000_000_000;
     let now = base;
