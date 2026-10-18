@@ -150,7 +150,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": true,
                   "since": 1791709200020,
                 },
-                "agentKind": "claude-code",
+                "agentKind": "codex",
                 "agentsRunning": 2,
                 "at": {
                   "kind": "room",
@@ -242,7 +242,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": false,
                   "since": 1791709200023,
                 },
-                "agentKind": "claude-code",
+                "agentKind": "codex",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
@@ -720,7 +720,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": true,
                   "since": 1791709200030,
                 },
-                "agentKind": "claude-code",
+                "agentKind": "codex",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
