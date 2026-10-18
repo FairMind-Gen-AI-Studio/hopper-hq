@@ -240,9 +240,10 @@ export class Collector {
         return;
       }
       const workspace = await this.o.resolveWorkspace(e.cwd);
-      prev = applyEvent(undefined, { type: 'session.seen', sessionId: e.sessionId, ts: e.ts, seq: e.seq, source: e.source, cwd: e.cwd, workspace, startedAt: e.ts });
+      prev = applyEvent(undefined, { type: 'session.seen', sessionId: e.sessionId, ts: e.ts, seq: e.seq, source: e.source, agentKind: e.agentKind, cwd: e.cwd, workspace, startedAt: e.ts });
       created = true;
     }
+    if (prev && e.agentKind === 'codex' && e.cwd && e.cwd !== prev.workspace.cwd) prev = { ...prev, workspace: await this.o.resolveWorkspace(e.cwd) };
     const next = applyEvent(prev, e);
     if (!next) {
       this.dropped++;
@@ -345,12 +346,16 @@ export class Collector {
     return this.sessions.get(id) ?? null;
   }
 
-  /** Views of the sessions still in the building. Ended sessions are skipped before any view is derived for them. */
+  /** Views of the sessions still in the building, excluding ended and expired desks. */
   liveViews(now = this.now()): SessionView[] {
     const t = this.o.thresholds ?? DEFAULT_THRESHOLDS;
     const rules = this.o.featureRules ?? DEFAULT_FEATURE_RULES;
     const out: SessionView[] = [];
-    for (const s of this.sessions.values()) if (s.state !== 'ended') out.push(toView(s, now, t, rules));
+    for (const s of this.sessions.values()) {
+      if (s.state === 'ended') continue;
+      const view = toView(s, now, t, rules);
+      if (view.effectiveState !== 'ended') out.push(view);
+    }
     return out;
   }
 

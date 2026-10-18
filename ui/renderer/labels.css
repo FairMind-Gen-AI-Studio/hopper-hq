@@ -42,6 +42,20 @@
   background: var(--hover, #eef2f6);
 }
 
+/* Session labels float over the floor; the state dot and focus outline stay distinct. */
+.fv-tag.fv-desk {
+  background: transparent;
+  border-color: transparent;
+  text-shadow: 0 1px 2px var(--halo, #f2f5f8);
+}
+
+.fv-tag.fv-desk:hover,
+.fv-tag.fv-desk:focus-visible {
+  background: var(--panel, #fbfcfd);
+  border-color: var(--line, #d0d8e1);
+  text-shadow: none;
+}
+
 .fv-tag:hover,
 .fv-tag:focus-visible,
 .fv-tag.fv-sel {
@@ -92,7 +106,7 @@
 .fv-room { --fv-state: var(--s-meeting, #6857db); }
 
 /*
- * A camera far out (.fv-compact): a tag shows only its dot, and its name as well when its desk needs you or is done or
+ * A camera far out (.fv-compact): a tag shows its dot and agent badge, and its name as well when its desk needs you or is done or
  * it names a room. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it still
  * names the button. The pods' placards hide (labels.ts) and the rooms' boards go: only the run names stay.
  */
@@ -101,7 +115,7 @@
   padding: 3px;
 }
 
-.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge),
 .fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name {
   position: absolute;
   width: 1px;
@@ -113,14 +127,14 @@
 
 /*
  * From far, a tag that is selected, needs you, is done or names a room, but that a tag ranking higher covers, shows its
- * dot alone (labels.ts), until it is hovered or focused.
+ * compact identity and state (labels.ts), until it is hovered or focused.
  */
 .fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) {
   gap: 0;
   padding: 3px;
 }
 
-.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) > :not(.fv-dot) {
+.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) > :not(.fv-dot):not(.agent-badge) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -231,4 +245,11 @@
   .fv-badge-needs .fv-dot {
     animation: none;
   }
+}
+
+/* Identity remains visible when compact tags drop their names and secondary details. */
+.fv-compact .fv-tag.fv-desk:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done),
+.fv-compact .fv-tag.fv-desk.fv-dot-only:not(:hover):not(:focus-visible) {
+  gap: 5px;
+  padding: 3px;
 }

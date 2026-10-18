@@ -1,3 +1,4 @@
+import { AGENT_BADGES } from '../../lib/agent-badge';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DeskPanel from '../../components/DeskPanel.svelte';
 import type { FloorDetail, Occupant } from '../../../src/scene/types';
@@ -35,6 +36,12 @@ function panel(key: string, id: string, now = NOW, change: (d: Occupant) => void
 const MIN = 60_000;
 
 describe('DeskPanel', () => {
+  it('identifies a Codex desk', () => {
+    const { facts, target } = panel(CHECKOUT, 'oa-c3', NOW, d => { d.agentKind = 'codex'; });
+    expect(facts().Agent).toBe('Codex');
+    expect(target.querySelector('dd .agent-badge img')?.getAttribute('src')).toBe(AGENT_BADGES.codex.image);
+  });
+
   it('heads the panel with the session, its state, its repo and its pane', () => {
     const { target } = panel(CHECKOUT, 'oa-c3');
     expect(text(target.querySelector('.back'))).toBe('← Floor 4 · checkout-v2');
@@ -82,6 +89,7 @@ describe('DeskPanel', () => {
   it('lists the facts: since, last action, subagents, repo, branch, folder and pane', () => {
     const { facts } = panel(CHECKOUT, 'sw-a1');
     expect(facts()).toEqual({
+      Agent: 'Claude Code',
       Since: '40s ago',
       'Last action': 'Edit src/checkout/AddressStep.tsx · 40s ago',
       Subagents: '2 running',
@@ -155,7 +163,8 @@ describe('DeskPanel', () => {
     });
     expect(text(target.querySelector('.p-text'))).toBe('<img src=x onerror=alert(1)>');
     expect(text(target.querySelector('.warn'))).toBe('Permission: <script>x</script>');
-    expect(target.querySelector('img, script')).toBeNull();
+    expect(target.querySelector('script')).toBeNull();
+    expect([...target.querySelectorAll('img')].filter(img => !img.closest('.agent-badge'))).toHaveLength(0);
   });
 
   it('says where the session stands, and how long ago that was written', () => {
@@ -240,6 +249,7 @@ describe('DeskPanel', () => {
     });
     expect(text(target.querySelector('.s-text'))).toBe('<img src=x onerror=alert(1)>');
     expect([...target.querySelectorAll('.l-name, .l-sub')].map(text)).toEqual(['<b>t</b>', '<script>x</script>', '<i>run</i>']);
-    expect(target.querySelector('img, script, b, i')).toBeNull();
+    expect(target.querySelector('script, b, i')).toBeNull();
+    expect([...target.querySelectorAll('img')].filter(img => !img.closest('.agent-badge'))).toHaveLength(0);
   });
 });

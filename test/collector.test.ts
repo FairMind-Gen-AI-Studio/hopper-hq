@@ -22,6 +22,32 @@ function collector(extra: Partial<ConstructorParameters<typeof Collector>[0]> = 
 }
 
 describe('Collector', () => {
+  it('hides expired Codex desks and floors across restarts, retaining history and allowing resumed work', async () => {
+    let now = NOW;
+    const store = await Store.open(':memory:');
+    const c = collector({ now: () => now, store });
+    await c.ingest(hook({ type: 'prompt', agentKind: 'codex', text: 'go' }));
+    await c.ingest(hook({ type: 'turn.finished', agentKind: 'codex', backgroundTasks: 0 }));
+    expect(c.scene().floors).toHaveLength(1);
+    now += 4 * 60 * 60 * 1000;
+    // Filesystem refreshes must not extend a completed turn's lifetime.
+    await c.ingest(hook({ type: 'session.seen', agentKind: 'codex', ts: now, workspace: await resolver('/w/orders-api') }));
+    expect(c.liveViews()).toEqual([]);
+    expect(c.scene().floors).toEqual([]);
+    expect(c.snapshot().floors).toEqual([]);
+    expect(c.floor('repo:/w/orders-api')).toBeNull();
+    expect(c.session('S1')?.state).toBe('done');
+    await c.close();
+    const restored = collector({ now: () => now, store });
+    expect(restored.scene().floors).toEqual([]);
+    expect(restored.session('S1')?.lastPrompt).toBe('go');
+    await restored.ingest(hook({ type: 'prompt', agentKind: 'codex', ts: now + 1, text: 'continue' }));
+    expect(restored.liveViews()[0]?.effectiveState).toBe('working');
+    expect(restored.scene().floors).toHaveLength(1);
+    await restored.close();
+    store.close();
+  });
+
   it('creates an unknown session from an event that carries a cwd', async () => {
     const c = collector();
     await c.ingest(hook({ type: 'prompt', text: 'go' }));

@@ -200,7 +200,7 @@ describe('up', () => {
     }
     const h = capture();
     await main(['--help'], h.io);
-    expect(h.out[0]).toContain('hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR]');
+    expect(h.out[0]).toContain('hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--codex-dir DIR] [--data-dir DIR]');
   });
 });
 

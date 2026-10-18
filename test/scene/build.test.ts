@@ -459,8 +459,8 @@ describe('version 4', () => {
   it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
     const views = [view('a', ws('/w/api', 'main'), 'done')];
     const floor = buildFloorDetail(views, 'repo:/w/api')!;
-    expect(SCENE_VERSION).toBe(6);
-    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([6, [], 0, []]);
+    expect(SCENE_VERSION).toBe(7);
+    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([7, [], 0, []]);
     const desk = occupants(floor)[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.at, desk.runs]).toEqual([null, [], 0, { kind: 'desk' }, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();

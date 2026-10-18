@@ -4,7 +4,7 @@
 
 **A local dashboard for keeping an eye on your coding-agent sessions while they work.**
 
-An isometric office building where every Claude Code session gets a desk, and a red window means someone is waiting for you.
+An isometric office building where every Claude Code or Codex CLI session gets a desk, and a red window means someone is waiting for you.
 
 [![npm version](https://img.shields.io/npm/v/@fairmind-ai/hopper-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/hopper-hq)
 [![npm downloads](https://img.shields.io/npm/dm/@fairmind-ai/hopper-hq?logo=npm&color=cb3837)](https://www.npmjs.com/package/@fairmind-ai/hopper-hq)
@@ -36,7 +36,7 @@ Provided by [FairMind](https://fairmind.ai/?utm_source=github&utm_medium=oss&utm
 
 Every session gets a desk in an isometric office building: one floor per feature, pods of desks for each checkout, interns for subagents, meeting rooms for workflows, a lounge for idle sessions, and a basement archive for finished work. Robots walk between them as sessions change state. A red window on the façade means someone is waiting for you.
 
-Built for Claude Code (local and cloud) first, with an adapter interface meant to welcome other coding agents.
+Supports Claude Code (local and cloud) and local Codex CLI sessions.
 
 ## Quick start
 
@@ -323,9 +323,81 @@ Each summary is one call to the model, a small one by default. A session gets at
 | `hopper-hq summaries` | Turns the one-line summaries `on` or `off`, or prints how they stand (`status`). See [Summaries](#summaries). |
 | `hopper-hq demo` | Runs a daemon with synthetic sessions, and prints a sign-in link for its building. With `--showcase`, it plays once a longer scenario of twelve sessions on one floor, for about two minutes after a twenty-second lead. |
 
+## Codex CLI
+
+Run `hopper-hq up` to discover local Codex CLI and `codex exec` sessions from dated rollout JSONL files under `$CODEX_HOME/sessions` (default `~/.codex/sessions`). Override the directory with `--codex-dir DIR` on `up` or `start`. `start --no-watch` disables both agents' filesystem sources; the demo ignores both files and hooks. No Codex files or configuration are written by hopper-hq.
+
+Codex and Claude Code sessions share the existing repository/feature floors. The desk panel and `hopper-hq ls` identify the agent. The scanner follows recently modified rollouts, up to seven days old, and refreshes the working directory's current Git branch. Rollout timestamps drive working, done and idle states; silence becomes “no signal” rather than an inferred approval request. Closing a CLI without hooks cannot reliably be distinguished from an idle session.
+
+Completed or inactive Codex desks leave the building after four hours without activity, using the configured done-to-idle threshold. Sessions doing work or waiting for you remain visible. New activity brings a hidden desk back. This affects Hopper's view only; Codex chats and rollout files are never archived or deleted.
+
+### Codex plugin
+
+The repository marketplace packages Hopper's observer hooks and a `hopper-hq` skill that opens the building. Node.js 22.13 or later and a Hopper CLI with the `codex-hook` command are required. The plugin uses that CLI's daemon and UI; it does not install or upgrade the CLI automatically.
+
+For a published CLI release that includes Codex support, install it with `npm install -g @fairmind-ai/hopper-hq`. During development, build and link the checkout containing the adapter:
+
+```sh
+npm ci
+npm run build
+npm link
+```
+
+Check that `hopper-hq --help` includes `codex-hook`. Then register the marketplace and install the plugin from this checkout:
+
+```sh
+codex plugin marketplace add .
+codex plugin add hopper-hq@hopper-hq-codex
+```
+
+When the marketplace files are available on the remote repository's `main` branch, the equivalent remote installation is:
+
+```sh
+codex plugin marketplace add FairMind-Gen-AI-Studio/hopper-hq --ref main
+codex plugin add hopper-hq@hopper-hq-codex
+```
+
+Start a new Codex CLI session. Open `/hooks`, review the Hopper definitions, and trust them to enable live reporting. Installing the plugin alone does not grant hook trust. Then invoke `$hopper-hq:hopper-hq`, or ask Codex to “Open the Hopper HQ building.” The optional setup skill checks the CLI prerequisite and explains any missing setup. Use `codex plugin list --marketplace hopper-hq-codex --json` to inspect the installed plugin.
+
+The plugin forwards session, prompt, tool, approval, interruption and subagent lifecycle events. Hook failures are silent and bounded; hooks make no approval decisions and do not start the daemon. The opening skill starts or reuses the daemon. To use a CLI outside PATH, set `HOPPER_HQ_BIN` to its executable path. For a custom Hopper data directory, preserve the same `HOPPER_HQ_HOME` in the Codex environment.
+
+Use either the plugin's hooks or the manual hooks below. If manual Hopper hooks are already configured, remove those entries when switching to the plugin, preserving unrelated hooks. After upgrading the Hopper CLI, restart an existing daemon once with `hopper-hq down` followed by `hopper-hq up`. To remove this plugin, run `codex plugin remove hopper-hq@hopper-hq-codex`; the Hopper CLI and daemon remain independently installed.
+
+This marketplace is separate from the Claude Code marketplace in `.claude-plugin/`. Plugin packaging and hooks are checked with Codex CLI 0.162.1. Hook trust and managed policy still apply; cloud-orchestrated sessions may not run local plugin hooks.
+
+### Optional live hooks
+
+Codex's experimental hooks give prompt, approval and end-of-session signals. To configure hooks without the plugin, merge the following entries into the `hooks` object in your Codex `hooks.json`, preserving your existing hooks. `hopper-hq` must be on the hook process's `PATH`. Enable Codex's hook feature if your CLI requires it. hopper-hq does not install hooks automatically.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "hopper-hq codex-hook"}]}]
+  }
+}
+```
+
+The observer reads hook JSON on stdin and posts it to `/api/hooks/codex` with the daemon's existing bearer token and body limits. It makes no approval decisions and prints nothing to stdout; a stopped daemon does not block Codex. It reads `TMUX_PANE` and asks that tmux server for its session name, enabling **Go** when available. Without this hook metadata the desk has no focus target. Set `HOPPER_HQ_HOME` in the hook environment when using a custom daemon data directory.
+
+A permission hook turns the window red until subsequent tool activity, a prompt or turn completion clears it. A permission request can precede automatic approval, so this indication may be brief. `request_user_input` tool calls also show questions. Approval and general elicitation requests are **not persisted in rollouts**; without hooks their absence cannot be interpreted as approval or as a wait. Explicit subagent activity and hook lifecycle events populate the existing interns/crew rooms; Codex does not supply hopper workflow phases. Child and app-origin rollout files do not create separate desks.
+
+### Format compatibility
+
+The rollout parser and hook payloads are fixture-tested against the source schemas in [Codex 0.162.0](https://github.com/openai/codex/tree/rust-v0.162.0), including legacy `response_item` and paginated `item_completed` records. This is source/fixture compatibility, not an end-to-end certification of every CLI build. See the [rollout persistence policy](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/rollout/src/policy.rs), [hook inputs](https://github.com/openai/codex/blob/rust-v0.162.0/codex-rs/hooks/src/schema.rs), and [release notes](https://github.com/openai/codex/releases).
+
+These are internal and experimental formats. Other versions are read on a best-effort basis with a warning per version. Unknown or malformed complete records are skipped and counted; partial lines wait for the next poll. Histories replay in bounded chunks, preserving earlier turn and child lifecycle records; a large history may take several polls to catch up. Filesystem discovery does not depend on Codex's private SQLite index.
+
 ## How it works
 
-There are two sources of data: the mod, and Claude Code's own files under `~/.claude`. Both feed one collector. The collector serves a localhost API.
+The Claude Code mod, optional Codex hooks, and the agents' own files under `~/.claude` and `~/.codex` feed one collector. The collector serves a localhost API.
 
 Workflow runs come from both: the mod reports their agents as they start and finish, and the files give each run's name, phases and end.
 

@@ -226,15 +226,18 @@ function applyStatus(s: Session, e: EventOf<'session.status'>): Session {
 export function applyEvent(prev: Session | undefined, e: CollectorEvent): Session | undefined {
   if (!prev) {
     if (e.type !== 'session.seen') return undefined;
-    prev = newSession(e.sessionId, e.ts, e.workspace);
+    prev = { ...newSession(e.sessionId, e.ts, e.workspace), agentKind: e.agentKind ?? 'claude-code' };
   }
   let s = prev;
 
   // Order-free facts: applied whatever the event's age.
   switch (e.type) {
+    case 'session.focus':
+      return { ...s, tmuxPane: e.tmuxPane, tmuxSession: e.tmuxSession };
     case 'session.seen':
       return {
         ...s,
+        agentKind: e.agentKind ?? s.agentKind,
         workspace: { ...e.workspace, branch: e.workspace.branch ?? s.workspace.branch },
         pid: e.pid ?? s.pid,
         name: e.name ?? s.name,
