@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # provenance attestation
+      id-token: write # npm trusted publishing (OIDC) and the provenance attestation; no NPM_TOKEN
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -32,6 +32,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Node 22 ships npm 10; trusted publishing needs npm 11.5.1 or later. Pinned: this job holds the publish credential.
+      - run: npm install -g npm@11.21.1
       - run: npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
