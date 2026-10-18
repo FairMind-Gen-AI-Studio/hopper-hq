@@ -56,6 +56,42 @@ async function settle(): Promise<void> {
 }
 
 describe('App shell', () => {
+  it('resizes the details panel by dragging its divider and remembers the released width', () => {
+    const { target, storage } = app();
+    const divider = target.querySelector<HTMLElement>('[role="separator"]')!;
+    expect(divider).not.toBeNull();
+    const focused = target.querySelector<HTMLButtonElement>('button')!;
+    focused.focus();
+    divider.dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 7, clientX: 700, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 7, clientX: 580 }));
+    flushSync();
+    expect(divider.getAttribute('aria-valuenow')).toBe('480');
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 7 }));
+    flushSync();
+    expect(storage.getItem('hopper-hq.panel-width')).toBe('480');
+    expect(document.activeElement).toBe(focused);
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 7, clientX: 300 }));
+    flushSync();
+    expect(divider.getAttribute('aria-valuenow')).toBe('480');
+  });
+
+  it('supports keyboard resizing, bounds and resetting the divider', () => {
+    const storage = memoryStorage();
+    storage.setItem('hopper-hq.panel-width', '480');
+    const { target } = app(undefined, { storage });
+    const divider = target.querySelector<HTMLElement>('[role="separator"]')!;
+    expect(divider?.getAttribute('aria-valuenow')).toBe('480');
+    for (const [key, width] of [['ArrowLeft', '500'], ['Home', '280'], ['End', '720']]) {
+      divider.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      flushSync();
+      expect(divider.getAttribute('aria-valuenow')).toBe(width);
+    }
+    divider.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    flushSync();
+    expect(divider.getAttribute('aria-valuenow')).toBe('360');
+    expect(storage.getItem('hopper-hq.panel-width')).toBe('360');
+  });
+
   it('opens on the building, watching no floor, with the tmux counter of the scene', () => {
     const { target, store, crumbs } = app();
     expect(store.watched).toEqual([null]);

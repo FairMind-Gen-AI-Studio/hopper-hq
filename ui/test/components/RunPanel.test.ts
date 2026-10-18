@@ -21,13 +21,45 @@ function panel(runId: string, floor: FloorDetail = floorWith(), now = NOW) {
   const onDesk = vi.fn();
   const onGo = vi.fn();
   const target = render(RunPanel, { floor, runId, now, onBack, onDesk, onGo });
-  const facts = () => Object.fromEntries([...target.querySelectorAll('dt')].map((dt) => [text(dt), text(dt.nextElementSibling)]));
+  const facts = () => Object.fromEntries([...target.querySelector('dl.facts')!.querySelectorAll('dt')].map((dt) => [text(dt), text(dt.nextElementSibling)]));
   const go = () => target.querySelector<HTMLButtonElement>('.actions button.primary');
   const headings = () => [...target.querySelectorAll('h3')].map(text);
   return { target, onBack, onDesk, onGo, facts, go, headings };
 }
 
 describe('RunPanel', () => {
+  it('shows model and usage per agent, with partial totals and missing cost distinct from zero', () => {
+    const floor = floorWith((room) => {
+      room.agents[0]!.telemetry = {
+        model: 'claude-sonnet-5-5', usage: { inputTokens: 1200, outputTokens: 80, cacheReadTokens: 400, cacheWriteTokens: 0 },
+        costUSD: 0, startedAt: NOW - 120000, endedAt: null, complete: true,
+      };
+    });
+    const { target } = panel(RUN, floor);
+    expect(text(target.querySelector('.usage-summary'))).toContain('1,680');
+    expect(text(target.querySelector('.usage-summary'))).toContain('Partial');
+    const rows = [...target.querySelectorAll('.agents li')];
+    expect(text(rows[0])).toContain('claude-sonnet-5-5');
+    expect(text(rows[0])).toContain('2m');
+    expect(text(rows[0])).toContain('1,200 in');
+    expect(text(rows[0])).toContain('80 out');
+    expect(text(rows[0])).toContain('$0.00');
+    expect(text(rows[1])).toContain('Unavailable');
+  });
+
+  it('shows retained agent metrics after the workflow room closes', () => {
+    const floor = floorWith((room, host, floor) => {
+      host.runs[0]!.agents = room.agents;
+      host.runs[0]!.status = 'completed';
+      room.agents[0]!.running = false;
+      room.agents[0]!.telemetry = { model: 'sonnet', usage: null, costUSD: null, startedAt: NOW - 120000, endedAt: NOW - 60000, complete: true };
+      floor.rooms = [];
+    });
+    const { target } = panel(RUN, floor);
+    expect(text(target.querySelector('.agents'))).toContain('sonnet · 1m');
+    expect(text(target.querySelector('.usage-summary'))).toContain('Unavailable');
+  });
+
   it('heads a run in its room with its name, its state, its repo and its summary', () => {
     const { target } = panel(RUN);
     expect(text(target.querySelector('.back'))).toBe('← Floor 4 · checkout-v2');

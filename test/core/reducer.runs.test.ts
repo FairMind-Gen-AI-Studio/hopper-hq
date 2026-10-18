@@ -345,3 +345,11 @@ describe('normalizeSession', () => {
     expect(normalizeSession({ ...ended, state: 'in_meeting', stateSince: 1250 })).toMatchObject({ state: 'done', stateSince: 1250 });
   });
 });
+
+it('keeps workflow agent telemetry without changing lifecycle or counting another completion', () => {
+  const telemetry = { model: 'sonnet', usage: null, costUSD: 0, startedAt: 10, endedAt: 20, complete: true };
+  const s = run(seen(0), fsAgent(10, 'a1'), ev('agent.finished', 20, { agentId: 'a1' }),
+    ev('agent.metrics', 30, { runId: R, agentId: 'a1', telemetry }));
+  expect(s.runs[0]!.agents[0]).toMatchObject({ running: false, telemetry });
+  expect(s.runs[0]!.agentsFinished).toBe(1);
+});

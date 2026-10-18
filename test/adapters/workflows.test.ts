@@ -85,6 +85,64 @@ const started = (agentId: string, label: string, phase: string) => ({ type: 'sta
 const result = (agentId: string) => ({ type: 'result', key: `v2:${agentId}`, agentId, result: { ok: true } });
 
 describe('WorkflowScanner', () => {
+  it('tails agent usage, merges streaming blocks once, and keeps collecting after the run ends', async () => {
+    const s = scanner();
+    await writeRun(R1, [started('a1', 'impl:1', 'Build')], NEW);
+    await writeFile(join(runDir(R1), 'agent-a1.meta.json'), JSON.stringify({ model: 'sonnet' }));
+    const path = join(runDir(R1), 'agent-a1.jsonl');
+    const reply = (id: string, output: number) => ({ type: 'assistant', timestamp: new Date(NEW + 1000).toISOString(), message: {
+      id, model: 'claude-sonnet-5-5', usage: { input_tokens: 10, output_tokens: output, cache_read_input_tokens: 20, cache_creation_input_tokens: 30 },
+    } });
+    await writeFile(path, line({ type: 'user', timestamp: new Date(NEW).toISOString() }) + line(reply('m1', 2)) + line(reply('m1', 8)));
+    const first = await scan(s);
+    expect(first).toContainEqual(expect.objectContaining({ type: 'agent.metrics', agentId: 'a1', runId: R1, telemetry: {
+      model: 'claude-sonnet-5-5', usage: { inputTokens: 10, outputTokens: 8, cacheReadTokens: 20, cacheWriteTokens: 30 },
+      costUSD: null, startedAt: NEW, endedAt: null, complete: true,
+    } }));
+    expect((await scan(s)).filter((e) => e.type === 'agent.metrics')).toEqual([]);
+    await append(R1, [result('a1')], NOW + 1000);
+    await writeEnd(R1, {}, NOW + 2000);
+    await appendFile(path, line(reply('m2', 4)));
+    const last = await scan(s, NOW + 3000);
+    expect(last).toContainEqual(expect.objectContaining({ type: 'agent.metrics', telemetry: expect.objectContaining({
+      usage: { inputTokens: 20, outputTokens: 12, cacheReadTokens: 40, cacheWriteTokens: 60 }, endedAt: NEW + 1000,
+    }) }));
+  });
+
+  it('recovers model and tokens for a run already ended when first scanned', async () => {
+    await writeRun(R1, [started('a1', 'impl:1', 'Build'), result('a1')], NEW);
+    await writeFile(join(runDir(R1), 'agent-a1.meta.json'), JSON.stringify({ model: 'opus', description: 'impl:1', workflowPhase: 'Build' }));
+    await writeFile(join(runDir(R1), 'agent-a2.meta.json'), JSON.stringify({ description: 'impl:2' }));
+    await writeFile(join(runDir(R1), 'agent-a1.jsonl'), line({ type: 'assistant', timestamp: new Date(NEW).toISOString(), message: {
+      id: 'm1', model: 'claude-opus-5-5', usage: { input_tokens: 0, output_tokens: 40, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    } }));
+    await writeEnd(R1, {}, NOW);
+    const out = await scan(scanner());
+    expect(out).toContainEqual(expect.objectContaining({ type: 'agent.started', agentId: 'a1', description: 'impl:1', runId: R1 }));
+    expect(out).toContainEqual(expect.objectContaining({ type: 'agent.started', agentId: 'a2', runId: R1 }));
+    expect(out).toContainEqual(expect.objectContaining({ type: 'agent.metrics', telemetry: expect.objectContaining({ model: 'claude-opus-5-5', endedAt: NEW }) }));
+  });
+
+  it('discovers agent files that arrive after the run settled without another journal or end update', async () => {
+    const s = scanner();
+    await writeRun(R1, [], NEW);
+    await writeEnd(R1, {}, NOW);
+    await scan(s);
+    await writeFile(join(runDir(R1), 'agent-a1.meta.json'), JSON.stringify({ model: 'opus' }));
+    const later = await scan(s, NOW + 6000);
+    expect(later).toContainEqual(expect.objectContaining({ type: 'agent.metrics', agentId: 'a1', telemetry: expect.objectContaining({ model: 'opus' }) }));
+  });
+
+  it('retries metadata when a journal starts an agent before its model file appears', async () => {
+    const s = scanner();
+    await writeRun(R1, [started('a1', 'impl:1', 'Build')], NEW);
+    await scan(s);
+    await writeFile(join(runDir(R1), 'agent-a1.meta.json'), JSON.stringify({ model: 'sonnet' }));
+    expect(await scan(s, NOW + 1000)).toContainEqual(expect.objectContaining({
+      type: 'agent.metrics', agentId: 'a1', telemetry: expect.objectContaining({ model: 'sonnet', usage: null }),
+    }));
+  });
+
   it('follows a run launched since the session began: its summary, its script, its journal across scans, and its end', async () => {
     // The journal's `failed` line ends an agent as its `result` line does.
     const s = scanner();

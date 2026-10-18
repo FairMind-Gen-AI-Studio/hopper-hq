@@ -4,6 +4,7 @@ import { AGENT_ID, RUN_ID } from '../../core/reducer.js';
 import { truncate } from '../../core/tool-label.js';
 import type { RawEvent } from '../../core/types.js';
 import { cleanOrNull } from '../../scene/text.js';
+import { AgentMetrics } from './agent-metrics.js';
 import { readNewLines, type TailState } from './jsonl.js';
 import { parseScriptMeta, type ScriptMeta } from './script-meta.js';
 import type { WorkflowLaunch } from './transcript.js';
@@ -42,6 +43,14 @@ interface FollowedRun {
   types: Map<string, string>;
   /** The modification time of the end file the run had when it was taken up again, resumed under its id: an end file no newer is that earlier end. Null when it had none. */
   endedBefore: number | null;
+}
+
+interface TrackedMetrics {
+  runId: string;
+  agentId: string;
+  running: boolean;
+  reader: AgentMetrics;
+  limited?: boolean;
 }
 
 /** A run that is not followed: history, ended or gone. Its id is judged again when its files change or it is launched again. */
@@ -109,7 +118,7 @@ async function readScriptMeta(scriptsDir: string, path: string): Promise<ScriptM
  * - `S/workflows/scripts/` holds copies of the scripts, for their meta.
  * A run that goes on is followed; one that ended since the session's process started is read from its end file alone,
  * stamped with the times it gives; any other is history. A run that is not followed is judged again when its journal or
- * its end file changes, or the transcript launches it again: it was resumed. Agent transcripts are never read.
+ * its end file changes, or the transcript launches it again: it was resumed. Agent transcripts supply model and usage metadata through bounded incremental reads.
  */
 export class WorkflowScanner {
   /** The launches the transcript reported, by run id. A launch alone makes no run. */
@@ -117,6 +126,9 @@ export class WorkflowScanner {
   /** Runs that are not followed: history, ended or gone. */
   private readonly settled = new Map<string, SettledRun>();
   private readonly runs = new Map<string, FollowedRun>();
+  private readonly metrics = new Map<string, TrackedMetrics>();
+  private metricsCursor = 0;
+  private readonly metricsDiscovery = new Map<string, number>();
   private readonly open: ReadonlySet<string>;
 
   constructor(private readonly o: WorkflowScannerOptions) {
@@ -135,7 +147,7 @@ export class WorkflowScanner {
   }
 
   /** One scan of the session directory `sessionDir`. A run that cannot be read now is tried again on the next scan. */
-  async scan(sessionDir: string, now: number): Promise<void> {
+  async scan(sessionDir: string, now: number, sessionEnded = false): Promise<void> {
     let names: string[];
     try {
       names = await readdir(join(sessionDir, 'subagents', 'workflows'));
@@ -158,7 +170,11 @@ export class WorkflowScanner {
         continue;
       }
       if (verdict === 'gone') this.o.emit({ sessionId: this.o.sessionId, ts: now, source: 'fs', cwd: this.o.cwd, type: 'workflow.finished', runId: id, status: 'killed' });
-      if (verdict === 'ended') await this.end(sessionDir, id, null, null);
+      if (verdict === 'ended') {
+        await this.end(sessionDir, id, null, null);
+        await this.recoverMetrics(sessionDir, id, now);
+        this.rememberMetrics(id, now);
+      }
       this.settled.set(id, { end: end?.mtime ?? null, mark: Math.max(end?.mtime ?? -Infinity, journal?.mtime ?? -Infinity), offset: settled?.offset ?? journal?.size ?? 0, relaunched: false });
     }
     for (const run of [...this.runs.values()]) {
@@ -167,6 +183,64 @@ export class WorkflowScanner {
       } catch {
         // the next scan reads on from where this one stopped
       }
+    }
+    await this.scanMetrics(sessionDir, now, sessionEnded);
+  }
+
+  get hasPendingMetrics(): boolean {
+    return [...this.metrics.values()].some((agent) => agent.reader.pending);
+  }
+
+  /** Usage can finish arriving after the host exits, without reopening its workflow lifecycle. */
+  async scanMetrics(sessionDir: string, now: number, sessionEnded = false): Promise<void> {
+    for (const [runId, last] of this.metricsDiscovery) {
+      if (now - last < 5000) continue;
+      await this.recoverMetrics(sessionDir, runId, now);
+      this.metricsDiscovery.set(runId, now);
+    }
+    const tracked = [...this.metrics.values()];
+    if (sessionEnded) for (const agent of tracked) agent.running = false;
+    for (let i = 0; i < Math.min(32, tracked.length); i++) {
+      const agent = tracked[(this.metricsCursor + i) % tracked.length]!;
+      try {
+        const telemetry = await agent.reader.read(agent.running);
+        if (telemetry && agent.limited) telemetry.complete = false;
+        if (telemetry) this.o.emit({ sessionId: this.o.sessionId, ts: now, source: 'fs', cwd: this.o.cwd,
+          type: 'agent.metrics', runId: agent.runId, agentId: agent.agentId, telemetry });
+      } catch {
+        // A transcript being replaced is retried on the next scan.
+      }
+    }
+    this.metricsCursor = tracked.length ? (this.metricsCursor + 32) % tracked.length : 0;
+  }
+
+  private rememberMetrics(runId: string, now: number): void {
+    this.metricsDiscovery.delete(runId);
+    this.metricsDiscovery.set(runId, now);
+    if (this.metricsDiscovery.size > MAX_FOLLOWED_RUNS) this.metricsDiscovery.delete(this.metricsDiscovery.keys().next().value!);
+  }
+
+  private async recoverMetrics(sessionDir: string, runId: string, now: number): Promise<void> {
+    const dir = join(sessionDir, 'subagents', 'workflows', runId);
+    const names = await readdir(dir).catch(() => [] as string[]);
+    const ids = [...new Set(names.flatMap((name) => {
+      const id = /^agent-(.+)\.(?:meta\.json|jsonl)$/.exec(name)?.[1];
+      return id && AGENT_ID.test(id) ? [id] : [];
+    }))].sort();
+    const rows = await Promise.all(ids.slice(0, 64).filter((agentId) => !this.metrics.has(`${runId}:${agentId}`)).map(async (agentId) => ({ agentId,
+      meta: await readAgentMeta(join(dir, `agent-${agentId}.meta.json`)).catch(() => null) as Record<string, unknown> | null,
+    })));
+    // Keep agents without measurements in the denominator when other agents have metadata or transcripts.
+    if (!names.some((name) => /^agent-.+\.jsonl$/.test(name)) && !rows.some(({ meta }) => str(meta?.model))) return;
+    for (const { agentId, meta } of rows) {
+      if (this.metrics.has(`${runId}:${agentId}`) || this.metrics.size >= 1024) continue;
+      this.metrics.set(`${runId}:${agentId}`, { runId, agentId, running: false, limited: ids.length > 64,
+        reader: new AgentMetrics(join(dir, `agent-${agentId}.jsonl`), cleanOrNull(str(meta?.model), 120)),
+      });
+      this.o.emit({ sessionId: this.o.sessionId, ts: now, source: 'fs', cwd: this.o.cwd,
+        type: 'agent.started', runId, agentId, agentType: cleanOrNull(str(meta?.agentType), 80) ?? 'agent',
+        description: cleanOrNull(str(meta?.description), 200), phase: cleanOrNull(str(meta?.workflowPhase), 80),
+      });
     }
   }
 
@@ -199,6 +273,7 @@ export class WorkflowScanner {
   }
 
   private async take(sessionDir: string, id: string, now: number, offset: number, endedBefore: number | null): Promise<void> {
+    this.metricsDiscovery.delete(id);
     const launch = this.launches.get(id);
     const run: FollowedRun = { id, journal: { path: join(sessionDir, 'subagents', 'workflows', id, 'journal.jsonl'), offset, skipping: false }, launched: false, types: new Map(), endedBefore };
     this.runs.set(id, run);
@@ -231,6 +306,8 @@ export class WorkflowScanner {
     if (!drained) return;
     const ended = await this.end(sessionDir, run.id, run.endedBefore, (await stats(run.journal.path))?.mtime ?? null);
     if (ended === null) return;
+    for (const agent of this.metrics.values()) if (agent.runId === run.id) agent.running = false;
+    this.rememberMetrics(run.id, now);
     this.runs.delete(run.id);
     this.settled.set(run.id, { end: ended, mark: ended, offset: run.journal.offset, relaunched: false });
   }
@@ -251,6 +328,8 @@ export class WorkflowScanner {
       const agentType = await this.agentType(sessionDir, run, agentId);
       this.o.emit({ ...base, type: 'agent.started', agentId, agentType, description: truncate(str(d.label), 200) || null, runId: run.id, phase: truncate(str(d.phase), 80) || null });
     } else if (d.type === 'result' || d.type === 'failed') {
+      const tracked = this.metrics.get(`${run.id}:${agentId}`);
+      if (tracked) tracked.running = false;
       // An agent that failed gave no result, and runs no more.
       this.o.emit({ ...base, type: 'agent.finished', agentId });
     }
@@ -260,12 +339,20 @@ export class WorkflowScanner {
     const known = run.types.get(agentId);
     if (known) return known;
     let type = 'agent';
+    let model: string | null = null;
     try {
-      const d = (await readAgentMeta(join(sessionDir, 'subagents', 'workflows', run.id, `agent-${agentId}.meta.json`))) as { agentType?: unknown } | null;
+      const d = (await readAgentMeta(join(sessionDir, 'subagents', 'workflows', run.id, `agent-${agentId}.meta.json`))) as { agentType?: unknown; model?: unknown } | null;
       type = truncate(str(d?.agentType), 80) || 'agent';
+      model = cleanOrNull(str(d?.model), 120);
     } catch {
       // no meta file: the type stays unknown
     }
+    if (this.metrics.size >= 1024) {
+      const oldest = [...this.metrics].find(([, a]) => !a.running)?.[0];
+      if (oldest) this.metrics.delete(oldest);
+    }
+    if (this.metrics.size < 1024) this.metrics.set(`${run.id}:${agentId}`, { runId: run.id, agentId, running: true,
+      reader: new AgentMetrics(join(sessionDir, 'subagents', 'workflows', run.id, `agent-${agentId}.jsonl`), model) });
     run.types.set(agentId, type);
     return type;
   }

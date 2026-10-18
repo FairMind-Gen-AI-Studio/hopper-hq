@@ -63,8 +63,27 @@ export interface OpenTool {
 
 export type RunStatus = 'running' | 'completed' | 'failed' | 'killed';
 
+export interface TokenUsage {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+}
+
+export interface AgentTelemetry {
+  model: string | null;
+  usage: TokenUsage | null;
+  /** Reported USD cost, never inferred from a model alias. */
+  costUSD: number | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  /** All complete transcript lines currently on disk have been read. */
+  complete: boolean;
+}
+
 /** An agent a workflow run's script started. */
 export interface RunAgent {
+  telemetry?: AgentTelemetry;
   id: string;
   /** The journal's label or the spawn's description; null when unknown. */
   label: string | null;
@@ -201,6 +220,7 @@ export type CollectorEvent = EventBase &
     | { type: 'workflow.started'; runId: string; name?: string | null; summary?: string | null; phases?: string[] }
     | { type: 'workflow.finished'; runId: string; status: 'completed' | 'failed' | 'killed'; startedAt?: number }
     | { type: 'answer'; text: string }
+    | { type: 'agent.metrics'; runId: string; agentId: string; telemetry: AgentTelemetry }
     | { type: 'agent.finished'; agentId: string }
     | { type: 'session.ended'; reason: string }
   );

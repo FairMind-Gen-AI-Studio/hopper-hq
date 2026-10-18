@@ -41,6 +41,7 @@ interface Tracked {
   lastSubagentScan: number;
   lastTranscriptLookup: number;
   ended: boolean;
+  metricsUntil?: number;
 }
 
 /** Claude Code names a project directory after its cwd with every non-alphanumeric character replaced by '-'. Older versions differ, so lookups fall back to a scan. */
@@ -144,10 +145,17 @@ export class FsAdapter {
     }
 
     for (const [id, t] of this.tracked) {
-      if (t.ended || live.has(id)) continue;
+      if (live.has(id)) continue;
+      if (t.ended) {
+        if (t.transcript && (now <= (t.metricsUntil ?? 0) || t.workflows.hasPendingMetrics)) {
+          await t.workflows.scanMetrics(sessionDirOf(t.transcript), now, true);
+        }
+        continue;
+      }
       t.ended = true;
+      t.metricsUntil = now + 60_000;
       // A run that ended just before its process did left its end file: it is read before the session ends.
-      if (t.transcript) await t.workflows.scan(sessionDirOf(t.transcript), now);
+      if (t.transcript) await t.workflows.scan(sessionDirOf(t.transcript), now, true);
       this.o.emit({ type: 'session.ended', sessionId: id, ts: now, source: 'fs', cwd: t.file.cwd, reason: 'process-gone' });
     }
 

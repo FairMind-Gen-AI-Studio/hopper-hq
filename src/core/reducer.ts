@@ -262,6 +262,9 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
       if (e.source === 'fs' && known && !known.running && !known.restored && known.updatedAt >= e.ts) return s;
       return withChild(s, e.agentId, { type: e.agentType, description: e.description, running: true, updatedAt: e.ts });
     }
+    case 'agent.metrics':
+      return { ...s, runs: s.runs.map((r) => r.id === e.runId
+        ? withRunAgent(r, e.agentId, (a) => ({ ...a, telemetry: e.telemetry })) : r) };
     case 'agent.finished':
       // A finish inferred from a transcript gone quiet (fs) proves nothing about a wait, as the subagent is quiet while it waits: only a hook's ends it.
       {
