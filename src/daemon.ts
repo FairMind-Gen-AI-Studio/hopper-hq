@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { CodexAdapter } from './adapters/codex/fs-adapter.js';
 import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
 import { DEMO_LEISURE_HOUR, demoSummaryLine, startDemo } from './adapters/demo.js';
-import { createGitResolver } from './adapters/git.js';
+import { createBranchResolver, createGitResolver } from './adapters/git.js';
 import { callDaemon } from './client.js';
 import { Collector } from './collector.js';
 import { DEFAULT_PORT, resolvePaths, type Paths } from './config.js';
@@ -200,6 +200,8 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
         claudeDir: paths.claudeDir,
         emit: (e) => void collector.ingest(e),
         resolveWorkspace,
+        // Asked afresh, past the resolver's cache: a branch change the transcript hints at is checked as it happens.
+        resolveBranch: createBranchResolver(),
         ignoreCwd,
         // A session a session file showed that exited while the daemon was down left no live process: once the first scan that read has found the live ones, it ends.
         // The restored subagents that scan found no sign of stop, and so does a meeting only they held.

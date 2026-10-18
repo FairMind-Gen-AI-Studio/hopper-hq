@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { chmod, mkdir, mkdtemp, realpath, stat, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, mkdtemp, realpath, stat, utimes, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { encodeProjectDir } from '../src/adapters/claude-code/fs-adapter.js';
 import { demoSummaryLine } from '../src/adapters/demo.js';
 import { newSession } from '../src/core/reducer.js';
@@ -22,6 +24,7 @@ import { bearer, call } from './helpers/http.js';
 import { isEvent, openSse } from './helpers/sse.js';
 
 const tmp = (p: string) => mkdtemp(join(tmpdir(), p));
+const execFileP = promisify(execFile);
 const quiet = () => {};
 
 function health(port: number, token: string): Promise<number> {
@@ -137,6 +140,37 @@ describe('startDaemon and the sessions it saved', () => {
     try {
       // Nothing writes its journal any more and nothing will end it: the scan kills it.
       await vi.waitFor(() => expect(d.collector.session('S1')?.runs.map((r) => [r.id, r.status])).toEqual([['wf_0000aaaa-001', 'killed']]), { timeout: 5000 });
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it("puts a session on its checkout's branch, not on the worktree branch a subagent's run stamps on its transcript", async () => {
+    const claudeDir = await tmp('shq-claude-');
+    const cwd = join(await realpath(await tmp('shq-git-')), 'site');
+    const git = (...args: string[]) => execFileP('git', ['-C', cwd, '-c', 'user.email=t@example.com', '-c', 'user.name=t', '-c', 'core.hooksPath=/dev/null', ...args]);
+    await mkdir(cwd);
+    await git('init', '-q', '-b', 'main');
+    await git('commit', '-q', '--allow-empty', '-m', 'init');
+    await git('worktree', 'add', '-q', '-b', 'worktree-agent-a1b2', join(cwd, '.claude', 'worktrees', 'agent-a1b2'));
+    // The session's process is this test's own; its main loop stays in the main checkout while a subagent works in the worktree.
+    await mkdir(join(claudeDir, 'sessions'));
+    await writeFile(join(claudeDir, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'S1', cwd }));
+    const project = join(claudeDir, 'projects', encodeProjectDir(cwd));
+    await mkdir(project, { recursive: true });
+    const lines = [
+      { type: 'user', timestamp: new Date().toISOString(), cwd, gitBranch: 'worktree-agent-a1b2', sessionId: 'S1', message: { role: 'user', content: 'Race the subagents' } },
+      { type: 'ai-title', aiTitle: 'Subagent race', sessionId: 'S1' },
+    ];
+    await writeFile(join(project, 'S1.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const d = await startDaemon({ port: 0, dataDir: await tmp('shq-data-'), claudeDir, log: quiet });
+    try {
+      await vi.waitFor(() => expect(d.collector.session('S1')?.title).toBe('Subagent race'), { timeout: 5000 });
+      // The branch is checked after the scan read its lines: a line read by a later scan says that check is over.
+      await appendFile(join(project, 'S1.jsonl'), JSON.stringify({ type: 'ai-title', aiTitle: 'Subagent race, later', sessionId: 'S1' }) + '\n');
+      await vi.waitFor(() => expect(d.collector.session('S1')?.title).toBe('Subagent race, later'), { timeout: 5000 });
+      await d.collector.idle();
+      expect(d.collector.session('S1')?.workspace).toMatchObject({ branch: 'main', worktree: false });
     } finally {
       await d.stop();
     }
