@@ -6,16 +6,18 @@ try {
   let command = binary;
   let args = ['claude-hook'];
   let env = process.env;
+  let windowsVerbatimArguments = false;
   if (/\.(?:cjs|mjs|js)$/i.test(binary)) {
     command = process.execPath;
     args = [binary, ...args];
   } else if (process.platform === 'win32') {
-    command = 'powershell.exe';
-    args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; $cli=(Get-Command $env:HOPPER_HQ_EXECUTABLE -CommandType Application -ErrorAction Stop).Source; & $cli claude-hook; exit $LASTEXITCODE"];
+    command = process.env.ComSpec || 'cmd.exe';
+    args = ['/d', '/v:off', '/s', '/c', '""%HOPPER_HQ_EXECUTABLE%" claude-hook"'];
     env = { ...process.env, HOPPER_HQ_EXECUTABLE: binary };
+    windowsVerbatimArguments = true;
   }
   await new Promise(resolve => {
-    const child = spawn(command, args, { env, stdio: ['inherit', 'ignore', 'ignore'], timeout: 2200, killSignal: 'SIGKILL', windowsHide: true });
+    const child = spawn(command, args, { env, windowsVerbatimArguments, stdio: ['inherit', 'ignore', 'ignore'], timeout: 2200, killSignal: 'SIGKILL', windowsHide: true });
     child.on('error', resolve);
     child.on('close', resolve);
   });

@@ -10,9 +10,10 @@ function invocation(args) {
   if (/\.(?:cjs|mjs|js)$/i.test(binary)) return { command: process.execPath, args: [binary, ...args], env: process.env };
   if (process.platform !== 'win32') return { command: binary, args, env: process.env };
   return {
-    command: 'powershell.exe',
-    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; $cliArgs=@(ConvertFrom-Json $env:HOPPER_HQ_ARGUMENTS); $cli=(Get-Command $env:HOPPER_HQ_EXECUTABLE -CommandType Application -ErrorAction Stop).Source; & $cli @cliArgs; exit $LASTEXITCODE"],
-    env: { ...process.env, HOPPER_HQ_EXECUTABLE: binary, HOPPER_HQ_ARGUMENTS: JSON.stringify(args) },
+    command: process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/v:off', '/s', '/c', `""%HOPPER_HQ_EXECUTABLE%" ${args.join(' ')}"`],
+    env: { ...process.env, HOPPER_HQ_EXECUTABLE: binary },
+    windowsVerbatimArguments: true,
   };
 }
 
@@ -22,6 +23,7 @@ async function forward() {
     const cli = invocation(['codex-hook']);
     const child = spawn(cli.command, cli.args, {
       env: cli.env,
+      windowsVerbatimArguments: cli.windowsVerbatimArguments,
       stdio: ['inherit', 'ignore', 'ignore'],
       timeout: 2200,
       killSignal: 'SIGKILL',
@@ -38,7 +40,7 @@ async function check() {
   let help;
   try {
     const cli = invocation(['--help']);
-    help = await exec(cli.command, cli.args, { env: cli.env, timeout: 2000, maxBuffer: 64 * 1024, windowsHide: true });
+    help = await exec(cli.command, cli.args, { env: cli.env, windowsVerbatimArguments: cli.windowsVerbatimArguments, timeout: 2000, maxBuffer: 64 * 1024, windowsHide: true });
   } catch {
     throw new Error('Hopper HQ with Codex support is required. Install the Hopper CLI, or set HOPPER_HQ_BIN to its executable path.');
   }
@@ -49,7 +51,7 @@ async function open() {
   await check();
   const code = await new Promise(resolve => {
     const cli = invocation(['up']);
-    const child = spawn(cli.command, cli.args, { env: cli.env, stdio: 'inherit', windowsHide: true });
+    const child = spawn(cli.command, cli.args, { env: cli.env, windowsVerbatimArguments: cli.windowsVerbatimArguments, stdio: 'inherit', windowsHide: true });
     child.on('error', err => { process.stderr.write(`${err.message}\n`); resolve(1); });
     child.on('close', code => resolve(code ?? 1));
   });
