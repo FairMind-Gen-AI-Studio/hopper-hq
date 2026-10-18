@@ -3,7 +3,7 @@ import { basename, dirname, join } from 'node:path';
 import type { RawEvent } from '../../core/types.js';
 import type { WorkspaceResolver } from '../git.js';
 import { readHeadLines, readNewLines, readTailLines, type TailState } from './jsonl.js';
-import { isSameProcess, psProbe, readSessionsDir, type LiveSessionFile, type ProcessProbe } from './sessions-dir.js';
+import { isSameProcess, processProbe, readSessionsDir, type LiveSessionFile, type ProcessProbe } from './sessions-dir.js';
 import { parseTranscriptLine } from './transcript.js';
 import { readAgentMeta, WorkflowScanner } from './workflows.js';
 
@@ -80,7 +80,7 @@ export class FsAdapter {
   constructor(private readonly o: FsAdapterOptions) {
     this.now = o.now ?? Date.now;
     this.startedAt = this.now();
-    this.probe = o.probe ?? psProbe;
+    this.probe = o.probe ?? processProbe;
   }
 
   start(intervalMs = 1000): void {

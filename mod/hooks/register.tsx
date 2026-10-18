@@ -47,7 +47,7 @@ function slim(value: unknown, depth = 0): unknown {
 
 async function enqueue($: EngineInterface, fields: Payload) {
   if (summarizer) return
-  const body: Payload = { _hopper_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
+  const body: Payload = { _hopper_transport: 'mod', _hopper_ts: await $.clock.now(), session_id: await $.session.id(), cwd: sessionCwd }
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined) continue
     body[k] = k === 'last_assistant_message' && typeof v === 'string' ? v.slice(0, MAX_ANSWER) : slim(v)
@@ -57,7 +57,7 @@ async function enqueue($: EngineInterface, fields: Payload) {
 }
 
 async function locate($: EngineInterface): Promise<Daemon | null> {
-  const dir = (await $.env.get('HOPPER_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? ''}/.hopper-hq`
+  const dir = (await $.env.get('HOPPER_HQ_HOME')) ?? `${(await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')) ?? ''}/.hopper-hq`
   try {
     const d = JSON.parse(await $.fs.read(`${dir}/daemon.json`)) as Partial<Daemon>
     return typeof d.port === 'number' && typeof d.token === 'string' ? { port: d.port, token: d.token } : null

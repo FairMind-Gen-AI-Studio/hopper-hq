@@ -1,3 +1,4 @@
+import { forwardClaudeHook } from './adapters/claude-code/forward.js';
 import { forwardCodexHook } from './adapters/codex/forward.js';
 import { spawn } from 'node:child_process';
 import { mkdir, open, stat } from 'node:fs/promises';
@@ -45,13 +46,15 @@ export interface Io {
 /** How long to wait for the desktop's opener: a browser it starts can outlive it, and nothing it prints matters. */
 const OPEN_WAIT_MS = 3000;
 
-/** Opens a URL with the desktop's opener (macOS, Linux). Failures are ignored: the link is printed anyway. */
+/** Opens a URL with the desktop's opener. Failures are ignored: the link is printed anyway. */
 export function openInBrowser(url: string): Promise<void> {
-  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'linux' ? 'xdg-open' : null;
+  const windows = process.platform === 'win32';
+  const opener = windows ? 'powershell.exe' : process.platform === 'darwin' ? 'open' : process.platform === 'linux' ? 'xdg-open' : null;
   if (!opener) return Promise.resolve();
   return new Promise((resolve) => {
     // No pipes: xdg-open can leave the browser holding its stdout and stderr, and then nothing would end.
-    const child = spawn(opener, [url], { stdio: 'ignore', detached: true });
+    const args = windows ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:HOPPER_HQ_BROWSER_URL'] : [url];
+    const child = spawn(opener, args, { stdio: 'ignore', detached: true, ...(windows ? { windowsHide: true, env: { ...process.env, HOPPER_HQ_BROWSER_URL: url } } : {}) });
     const done = () => {
       clearTimeout(cap);
       resolve();
@@ -108,6 +111,7 @@ export const HELP = `hopper-hq: watch your coding-agent sessions work
 Usage:
   hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--codex-dir DIR] [--data-dir DIR] [--via-port N]
   hopper-hq start [--port N] [--claude-dir DIR] [--codex-dir DIR] [--data-dir DIR] [--no-watch] [--via-port N]
+  hopper-hq claude-hook
   hopper-hq codex-hook
   hopper-hq down [--data-dir DIR]
   hopper-hq status [--format text|tmux|json] [--data-dir DIR]
@@ -135,6 +139,9 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
   const [cmd, ...args] = argv;
   try {
     switch (cmd) {
+      case 'claude-hook':
+        await forwardClaudeHook();
+        return 0;
       case 'codex-hook':
         await forwardCodexHook();
         return 0;

@@ -28,7 +28,7 @@
 </script>
 
 <header class="topbar">
-  <h1 class="brand">Hopper HQ</h1>
+  <h1 class="brand" translate="no">Hopper HQ</h1>
   <a class="credit" href="https://fairmind.ai" target="_blank" rel="noopener noreferrer">by FairMind</a>
   <nav class="crumbs" aria-label="Location">
     {#each crumbs as crumb, i (i)}
