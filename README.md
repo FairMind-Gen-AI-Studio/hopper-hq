@@ -211,11 +211,47 @@ A floor you open, reload or come back to shows everyone already in place: only w
 
 - The daemon listens on 127.0.0.1 only.
 - `hopper-hq ui` asks the daemon for a one-time link. It works once, within a minute; the demo's link lasts 10 minutes.
-- Opening the link sets a signed, HttpOnly cookie for that daemon's port. It lasts 30 days and survives daemon restarts. To sign every browser out, delete `~/.hopper-hq/token` and restart the daemon.
+- Opening the link sets a signed, HttpOnly cookie named for the port in the browser's address, including an SSH forwarded port. It lasts 30 days and survives daemon restarts. To sign every browser out, delete `~/.hopper-hq/token` and restart the daemon.
 - A signed-in browser can watch the building, switch tmux panes and mark sessions as seen. It cannot send hook events, ask for sign-in links or stop the daemon. From a browser, changes are accepted only from the daemon's own page.
 - The page loads nothing from the network. Scripts, styles and fonts come from the daemon, under a strict content security policy.
 - Known risk: browsers do not keep cookies apart by port. Any other server on 127.0.0.1 that this browser talks to, such as a dev server an agent started, receives the cookie. It could reuse it for up to 30 days to watch the building, switch your tmux panes and mark sessions as seen. If that matters to you, sign everything out as above.
 - In the demo, `Go` and `Go to pane` are simulated: the page says which pane it would switch to, and tmux is never touched.
+
+## On a remote machine
+
+Run hopper-hq on the machine where your agents run, and watch its building from your laptop through SSH. It still listens on 127.0.0.1 only; no public daemon port is needed.
+
+On your laptop, open an SSH session with a local forward:
+
+```sh
+ssh -o ExitOnForwardFailure=yes -L 127.0.0.1:7337:127.0.0.1:7337 you@vps
+```
+
+On the VPS, in that SSH session:
+
+```sh
+hopper-hq up --no-open
+```
+
+Open the printed link in your laptop's browser within one minute. Keep SSH connected while watching. For a fresh link, run `hopper-hq ui --no-open` on the VPS.
+
+If port 7337 is already in use on your laptop, choose another local port:
+
+```sh
+# On the laptop
+ssh -o ExitOnForwardFailure=yes -L 127.0.0.1:7338:127.0.0.1:7337 you@vps
+
+# On the VPS
+hopper-hq up --via-port 7338 --no-open
+```
+
+`--via-port` accepts a port from 1 to 65535. It tells the daemon which extra loopback port to accept in Host and Origin headers and use in sign-in links. It does not change the listening port: use `--port` for that, and match the last port in the SSH forward. Both the daemon's own port and the forwarded port remain accepted, with browser changes restricted to the page's own origin.
+
+You can also use `hopper-hq start --via-port 7338` to run in the foreground. Later `up` and `ui` commands get links with the configured forwarded port without repeating the flag. The setting lasts for that daemon process; pass it again after stopping the daemon. If a daemon is already running with a different sign-in port, `up --via-port` asks you to stop it with `hopper-hq down` and start it again with the desired options.
+
+The mod, the band above the prompt, and the tmux status line run on the VPS as usual. `Go` switches a tmux client attached on the VPS, such as the one in your SSH terminal when you work inside tmux there. It cannot switch a terminal running on the laptop. Use `--no-open` on the VPS to print links for the laptop; browser openers invoked there run on the VPS.
+
+This building contains the remote machine's sessions. Combining its sessions with your laptop's sessions in one building is a separate feature.
 
 ## tmux
 
@@ -313,9 +349,9 @@ Each summary is one call to the model, a small one by default. A session gets at
 
 | Command | What it does |
 | --- | --- |
-| `hopper-hq up` | Starts the daemon in the background unless it is running, then opens the building like `ui`. Use `--no-open` to print the link only. |
+| `hopper-hq up` | Starts the daemon in the background unless it is running, then opens the building like `ui`. Use `--no-open` to print the link only, or `--via-port N` for an SSH forwarded port. See [On a remote machine](#on-a-remote-machine). |
 | `hopper-hq down` | Stops the daemon. |
-| `hopper-hq start` | Runs the daemon in the foreground: collector, file watcher and local API. One daemon runs per data directory. |
+| `hopper-hq start` | Runs the daemon in the foreground: collector, file watcher and local API. One daemon runs per data directory. Accepts `--via-port N` for SSH forwarding. |
 | `hopper-hq status` | Prints a summary. Use `--format text`, `tmux` or `json`. |
 | `hopper-hq ls` | Lists floors and their sessions. |
 | `hopper-hq ack` | Marks finished sessions as seen. |

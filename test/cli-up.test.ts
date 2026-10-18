@@ -93,6 +93,46 @@ describe('up', () => {
     }
   });
 
+  it.each([1, 80, 7338, 65535])('keeps forwarded port %i for later up and ui links, and refuses a different one', async (viaPort) => {
+    const dataDir = await tmp('shq-up-');
+    const bg = background();
+    try {
+      const first = capture();
+      expect(await main(['up', '--port', '0', '--via-port', String(viaPort), '--no-open', '--data-dir', dataDir], { ...first.io, spawnDaemon: bg.spawnDaemon })).toBe(0);
+      expect(bg.calls[0]!.args).toContain('--via-port');
+      expect(Number(new URL(first.out[0]!).port || '80')).toBe(viaPort);
+      for (const command of ['up', 'ui']) {
+        const next = capture();
+        expect(await main([command, '--no-open', '--data-dir', dataDir], next.io)).toBe(0);
+        expect(Number(new URL(next.out[0]!).port || '80')).toBe(viaPort);
+      }
+      const same = capture();
+      expect(await main(['up', '--via-port', String(viaPort), '--no-open', '--data-dir', dataDir], same.io)).toBe(0);
+      const different = capture();
+      const open = vi.fn();
+      expect(await main(['up', '--via-port', '7339', '--data-dir', dataDir], { ...different.io, open })).toBe(1);
+      expect(different.out).toEqual([]);
+      expect(open).not.toHaveBeenCalled();
+      expect(different.err.join(' ')).toContain('hopper-hq down');
+      expect(different.err.join(' ')).toContain('--via-port 7339');
+      expect(bg.calls).toHaveLength(1);
+    } finally {
+      await bg.stopAll();
+    }
+  });
+
+  it('rejects invalid forwarded ports before starting anything', async () => {
+    const spawnDaemon = vi.fn();
+    for (const command of ['up', 'start']) {
+      for (const value of ['0', '-1', '65536', '1.5', 'NaN', '', ' ', '1e3', '0x50']) {
+        const c = capture();
+        expect(await main([command, `--via-port=${value}`], { ...c.io, spawnDaemon })).toBe(2);
+        expect(c.err[0]).toBe(`Invalid via port: ${value}`);
+      }
+    }
+    expect(spawnDaemon).not.toHaveBeenCalled();
+  });
+
   it('says so when the daemon that answers is older than up, and starts nothing', async () => {
     const dataDir = await tmp('shq-up-');
     const server = createServer((req, res) => res.writeHead(req.url === '/api/health' ? 200 : 404, { 'content-type': 'application/json' }).end('{}'));
