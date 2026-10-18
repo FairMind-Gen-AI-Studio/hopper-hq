@@ -55,6 +55,7 @@ export function makeOccupant(spec: DeskSpec, body: number, tie: number | null, c
   const look = ROBOT_OF[spec.state];
   return {
     sessionId: spec.id,
+    agentKind: 'claude-code',
     name: spec.name ?? spec.id,
     title: null,
     state: spec.state,

@@ -13,6 +13,13 @@ export function effectiveState(s: Session, now: number, t: Thresholds = DEFAULT_
   let state = s.state;
   let since = s.stateSince;
 
+  // Rollout discovery can replay completed turns long after their CLI has exited.
+  // Expire their desks only; keep the session so a resumed turn can return.
+  if (s.agentKind === 'codex' && (state === 'done' || state === 'idle' || state === 'dormant')) {
+    const expiresAt = Math.max(s.lastEventAt, s.stateSince) + t.doneToIdleMs;
+    if (now >= expiresAt) return { state: 'ended', since: expiresAt };
+  }
+
   if (state === 'done') {
     const seen = s.seenAt !== null && s.seenAt >= s.stateSince;
     if (seen) {

@@ -1,0 +1,23 @@
+/* Brand marks use the same dark plate in both themes. */
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  flex: none;
+  border-radius: 6px;
+  border: 1px solid #4c5145;
+  background: #20231f;
+  vertical-align: middle;
+}
+
+.agent-badge img {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.agent-badge--codex img { filter: invert(1); }

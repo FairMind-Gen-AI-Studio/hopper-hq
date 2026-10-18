@@ -12,6 +12,24 @@ function sess(id: string, state: SessionState, stateSince: number, extra: Partia
 }
 
 describe('effectiveState', () => {
+  it('expires finished Codex desks after four hours of inactivity without changing their stored state', () => {
+    for (const state of ['done', 'idle', 'dormant'] as const) {
+      const s = sess('codex-a', state, 100, { agentKind: 'codex', seenAt: 200 });
+      expect(effectiveState(s, 4 * H + 99).state).not.toBe('ended');
+      expect(effectiveState(s, 4 * H + 100)).toEqual({ state: 'ended', since: 4 * H + 100 });
+      expect(s.state).toBe(state);
+    }
+  });
+
+  it('keeps Codex work and waits visible and bases expiry on the latest activity', () => {
+    for (const state of ['working', 'no_signal', 'needs_you', 'in_meeting'] as const) {
+      expect(effectiveState(sess('codex-a', state, 0, { agentKind: 'codex' }), 8 * H).state).not.toBe('ended');
+    }
+    const s = sess('codex-a', 'done', 0, { agentKind: 'codex', lastEventAt: 3 * H });
+    expect(effectiveState(s, 4 * H).state).not.toBe('ended');
+    expect(effectiveState(s, 7 * H)).toEqual({ state: 'ended', since: 7 * H });
+  });
+
   it('turns done into idle after the threshold or once seen', () => {
     expect(effectiveState(sess('a', 'done', 0), 4 * H - 1, T)).toEqual({ state: 'done', since: 0 });
     expect(effectiveState(sess('a', 'done', 0), 4 * H, T)).toEqual({ state: 'idle', since: 4 * H });

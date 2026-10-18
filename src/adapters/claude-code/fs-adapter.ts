@@ -15,6 +15,8 @@ export interface FsAdapterOptions {
   now?: () => number;
   /** A subagent transcript written within this window counts as running. */
   childFreshMs?: number;
+  /** A scan that has not finished by then is given up on. */
+  scanTimeoutMs?: number;
   headBytes?: number;
   tailBytes?: number;
   subagentScanMs?: number;
@@ -60,16 +62,23 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+export interface WatcherHealth {
+  lastScanAt: number;
+}
+
 export class FsAdapter {
   private readonly tracked = new Map<string, Tracked>();
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private scanned = false;
+  private readonly startedAt: number;
+  private lastScanAt: number | null = null;
   private readonly now: () => number;
   private readonly probe: ProcessProbe;
 
   constructor(private readonly o: FsAdapterOptions) {
     this.now = o.now ?? Date.now;
+    this.startedAt = this.now();
     this.probe = o.probe ?? psProbe;
   }
 
@@ -79,20 +88,31 @@ export class FsAdapter {
     this.timer = setInterval(() => void this.poll(), intervalMs);
   }
 
+  /** When a scan last finished without error; before the first one, when the adapter was created. A growing age means the scans stopped. */
+  health(): WatcherHealth {
+    return { lastScanAt: this.lastScanAt ?? this.startedAt };
+  }
+
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
 
-  /** One scan. Overlapping calls are skipped. Never throws. */
+  /** One scan. Overlapping calls are skipped; a scan stuck past `scanTimeoutMs` (a hung read after sleep or a network change) is abandoned so the next tick can run. Never throws. */
   async poll(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
+    let timer: NodeJS.Timeout | undefined;
     try {
-      await this.scan();
+      const limit = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, this.o.scanTimeoutMs ?? 30_000);
+      });
+      const done = await Promise.race([this.scan().then(() => true), limit.then(() => false)]);
+      if (done) this.lastScanAt = this.now();
     } catch {
       // keep polling; a bad scan must not stop the adapter
     } finally {
+      clearTimeout(timer);
       this.busy = false;
     }
   }

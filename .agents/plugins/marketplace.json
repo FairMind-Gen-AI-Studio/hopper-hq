@@ -1,0 +1,12 @@
+{
+  "name": "hopper-hq-codex",
+  "interface": { "displayName": "Hopper HQ for Codex" },
+  "plugins": [
+    {
+      "name": "hopper-hq",
+      "source": { "source": "local", "path": "./plugins/hopper-hq" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -11,3 +11,4 @@ mod/tsconfig.json
 
 # Raw screen recordings; the web-sized demo.mp4 is tracked
 media/hopper-hq-demo.*
+.gstack/

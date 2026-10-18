@@ -11,8 +11,9 @@ function pad(s: string, width: number): string {
 
 const pane = (p: string | null): string => (p ? `  [${cleanText(p)}]` : '');
 
-export function formatTmux(a: Pick<AttentionSummary, 'needsYou' | 'done'>): string {
+export function formatTmux(a: Pick<AttentionSummary, 'needsYou' | 'done'>, stalled = false): string {
   const parts: string[] = [];
+  if (stalled) parts.push('#[fg=colour214,bold]stalled#[default]');
   if (a.needsYou > 0) parts.push(`#[fg=colour203,bold]◉${a.needsYou}#[default]`);
   if (a.done > 0) parts.push(`#[fg=colour114]✓${a.done}#[default]`);
   return parts.join(' ');
@@ -24,7 +25,7 @@ export function formatAttentionText(a: AttentionSummary, now: number): string {
     .map((i) => {
       const mark = i.state === 'needs_you' ? '◉' : '✓';
       const what = i.state === 'needs_you' ? reasonText(i.reason) : (i.title ?? 'Finished');
-      return `${mark} ${pad(cleanText(i.name ?? i.id.slice(0, 8)), 28)} ${pad(formatAgo(now - i.since), 5)} ${cleanText(what, 70)}${pane(i.tmuxPane)}`;
+      return `${mark} ${pad(cleanText(i.name ?? i.id.replace(/^codex-/, '').slice(0, 8)), 28)} ${pad(formatAgo(now - i.since), 5)} ${cleanText(what, 70)}${pane(i.tmuxPane)}`;
     })
     .join('\n');
 }
@@ -43,7 +44,7 @@ export function formatBuilding(s: Snapshot): string {
     for (const v of f.sessions) {
       const detail = v.effectiveState === 'needs_you' ? reasonText(v.waitReason) : (taskTitle(v) ?? '');
       const repo = cleanText(label(v)) + (v.workspace.worktree ? '*' : '');
-      out.push(`  ${MARK[v.effectiveState]} ${pad(STATE_LABEL[v.effectiveState], 10)} ${pad(repo, 22)} ${pad(formatAgo(s.generatedAt - v.effectiveSince), 5)} ${cleanText(detail, 60)}${pane(v.tmuxPane)}`);
+      out.push(`  ${MARK[v.effectiveState]} ${pad(STATE_LABEL[v.effectiveState], 10)} ${pad(v.agentKind === 'codex' ? 'Codex' : 'Claude Code', 11)} ${pad(repo, 22)} ${pad(formatAgo(s.generatedAt - v.effectiveSince), 5)} ${cleanText(detail, 60)}${pane(v.tmuxPane)}`);
     }
   }
   return out.join('\n');

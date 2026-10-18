@@ -116,9 +116,11 @@ export interface SessionSummary {
   inputHash: string;
 }
 
+export type AgentKind = 'claude-code' | 'codex';
+
 export interface Session {
   id: string;
-  agentKind: 'claude-code';
+  agentKind: AgentKind;
   location: 'local' | 'cloud';
   pid: number | null;
   name: string | null;
@@ -162,6 +164,7 @@ export interface Session {
 export type EventSourceKind = 'hook' | 'fs' | 'demo';
 
 interface EventBase {
+  agentKind?: AgentKind;
   sessionId: string;
   /** Wall-clock ms when the event happened (hook stamp, transcript timestamp, file time). */
   ts: number;
@@ -185,6 +188,7 @@ export type CollectorEvent = EventBase &
         startedAt?: number;
       }
     | { type: 'session.started' }
+    | { type: 'session.focus'; tmuxPane: string; tmuxSession: string | null }
     | { type: 'session.status'; status: 'busy' | 'idle' | 'waiting'; waitingFor: string | null }
     | { type: 'branch'; branch: string | null }
     | { type: 'title'; title: string }

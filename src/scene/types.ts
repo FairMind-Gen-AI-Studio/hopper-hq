@@ -3,9 +3,9 @@
  * Every string is cleaned by the server (control and bidi characters removed, length capped).
  * Grid: integer cells; x grows east, y grows south. The renderer maps cells to world units.
  */
-import type { RunStatus, SessionState, WaitKind } from '../core/types.js';
+import type { AgentKind, RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 6;
+export const SCENE_VERSION = 7;
 
 /** What a waiting sub-agent is shown doing at leisure: a gin tonic, table football (paired), or a coffee break outside the leisure window. */
 export type SceneLeisure = 'gintonic' | 'biliardino' | 'coffee';
@@ -186,6 +186,7 @@ export interface Checkout {
 
 /** A session on the floor: at a desk, or waiting for one (FloorDetail.unseated). */
 export interface Occupant {
+  agentKind: AgentKind;
   sessionId: string;
   name: string;
   title: string | null;

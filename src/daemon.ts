@@ -4,6 +4,8 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
+import { CodexAdapter } from './adapters/codex/fs-adapter.js';
 import { FsAdapter } from './adapters/claude-code/fs-adapter.js';
 import { DEMO_LEISURE_HOUR, demoSummaryLine, startDemo } from './adapters/demo.js';
 import { createGitResolver } from './adapters/git.js';
@@ -27,6 +29,7 @@ export interface DaemonOptions {
   /** The laptop's loopback port when reaching this daemon through SSH. */
   viaPort?: number;
   claudeDir?: string;
+  codexDir?: string;
   dataDir?: string;
   /** Watch ~/.claude on disk (default true). The mod works either way. */
   watchFiles?: boolean;
@@ -174,7 +177,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
   let requestStop!: () => void;
   const stopRequested = new Promise<void>((resolve) => (requestStop = resolve));
-  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, viaPort: opts.viaPort, onShutdown: () => requestStop() });
+  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, viaPort: opts.viaPort, watcher: () => fsAdapter?.health() ?? null, onShutdown: () => requestStop() });
 
   let port: number;
   try {
@@ -209,7 +212,9 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
         // The runs a saved session holds open: the scan settles each one, even those its process left behind while the daemon was down.
         openRuns: (id) => collector.session(id)?.runs.filter((r) => r.status === 'running' && r.onDisk).map((r) => r.id) ?? [],
       });
+  const codexAdapter = watchFiles ? new CodexAdapter({ codexDir: opts.codexDir ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'), emit: e => void collector.ingest(e), resolveWorkspace, ignoreCwd, log }) : null;
   fsAdapter?.start();
+  codexAdapter?.start();
   const demo = opts.demo ? startDemo((e) => void collector.ingest(e), { showcase: opts.showcase }) : null;
   log(`hopper-hq is listening on http://127.0.0.1:${port}`);
 
@@ -222,6 +227,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
     stop: async () => {
       summarizer.stop();
       fsAdapter?.stop();
+      codexAdapter?.stop();
       demo?.stop();
       hub.close();
       server.closeAllConnections();

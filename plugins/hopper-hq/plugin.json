@@ -1,0 +1,24 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "hopper-hq",
+  "version": "0.1.1",
+  "description": "Watch Codex CLI sessions in a local office building and see when they need you.",
+  "author": { "name": "FairMind", "url": "https://fairmind.ai" },
+  "homepage": "https://github.com/FairMind-Gen-AI-Studio/hopper-hq",
+  "repository": "https://github.com/FairMind-Gen-AI-Studio/hopper-hq",
+  "license": "Apache-2.0",
+  "keywords": ["codex", "sessions", "tmux", "monitoring"],
+  "extensions": {
+    "com.openai": {
+      "hooks": "./hooks/hooks.json",
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "Hopper HQ",
+        "shortDescription": "See your coding sessions and who needs you.",
+        "developerName": "FairMind",
+        "category": "Productivity",
+        "defaultPrompt": ["Open the Hopper HQ building."]
+      }
+    }
+  }
+}

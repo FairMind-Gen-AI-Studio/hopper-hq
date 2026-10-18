@@ -1,3 +1,4 @@
+import { forwardCodexHook } from './adapters/codex/forward.js';
 import { spawn } from 'node:child_process';
 import { mkdir, open, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -105,8 +106,9 @@ const stdio: Io = {
 export const HELP = `hopper-hq: watch your coding-agent sessions work
 
 Usage:
-  hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--data-dir DIR] [--via-port N]
-  hopper-hq start [--port N] [--claude-dir DIR] [--data-dir DIR] [--no-watch] [--via-port N]
+  hopper-hq up [--port N] [--no-open] [--claude-dir DIR] [--codex-dir DIR] [--data-dir DIR] [--via-port N]
+  hopper-hq start [--port N] [--claude-dir DIR] [--codex-dir DIR] [--data-dir DIR] [--no-watch] [--via-port N]
+  hopper-hq codex-hook
   hopper-hq down [--data-dir DIR]
   hopper-hq status [--format text|tmux|json] [--data-dir DIR]
   hopper-hq ls [--data-dir DIR]
@@ -133,6 +135,9 @@ export async function main(argv: string[], io: Io = stdio): Promise<number> {
   const [cmd, ...args] = argv;
   try {
     switch (cmd) {
+      case 'codex-hook':
+        await forwardCodexHook();
+        return 0;
       case 'up':
         return await cmdUp(args, io);
       case 'start':
@@ -205,7 +210,7 @@ function viaPortOption(value: string | undefined): number | undefined {
 async function cmdUp(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { port: { type: 'string' }, 'via-port': { type: 'string' }, 'no-open': { type: 'boolean', default: false }, 'claude-dir': { type: 'string' }, ...dataDirOption },
+    options: { port: { type: 'string' }, 'via-port': { type: 'string' }, 'no-open': { type: 'boolean', default: false }, 'claude-dir': { type: 'string' }, 'codex-dir': { type: 'string' }, ...dataDirOption },
   });
   const port = portOption(values.port);
   const viaPort = viaPortOption(values['via-port']);
@@ -223,6 +228,7 @@ async function cmdUp(args: string[], io: Io): Promise<number> {
   const startArgs = ['--data-dir', dataDir];
   if (port !== undefined) startArgs.push('--port', String(port));
   if (viaPort !== undefined) startArgs.push('--via-port', String(viaPort));
+  if (values['codex-dir'] !== undefined) startArgs.push('--codex-dir', resolve(values['codex-dir']));
   if (values['claude-dir'] !== undefined) startArgs.push('--claude-dir', resolve(values['claude-dir']));
   const daemon = await (io.spawnDaemon ?? spawnDetached)(startArgs, log);
   let ended = false;
@@ -269,14 +275,14 @@ async function logSince(log: string, from: number): Promise<string[]> {
 async function cmdStart(args: string[], io: Io): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { port: { type: 'string' }, 'via-port': { type: 'string' }, 'claude-dir': { type: 'string' }, ...dataDirOption, 'no-watch': { type: 'boolean', default: false } },
+    options: { port: { type: 'string' }, 'via-port': { type: 'string' }, 'claude-dir': { type: 'string' }, 'codex-dir': { type: 'string' }, ...dataDirOption, 'no-watch': { type: 'boolean', default: false } },
   });
   const port = portOption(values.port);
   const viaPort = viaPortOption(values['via-port']);
   const { startDaemon } = await import('./daemon.js');
   let daemon;
   try {
-    daemon = await startDaemon({ port, viaPort, claudeDir: values['claude-dir'], dataDir: values['data-dir'], watchFiles: !values['no-watch'], log: io.err });
+    daemon = await startDaemon({ port, viaPort, claudeDir: values['claude-dir'], codexDir: values['codex-dir'], dataDir: values['data-dir'], watchFiles: !values['no-watch'], log: io.err });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
       io.err(`Port ${port ?? 7337} is already in use. Is hopper-hq already running? Check with: hopper-hq status`);
@@ -366,7 +372,8 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
   const r = await callDaemon<AttentionSummary>(dataDir, 'GET', '/api/attention', 800);
   const { formatAttentionText, formatTmux } = await import('./cli-format.js');
   if (format === 'tmux') {
-    io.out(r?.ok && r.data ? formatTmux(r.data) : '');
+    const h = await callDaemon<{ watcher?: { stalled: boolean } }>(dataDir, 'GET', '/api/health', 800);
+    io.out(r?.ok && r.data ? formatTmux(r.data, h?.ok === true && h.data?.watcher?.stalled === true) : '');
     return 0;
   }
   if (!r) {
@@ -377,8 +384,14 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
     io.err(`The daemon answered with status ${r.status}.`);
     return 1;
   }
-  io.out(format === 'json' ? JSON.stringify(r.data) : formatAttentionText(r.data, Date.now()));
-  return 0;
+  const h = await callDaemon<{ watcher?: { ageMs: number; stalled: boolean } }>(dataDir, 'GET', '/api/health', 800);
+  const stalled = h?.ok && h.data?.watcher?.stalled ? h.data.watcher : null;
+  if (format === 'json') io.out(JSON.stringify({ ...r.data, watcherStalled: stalled !== null }));
+  else {
+    io.out(formatAttentionText(r.data, Date.now()));
+    if (stalled) io.err(`Warning: no session scan for ${Math.round(stalled.ageMs / 60_000)} min, so the building may be out of date. Restart: hopper-hq down && hopper-hq up`);
+  }
+  return stalled ? 2 : 0;
 }
 
 async function cmdLs(args: string[], io: Io): Promise<number> {

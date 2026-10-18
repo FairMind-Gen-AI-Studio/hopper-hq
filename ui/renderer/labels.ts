@@ -6,13 +6,14 @@
  * text. A label hangs from a point of the scene, projected each frame. One tag at a time is in the tab order, the desks'
  * first and the rooms' after them; the arrow keys, Home and End move between the tags on the view.
  *
- * Free desks and dormant sessions' desks have no tag. Seen from far (compact), every tag shows at least its dot and the
+ * Free desks and dormant sessions' desks have no tag. Seen from far (compact), every tag shows its state dot, desk tags keep their agent badge, and the
  * placards hide; closer, every tag and placard shows whole. At every zoom, where two overlap on the canvas the one that
  * ranks lower hides (design §7.3); from far, a named tag that another covers shows its dot alone where the dot is
  * clear. A tag hidden so is like one off the view: out of the tab order, and passed by the arrow keys. A tag that has
  * the focus or the pointer always shows, on top, and takes no part: it hides no one. Tags are measured as they rest,
  * never as a hover or the focus grows them. The floor panel lists every session and room, whatever the view shows.
  */
+import { agentBadge } from '../lib/agent-badge';
 import { Vector3, type Camera } from 'three';
 import { STATE_LABEL } from '../../src/scene/text';
 import type { FloorDetail, MeetingRoom, Occupant, PhaseState, Pod, PodDesk, ShownState } from '../../src/scene/types';
@@ -44,8 +45,10 @@ export function projectToScreen(p: Point3, camera: Camera, width: number, height
  */
 export const COMPACT_PX = 40;
 
-/** A tag drawn as its dot alone, from far, in CSS pixels: a 7 px dot in 3 px of padding and a 1 px border (labels.css). */
+/** A tag drawn as its dot alone, from far, in CSS pixels: a room's 7 px dot in 3 px of padding and a 1 px border (labels.css). */
 export const DOT_PX = 15;
+/** A compact desk tag: identity badge, gap, state dot, padding and border. */
+export const AGENT_TAG = { w: 44, h: 32 } as const;
 
 /** How labels rank where they overlap: the lower shows (design §7.3). */
 export const RANK = { selected: 0, needs_you: 1, done: 2, room: 3, working: 4, other: 5, placard: 6 } as const;
@@ -331,13 +334,13 @@ export class LabelLayer {
     const key = deskKey(occupant.sessionId);
     const tag = this.button(key, { kind: 'desk', id: occupant.sessionId }, { kind: 'desk', state: occupant.state });
     tag.anchor = labelAnchor(floor, desk, occupant);
-    const shows = JSON.stringify([occupant.name, occupant.state, occupant.robot?.badge ?? null, occupant.agentsRunning, occupant.location]);
+    const shows = JSON.stringify([occupant.agentKind, occupant.name, occupant.state, occupant.robot?.badge ?? null, occupant.agentsRunning, occupant.location]);
     if (shows === tag.shows) return key;
     tag.shows = shows;
     const el = tag.el;
-    el.className = ['fv-tag', `fv-st-${occupant.state}`, occupant.robot?.badge ? `fv-badge-${occupant.robot.badge}` : ''].filter(Boolean).join(' ');
+    el.className = ['fv-tag', 'fv-desk', `fv-st-${occupant.state}`, occupant.robot?.badge ? `fv-badge-${occupant.robot.badge}` : ''].filter(Boolean).join(' ');
     mark(el, sameTarget(this.selected, tag.target));
-    const parts = [span('fv-dot', ''), span('fv-name', occupant.name)];
+    const parts = [agentBadge(occupant.agentKind), span('fv-dot', ''), span('fv-name', occupant.name)];
     if (occupant.state === 'needs_you') parts.push(span('fv-note', 'needs you'));
     if (occupant.agentsRunning > 0) parts.push(span('fv-agents', `+${occupant.agentsRunning}`));
     if (occupant.location === 'cloud') parts.push(span('fv-remote', 'remote'));
@@ -432,7 +435,7 @@ export class LabelLayer {
    * with the focus or the pointer is kept, and left out. The others' sizes are read from the page as they rest at this
    * zoom: from far a tag is a dot, or a dot and a name, and one drawn as its dot alone is drawn named again to be read.
    * From far, the named tags (selected, needs you, done, rooms) are worked out first; then the dots, among the labels
-   * kept: those of the named tags not kept, as DOT_PX squares over their anchors, and the other tags. The result follows
+   * kept: those of the named tags not kept, as compact boxes over their anchors, and the other tags. The result follows
    * from the anchors and the resting sizes alone, so placing the same labels again keeps the same ones.
    */
   private keep(): void {
@@ -459,7 +462,7 @@ export class LabelLayer {
     const named = seen.filter((s) => s.named);
     declutter(named.map((s) => s.box)).forEach((kept, i) => (named[i]!.label.kept = kept));
     const shown = named.filter((s) => s.label.kept).map((s): LabelBox => ({ ...s.box, rank: -1 }));
-    const dots = seen.filter((s) => !s.label.kept).map((s) => (s.named ? { ...s, box: dotBox(s.label.at!, s.box.rank) } : s));
+    const dots = seen.filter((s) => !s.label.kept).map((s) => (s.named ? { ...s, box: dotBox(s.label.at!, s.box.rank, s.label.el.classList.contains('fv-desk')) } : s));
     const kept = declutter([...shown, ...dots.map((s) => s.box)]);
     dots.forEach((s, i) => {
       s.label.kept = kept[shown.length + i]!;
@@ -578,8 +581,9 @@ function resting(label: Label, rank: number): LabelBox {
 }
 
 /** A tag's box as its dot alone, hanging from its point. */
-function dotBox(at: ScreenPoint, rank: number): LabelBox {
-  return { x: at.x - DOT_PX / 2, y: at.y - DOT_PX, w: DOT_PX, h: DOT_PX, rank };
+function dotBox(at: ScreenPoint, rank: number, desk: boolean): LabelBox {
+  const { w, h } = desk ? AGENT_TAG : { w: DOT_PX, h: DOT_PX };
+  return { x: at.x - w / 2, y: at.y - h, w, h, rank };
 }
 
 /** The keys that move the focus between tags. */

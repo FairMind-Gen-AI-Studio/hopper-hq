@@ -51,6 +51,37 @@ describe('FsAdapter', () => {
     expect(encodeProjectDir('/Users/me/Projects/fairmind.ai')).toBe('-Users-me-Projects-fairmind-ai');
   });
 
+  it('ages its heartbeat while scans do not finish', async () => {
+    await writeSession(SESSION);
+    let hang = false;
+    const a = adapter({ scanTimeoutMs: 20, probe: async (pids) => (hang ? new Promise(() => {}) : new Map(pids.map((p) => [p, T0 - 1000]))) });
+    expect(a.health().lastScanAt).toBe(now);
+    now += 5000;
+    await a.poll();
+    expect(a.health().lastScanAt).toBe(now);
+    hang = true;
+    const before = now;
+    now += 5000;
+    await a.poll();
+    expect(a.health().lastScanAt).toBe(before);
+  });
+
+  it('recovers when a scan hangs', async () => {
+    await writeSession(SESSION);
+    let calls = 0;
+    const a = adapter({
+      scanTimeoutMs: 20,
+      probe: async (pids) => {
+        if (calls++ === 0) return new Promise(() => {});
+        return new Map(pids.map((p) => [p, T0 - 1000]));
+      },
+    });
+    await a.poll();
+    expect(events).toEqual([]);
+    await a.poll();
+    expect(events.map((e) => e.type)).toContain('session.seen');
+  });
+
   it('discovers a live session and backfills its transcript', async () => {
     await writeSession(SESSION);
     const path = await writeTranscript(encodeProjectDir(CWD), LINES);

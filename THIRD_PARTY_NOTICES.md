@@ -21,3 +21,7 @@ The browser UI's JavaScript bundle includes code from the libraries below, each 
 | Svelte | `svelte` 5.57.1 | Copyright (c) 2016-2025 [Svelte Contributors](https://github.com/sveltejs/svelte/graphs/contributors) | MIT, `licenses/svelte-MIT.txt` |
 | clsx | `clsx` 2.1.1 | Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com) | MIT, `licenses/clsx-MIT.txt` |
 | three.js | `three` 0.186.1 | Copyright © 2010-2026 three.js authors | MIT, `licenses/three-MIT.txt` |
+
+## Agent icons
+
+The Codex and Claude Code (Clawd) SVG marks in `ui/assets/agents/` come from `@lobehub/icons-static-svg` 1.95.1 ([LobeHub Icons](https://github.com/lobehub/lobe-icons)), Copyright (c) 2023 LobeHub, under the MIT licence in `licenses/lobe-icons-MIT.txt`. Presentation attributes are adjusted for local CSS sizing. The SVGs are bundled with the UI; no icon service is contacted. Product marks remain the trademarks of their respective owners.

@@ -101,7 +101,7 @@ export const psProbe: ProcessProbe = async (pids, now) => {
   let ran = true;
   try {
     // Every process in one call: a pid list makes ps fail outright (and print nothing) when one pid is out of range.
-    ({ stdout } = await execFileP('ps', ['-A', '-o', 'pid=,etime='], { maxBuffer: 16 * 1024 * 1024 }));
+    ({ stdout } = await execFileP('ps', ['-A', '-o', 'pid=,etime='], { maxBuffer: 16 * 1024 * 1024, timeout: 5000 }));
   } catch (err) {
     stdout = (err as { stdout?: string }).stdout ?? '';
     ran = stdout.trim() !== '';

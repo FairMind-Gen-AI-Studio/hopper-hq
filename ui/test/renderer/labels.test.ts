@@ -1,8 +1,9 @@
+import { AGENT_BADGES } from '../../lib/agent-badge';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrthographicCamera } from 'three';
 import type { ShownState } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
-import { COMPACT_PX, DOT_PX, LabelLayer, RANK, declutter, projectToScreen, roomTitle, tagRank, tagTitle, type LabelBox, type LabelEvents } from '../../renderer/labels';
+import { AGENT_TAG, COMPACT_PX, DOT_PX, LabelLayer, RANK, declutter, projectToScreen, roomTitle, tagRank, tagTitle, type LabelBox, type LabelEvents } from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
 import { LABEL_Y, boardAnchor, headSpot, labelAnchor, loungeSpots, roomTagAnchor } from '../../renderer/world';
 import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec } from './fixtures';
@@ -74,14 +75,15 @@ describe('the label layer', () => {
     const needs = labels.tag('oa-c3')!;
     expect(needs.tagName).toBe('BUTTON');
     expect(needs.dataset.session).toBe('oa-c3');
-    expect([...needs.classList]).toEqual(['fv-tag', 'fv-st-needs_you', 'fv-badge-needs']);
+    expect([...needs.classList]).toEqual(['fv-tag', 'fv-desk', 'fv-st-needs_you', 'fv-badge-needs']);
     expect([...needs.children].map((c) => [c.className, c.textContent])).toEqual([
+      ['agent-badge agent-badge--claude-code', ''],
       ['fv-dot', ''],
       ['fv-name', 'oa-c3'],
       ['fv-note', 'needs you'],
     ]);
     const meeting = labels.tag('ps-d4')!;
-    expect([...meeting.children].map((c) => c.textContent)).toEqual(['', 'ps-d4', '+2', 'remote']);
+    expect([...meeting.children].map((c) => c.textContent)).toEqual(['', '', 'ps-d4', '+2', 'remote']);
     expect(meeting.title).toBe('ps-d4 · in meeting · 2 agents running · remote');
     expect(labels.tag('ps-f7')).toBeUndefined();
     const sign = labels.sign('p1')!;
@@ -96,6 +98,25 @@ describe('the label layer', () => {
     expect([labels.sign('p1')!.textContent, labels.sign('p1')!.querySelector('small')]).toEqual(['orders-api', null]);
   });
 
+  it('keeps agent identity separate from state and updates a badge when the agent changes', () => {
+    const { labels } = layer();
+    const floor = checkoutFloor();
+    const codex = seatOf(floor, 'sw-a1').occupant;
+    codex.agentKind = 'codex';
+    labels.sync(floor);
+    const tag = labels.tag('sw-a1')!;
+    expect(tag.querySelector('.agent-badge')?.getAttribute('aria-label')).toBe('Codex');
+    expect(tag.querySelector('.agent-badge img')?.getAttribute('src')).toBe(AGENT_BADGES.codex.image);
+    expect(tag.querySelector('.fv-dot')).not.toBeNull();
+    codex.agentKind = 'claude-code';
+    labels.sync(floor);
+    expect(labels.tag('sw-a1')).toBe(tag);
+    expect(tag.querySelector('.agent-badge')?.getAttribute('aria-label')).toBe('Claude Code');
+    expect(tag.querySelector('.agent-badge img')?.getAttribute('src')).toBe(AGENT_BADGES['claude-code'].image);
+    labels.setScale(COMPACT_PX - 1);
+    expect(tag.querySelector('.agent-badge')).not.toBeNull();
+  });
+
   it('writes names, repos and branches as text, never as markup', () => {
     const { root, labels } = layer();
     const checkouts = checkoutSpecs();
@@ -103,7 +124,7 @@ describe('the label layer', () => {
     checkouts[0]!.branch = HOSTILE;
     checkouts[0]!.desks[0]!.name = HOSTILE;
     labels.sync(makeFloor(checkouts));
-    expect(root.querySelector('img')).toBeNull();
+    expect([...root.querySelectorAll('img')].filter(img => !img.closest('.agent-badge'))).toHaveLength(0);
     expect(labels.tag('sw-a1')!.querySelector('.fv-name')!.textContent).toBe(HOSTILE);
     expect(labels.sign('p0')!.firstChild!.textContent).toBe(HOSTILE);
     expect(labels.tag('sw-a1')!.title.startsWith(HOSTILE)).toBe(true);
@@ -434,7 +455,7 @@ describe('the label layer', () => {
     expect(rule('.fv-tag')).toContain('touch-action: none;');
     expect(rule('.fv-tag')).toContain('user-select: none;');
     const hidden = rule(
-      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
+      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge),\n' +
         '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name',
     );
     expect(hidden).toContain('clip-path: inset(50%);');
@@ -531,7 +552,7 @@ describe('room labels', () => {
     const floor = roomFloor();
     floor.rooms[0] = { ...floor.rooms[0]!, name: HOSTILE, summary: HOSTILE, phases: [{ title: HOSTILE, state: 'current' }] };
     labels.sync(floor);
-    expect(root.querySelector('img')).toBeNull();
+    expect([...root.querySelectorAll('img')].filter(img => !img.closest('.agent-badge'))).toHaveLength(0);
     const tag = labels.roomTag(FIRST)!;
     expect(tag.querySelector('.fv-name')!.textContent).toBe(HOSTILE);
     expect(tag.querySelector('.fv-phase')!.textContent).toBe(HOSTILE);
@@ -628,7 +649,7 @@ describe('room labels', () => {
 
   it('keeps only the run names at low zoom: room tags keep their name, and the boards go, letting clicks through', () => {
     const name = rule(
-      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name),\n' +
+      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge),\n' +
         '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name',
     );
     expect(name).toContain('clip-path: inset(50%);');
@@ -878,10 +899,10 @@ describe('which tags show', () => {
   function drawn(sizes: { named: number; grown: number; isGrown: (el: HTMLElement) => boolean }) {
     const isNamed = (el: HTMLElement) => el.matches('.fv-st-needs_you, .fv-st-done, .fv-room, .fv-sel') && !el.classList.contains('fv-dot-only');
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
-      return sizes.isGrown(this) ? sizes.grown : isNamed(this) ? sizes.named : DOT_PX;
+      return sizes.isGrown(this) ? sizes.grown : isNamed(this) ? sizes.named : this.classList.contains('fv-desk') ? AGENT_TAG.w : DOT_PX;
     });
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
-      return isNamed(this) || sizes.isGrown(this) ? 20 : DOT_PX;
+      return this.classList.contains('fv-desk') ? AGENT_TAG.h : isNamed(this) || sizes.isGrown(this) ? 20 : DOT_PX;
     });
   }
   /** Moves the in-meeting ps-d4 somewhere else in the corner and places the labels: a frame in which a label moved. */
@@ -972,14 +993,14 @@ describe('which tags show', () => {
     labels.sync(floorWith({ 'sw-a1': 'needs_you' }, []));
     labels.setScale(COMPACT_PX - 1);
     const camera = corner();
-    // sw-a1 needs you, at 400 px; oa-c3 needs you too, 50 px east; sw-b2 is done, 50 px west. Their names overlap
-    // sw-a1's, but their dots are clear of it. sw-c3's dot lies under sw-a1's name; oa-d5's only under oa-c3's name.
+    // Their full names overlap, but compact identity badges at 65 px east and west are clear.
+    // sw-c3 lies under the first name; oa-d5 at 115 px is clear of the compact badge.
     const at = (px: number) => ({ x: -20 + px / 80, y: 1, z: -20 });
     labels.moveTag('sw-a1', at(0));
-    labels.moveTag('oa-c3', at(50));
-    labels.moveTag('sw-b2', at(-50));
+    labels.moveTag('oa-c3', at(65));
+    labels.moveTag('sw-b2', at(-65));
     labels.moveTag('sw-c3', at(10));
-    labels.moveTag('oa-d5', at(75));
+    labels.moveTag('oa-d5', at(115));
     for (let k = 0; k < 3; k++) {
       frameWithAMove(labels, camera);
       expect(shown(root), `frame ${k}`).toEqual(['sw-a1', 'sw-b2', 'oa-c3', 'oa-d5', 'ps-d4']);
@@ -993,9 +1014,10 @@ describe('which tags show', () => {
     // As drawn from far, a tag shown as its dot is a dot alone: dot, padding and border make DOT_PX.
     const dotOnly = css.slice(css.indexOf('\n.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) {'));
     expect(dotOnly).toMatch(/^\n\.fv-compact \.fv-tag\.fv-dot-only:not\(:hover\):not\(:focus-visible\) \{\n {2}gap: 0;\n {2}padding: 3px;\n\}/);
-    expect(css).toContain('\n.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) > :not(.fv-dot) {\n  position: absolute;');
+    expect(css).toContain('\n.fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) > :not(.fv-dot):not(.agent-badge) {\n  position: absolute;');
     expect([rule('.fv-dot'), rule('.fv-tag')]).toEqual([expect.stringContaining('width: 7px;'), expect.stringContaining('border: 1px solid')]);
     expect(DOT_PX).toBe(7 + 2 * 3 + 2 * 1);
+    expect(AGENT_TAG).toEqual({ w: 24 + 5 + 7 + 2 * 3 + 2, h: 24 + 2 * 3 + 2 });
   });
 
   it('takes a hidden tag out of the tab order and the arrow keys, as one off the view', () => {
