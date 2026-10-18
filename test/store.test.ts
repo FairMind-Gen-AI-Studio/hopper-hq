@@ -115,6 +115,43 @@ describe('Store', () => {
     store.close();
   });
 
+  it('prunes sessions that ended before the cutoff, by when they ended, and keeps every other row', async () => {
+    const store = await Store.open(':memory:');
+    const s = (id: string) => newSession(id, 1000, WS);
+    store.saveSessions(
+      [
+        { ...s('OLD'), state: 'ended', stateSince: 100 },
+        { ...s('NEW'), state: 'ended', stateSince: 900 },
+        { ...s('DORMANT'), state: 'dormant', stateSince: 100 },
+        { ...s('CODEX'), agentKind: 'codex', state: 'done', stateSince: 100 },
+      ],
+      // Saved after the cutoff: the age is when the session ended, not when its row was last written.
+      2000,
+    );
+    expect(store.pruneEndedSessions(500)).toBe(1);
+    expect(store.loadSessions().map((x) => x.id)).toEqual(['CODEX', 'DORMANT', 'NEW']);
+    expect(store.pruneEndedSessions(500)).toBe(0);
+    store.close();
+  });
+
+  it('keeps a session row that does not read back when pruning', async () => {
+    const path = join(await mkdtemp(join(tmpdir(), 'shq-store-')), 'test.db');
+    const store = await Store.open(path);
+    store.saveSessions([{ ...newSession('OLD', 1000, WS), state: 'ended', stateSince: 100 }], 5);
+    store.close();
+    const { DatabaseSync } = await import('node:sqlite');
+    const raw = new DatabaseSync(path);
+    raw.prepare("INSERT INTO sessions (id, json, updated_at) VALUES ('BAD', '{not json', 5), ('NUL', 'null', 5)").run();
+    raw.close();
+    const again = await Store.open(path);
+    expect(again.pruneEndedSessions(500)).toBe(1);
+    again.close();
+    const check = new DatabaseSync(path);
+    const left = check.prepare('SELECT id FROM sessions ORDER BY id').all() as unknown as { id: string }[];
+    check.close();
+    expect(left.map((r) => r.id)).toEqual(['BAD', 'NUL']);
+  });
+
   it('waits for another connection to finish writing instead of failing', async () => {
     const path = join(await mkdtemp(join(tmpdir(), 'shq-store-')), 'test.db');
     const store = await Store.open(path);

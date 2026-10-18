@@ -66,6 +66,9 @@ function inside(dir: string, path: string): boolean {
 /** Sign-in links of the demo last longer: its URL is printed once, at start. */
 export const DEMO_CODE_TTL_MS = 10 * 60 * 1000;
 
+/** How long the store keeps events, and sessions once they have ended. Both are pruned as the daemon starts. */
+export const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** node:sqlite prints an ExperimentalWarning on Node 22. Hide that one, keep the others. Call before opening the store. */
 export function silenceExperimentalWarnings(): void {
   process.removeAllListeners('warning');
@@ -142,7 +145,10 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const ignoreCwd = (cwd: string) => inside(summarizerReal, cwd) || inside(summarizerCwd, cwd);
 
   const store = await Store.open(opts.demo ? ':memory:' : join(paths.dataDir, 'hopper.db'));
-  store.prune(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const keepFrom = Date.now() - RETENTION_MS;
+  store.prune(keepFrom);
+  // Before the collector loads them: a session that ended long ago keeps its prompts and last reply no longer than its events.
+  store.pruneEndedSessions(keepFrom);
   const resolveWorkspace = createGitResolver();
   const watchFiles = !opts.demo && opts.watchFiles !== false;
   // Restored subagents run on until the first scan has reported on them; with no scan to come, they stop at once.

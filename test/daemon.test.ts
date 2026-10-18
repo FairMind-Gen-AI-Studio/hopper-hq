@@ -9,7 +9,7 @@ import { demoSummaryLine } from '../src/adapters/demo.js';
 import { newSession } from '../src/core/reducer.js';
 import type { RawEvent, Session, WorkflowRun } from '../src/core/types.js';
 import { readDaemonFile } from '../src/daemon-file.js';
-import { startDaemon as startRawDaemon, type DaemonOptions } from '../src/daemon.js';
+import { RETENTION_MS, startDaemon as startRawDaemon, type DaemonOptions } from '../src/daemon.js';
 const startDaemon = async (opts: DaemonOptions) => startRawDaemon({ codexDir: await mkdtemp(join(tmpdir(), 'shq-codex-')), ...opts });
 import { CSP } from '../src/server/headers.js';
 import type { Seating } from '../src/scene/seating.js';
@@ -18,6 +18,7 @@ import { Store } from '../src/store/store.js';
 import { writeSummaryConfig, type SummaryConfig } from '../src/summary/config.js';
 import { SUMMARY_MAX, summaryInput } from '../src/summary/input.js';
 import type { SummaryProvider } from '../src/summary/providers.js';
+import { WS } from './helpers/events.js';
 import { bearer, call } from './helpers/http.js';
 import { isEvent, openSse } from './helpers/sse.js';
 
@@ -137,6 +138,21 @@ describe('startDaemon and the sessions it saved', () => {
     try {
       // Nothing writes its journal any more and nothing will end it: the scan kills it.
       await vi.waitFor(() => expect(d.collector.session('S1')?.runs.map((r) => [r.id, r.status])).toEqual([['wf_0000aaaa-001', 'killed']]), { timeout: 5000 });
+    } finally {
+      await d.stop();
+    }
+  });
+
+  it('forgets, as it starts, a session that ended more than the retention ago, and loads one that ended since', async () => {
+    const dataDir = await tmp('shq-data-');
+    const store = await Store.open(join(dataDir, 'hopper.db'));
+    const ended = (id: string, ago: number): Session => ({ ...newSession(id, 1000, WS), state: 'ended', stateSince: Date.now() - ago });
+    store.saveSessions([ended('LONG-AGO', RETENTION_MS + 60_000), ended('RECENT', 60_000)], Date.now());
+    store.close();
+    const d = await startDaemon({ port: 0, dataDir, claudeDir: await tmp('shq-claude-'), watchFiles: false, log: quiet });
+    try {
+      expect(d.collector.session('LONG-AGO')).toBeNull();
+      expect(d.collector.session('RECENT')?.state).toBe('ended');
     } finally {
       await d.stop();
     }

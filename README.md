@@ -444,6 +444,8 @@ The files under `~/.claude` are internal to Claude Code and can change between v
 - hopper-hq listens on 127.0.0.1 only.
 - The CLI and the mod authenticate with a token stored in `~/.hopper-hq/token` (mode 600). Browsers sign in with a one-time link: see [Signing in](#signing-in).
 - There is no telemetry. Nothing leaves your machine unless you turn [summaries](#summaries) on: each summary then sends one session's notes to the provider you chose.
+- What the building shows is kept on your machine, in `~/.hopper-hq/hopper.db`, in a folder hopper-hq creates readable by you only. For each session this includes its working directory and branch, its title, its first and latest prompts, its last ten actions as short labels of at most 80 characters (such as the start of a shell command), its last reply up to 2,000 characters, and its summary line when summaries are on. Prompts are cut to 200 characters for Claude Code sessions and to 2,000 for Codex sessions. An event log keeps the prompts, labels and wait reasons as they came.
+- Each time the daemon starts, it deletes events older than 7 days, and sessions that ended more than 7 days ago. A session that is never marked as ended stays until you delete it. That happens to a Codex session hopper-hq found from Codex's own files rather than through its plugin: its desk leaves the building four hours after its last turn, but the session is kept so that a resumed turn can return to it. To clear everything, run `hopper-hq down` and delete the `hopper.db` files.
 
 ## Development
 
