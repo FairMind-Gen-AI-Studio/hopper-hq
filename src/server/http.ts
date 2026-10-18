@@ -8,6 +8,7 @@ import { isSessionId, KEY_MAX } from '../scene/text.js';
 import type { SummaryStatus } from '../summary/summarizer.js';
 import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
 import { SceneHub } from './events.js';
+import { HookEvents } from './hook-events.js';
 import { simulatedFocusDriver, type FocusDriver } from './focus.js';
 import { API_HEADERS, ASSET_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
 import type { UiBundle, UiFile } from './static.js';
@@ -79,6 +80,7 @@ const GET_HEAD = ['GET', 'HEAD'];
 const POST = ['POST'];
 
 function routes(d: Deps): Route[] {
+  const claudeEvents = new HookEvents();
   return [
     { methods: GET, path: '/', auth: 'public', run: ({ res }) => redirect(res, 302, '/ui/') },
     { methods: GET, path: '/ui', auth: 'public', run: ({ res }) => redirect(res, 302, '/ui/') },
@@ -91,7 +93,7 @@ function routes(d: Deps): Route[] {
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
     { methods: GET, path: '/api/summaries', auth: 'bearer', run: ({ res }) => getSummaries(d, res) },
     { methods: POST, path: '/api/hooks/codex', auth: 'bearer', run: (c) => postHooks(d, c, mapCodexHook) },
-    { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c) },
+    { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c, mapHookPayload, claudeEvents) },
     { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
     { methods: POST, path: '/api/shutdown', auth: 'bearer', run: ({ res }) => postShutdown(d, res) },
     { methods: GET, path: '/api/scene', auth: 'read', run: ({ res }) => send(res, 200, d.collector.scene()) },
@@ -213,7 +215,7 @@ async function handle(d: Deps, table: Route[], req: IncomingMessage, res: Server
   await found.route.run({ req, res, url, port, params: found.params });
 }
 
-async function postHooks(d: Deps, { req, res }: Ctx, map = mapHookPayload): Promise<void> {
+async function postHooks(d: Deps, { req, res }: Ctx, map = mapHookPayload, reports?: HookEvents): Promise<void> {
   const raw = await readBody(req, d.maxBodyBytes);
   if (raw === null) return send(res, 413, { error: 'Payload too large' });
   let payload: unknown;
@@ -224,7 +226,12 @@ async function postHooks(d: Deps, { req, res }: Ctx, map = mapHookPayload): Prom
   }
   const now = d.now();
   const items = Array.isArray(payload) ? payload : [payload];
-  for (const item of items) for (const e of map(item, now)) void d.collector.ingest(e);
+  for (const item of items) {
+    const transport = item?._hopper_transport === 'command' ? 'command' : 'mod';
+    for (const e of map(item, now)) {
+      if (!reports || reports.accept(e, transport)) void d.collector.ingest(e);
+    }
+  }
   return send(res, 204);
 }
 

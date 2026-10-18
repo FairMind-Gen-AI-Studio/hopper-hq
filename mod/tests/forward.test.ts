@@ -331,3 +331,22 @@ test('keeps the queue bounded when a batch fails after a long wait', async ($, o
 
   expect(sizes).toEqual([1, 500])
 })
+
+test('locates the Windows daemon through USERPROFILE when HOME is absent', async ($, on) => {
+  const posts: Post[] = []
+  on('env.get', async ($, e) => ({ value: e.name === 'USERPROFILE' ? 'C:\\Users\\Dev' : undefined }))
+  on('session.start', async ($, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: 'windows-own' }))
+  on('fs.read', async ($, e, next) => e.path.endsWith('C:\\Users\\Dev/.hopper-hq/daemon.json') ? { value: JSON.stringify({ port: 7337, token: 'tok' }) } : next(e))
+  on('http.fetch', async ($, e) => {
+    if (e.init?.method === 'POST') posts.push({ url: e.url, body: JSON.parse(e.init.body ?? '[]'), auth: e.init.headers?.authorization })
+    return { value: { status: 204, ok: true, headers: {}, text: '' } }
+  })
+  on('prompt.submit', async ($, e) => ({ text: e.text }))
+  const clock = mock.clock(on)
+  await $.session.start({ ...START, cwd: 'C:\\work\\api' })
+  await $.prompt.submit({ text: 'hello', wait: false, origin: { kind: 'composer' } })
+  await clock.advance(600)
+  expect(posts).toHaveLength(1)
+  expect(posts[0]?.body[0]).toMatchObject({ session_id: 'windows-own', prompt: 'hello' })
+})

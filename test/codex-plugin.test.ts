@@ -15,14 +15,14 @@ afterEach(async () => { for (const p of dirs.splice(0)) await rm(p, { recursive:
 
 async function fakeCli(body: string) {
   const dir = await mkdtemp(join(tmpdir(), 'hopper plugin ')); dirs.push(dir);
-  const bin = join(dir, 'hopper-hq');
+  const bin = join(dir, 'hopper-hq.mjs');
   await writeFile(bin, `#!${process.execPath}\n${body}\n`); await chmod(bin, 0o755);
   return { dir, bin, env: { ...process.env, HOPPER_HQ_BIN: bin } };
 }
 
-function hook(payload: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function hook(payload: string, env: NodeJS.ProcessEnv, script = helper): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = execFile(process.execPath, [helper, 'hook'], { env, timeout: 6000 }, (err, stdout, stderr) => {
+    const child = execFile(process.execPath, [script, 'hook'], { env, timeout: 6000 }, (err, stdout, stderr) => {
       if (err && !('code' in err)) return reject(err);
       resolve({ code: err ? (err as { code: number }).code : 0, stdout, stderr });
     });
@@ -61,6 +61,21 @@ describe('Codex plugin package', () => {
 });
 
 describe('plugin helper', () => {
+  it.skipIf(process.platform !== 'win32')('runs an npm-style Windows command shim from a path containing spaces', async () => {
+    const cli = await fakeCli(`import { readFileSync, writeFileSync } from 'node:fs';
+writeFileSync(process.env.RECEIVED, JSON.stringify({ args: process.argv.slice(2), payload: readFileSync(0, 'utf8') }));`);
+    const shim = join(cli.dir, 'hopper hq.cmd');
+    await writeFile(shim, `@"${process.execPath}" "${cli.bin}" %*\r\n`);
+    await writeFile(join(cli.dir, 'hopper hq.ps1'), "throw 'The npm PowerShell shim must not run'\r\n");
+    const received = join(cli.dir, 'received.json');
+    const payload = JSON.stringify({ session_id: 'windows', hook_event_name: 'Stop' });
+    for (const [script, command] of [[helper, 'codex-hook'], [resolve('mod/scripts/hook.mjs'), 'claude-hook']]) {
+      expect(await hook(payload, { ...cli.env, HOPPER_HQ_BIN: shim, RECEIVED: received }, script)).toEqual({ code: 0, stdout: '', stderr: '' });
+      expect(await read(received)).toEqual({ args: [command], payload });
+      expect(await hook(payload, { ...cli.env, HOPPER_HQ_BIN: 'hopper hq', PATH: `${cli.dir};${process.env.PATH}`, RECEIVED: received }, script)).toEqual({ code: 0, stdout: '', stderr: '' });
+      expect(await read(received)).toEqual({ args: [command], payload });
+    }
+  });
   it('forwards stdin and tmux environment unchanged without emitting CLI output', async () => {
     const cli = await fakeCli(`import { readFileSync, writeFileSync } from 'node:fs';
 const payload = readFileSync(0, 'utf8');

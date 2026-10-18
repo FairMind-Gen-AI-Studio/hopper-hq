@@ -6,11 +6,22 @@ const exec = promisify(execFile);
 const binary = process.env.HOPPER_HQ_BIN || 'hopper-hq';
 const [action] = process.argv.slice(2);
 
+function invocation(args) {
+  if (/\.(?:cjs|mjs|js)$/i.test(binary)) return { command: process.execPath, args: [binary, ...args], env: process.env };
+  if (process.platform !== 'win32') return { command: binary, args, env: process.env };
+  return {
+    command: 'powershell.exe',
+    args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop'; $cliArgs=@(ConvertFrom-Json $env:HOPPER_HQ_ARGUMENTS); $cli=(Get-Command $env:HOPPER_HQ_EXECUTABLE -CommandType Application -ErrorAction Stop).Source; & $cli @cliArgs; exit $LASTEXITCODE"],
+    env: { ...process.env, HOPPER_HQ_EXECUTABLE: binary, HOPPER_HQ_ARGUMENTS: JSON.stringify(args) },
+  };
+}
+
 /** Hooks observe only: an absent or stalled CLI must not delay or control a Codex turn. */
 async function forward() {
   await new Promise(resolve => {
-    const child = spawn(binary, ['codex-hook'], {
-      env: process.env,
+    const cli = invocation(['codex-hook']);
+    const child = spawn(cli.command, cli.args, {
+      env: cli.env,
       stdio: ['inherit', 'ignore', 'ignore'],
       timeout: 2200,
       killSignal: 'SIGKILL',
@@ -26,7 +37,8 @@ async function check() {
   if (major < 22 || (major === 22 && minor < 13)) throw new Error('Hopper HQ requires Node.js 22.13 or later.');
   let help;
   try {
-    help = await exec(binary, ['--help'], { timeout: 2000, maxBuffer: 64 * 1024 });
+    const cli = invocation(['--help']);
+    help = await exec(cli.command, cli.args, { env: cli.env, timeout: 2000, maxBuffer: 64 * 1024, windowsHide: true });
   } catch {
     throw new Error('Hopper HQ with Codex support is required. Install the Hopper CLI, or set HOPPER_HQ_BIN to its executable path.');
   }
@@ -36,7 +48,8 @@ async function check() {
 async function open() {
   await check();
   const code = await new Promise(resolve => {
-    const child = spawn(binary, ['up'], { env: process.env, stdio: 'inherit', windowsHide: true });
+    const cli = invocation(['up']);
+    const child = spawn(cli.command, cli.args, { env: cli.env, stdio: 'inherit', windowsHide: true });
     child.on('error', err => { process.stderr.write(`${err.message}\n`); resolve(1); });
     child.on('close', code => resolve(code ?? 1));
   });

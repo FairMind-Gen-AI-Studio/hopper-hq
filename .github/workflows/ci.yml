@@ -29,3 +29,18 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: node --test test/platform-smoke.mjs
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test -- test/adapters/sessions-dir.test.ts test/adapters/codex.test.ts test/adapters/hooks.test.ts test/server/claude-hooks.test.ts test/server/codex.test.ts test/cli-open-windows.test.ts test/codex-plugin.test.ts
+      - run: npm run build
+      - run: node --test test/platform-smoke.mjs

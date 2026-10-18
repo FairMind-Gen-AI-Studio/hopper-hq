@@ -76,6 +76,8 @@ Early. The collector, the CLI, the tmux counter and the building in the browser 
 
 Node 22.13 or later is required. hopper-hq reads the sessions of [Claude Code](https://claude.com/claude-code); tmux is optional, and only needed for the status line and the `Go` buttons.
 
+On native Windows, run Hopper and your agents under the same Windows account. Session discovery uses PowerShell's Windows process creation times; PowerShell and CIM must be available. In WSL, install and run Hopper inside the same WSL environment as the agents. Discovery across Windows and WSL is not supported. The building works without tmux; `Go` requires a local tmux pane.
+
 To see the building before you have any sessions, run `hopper-hq demo` once it is installed: it plays synthetic sessions, and `hopper-hq demo --showcase` plays a longer scenario.
 
 Install it from npm:
@@ -285,6 +287,18 @@ claude --plugin-dir /path/to/hopper-hq/mod
 
 Without the mod, hopper-hq still works from the files Claude Code writes. It has up to a second of delay and less detail about why a session waits.
 
+### Non-interactive Claude runs
+
+The plugin also includes command hooks for `claude -p`, independently of the prompt UI. Start the daemon with `hopper-hq up` before launching runs, and keep `hopper-hq` on Claude's `PATH`. Update both the Hopper CLI and the plugin together. Set `HOPPER_HQ_BIN` to a CLI executable or JavaScript entry point outside `PATH` when needed. Hooks report session start/end, prompts, tools, permissions, subagents, and final replies. Command hooks take precedence over reports from the UI mod for the same session; the mod still supplies workflow membership. Restart the daemon when switching a session from command hooks to mod-only reporting.
+
+```sh
+claude --plugin-dir /path/to/hopper-hq/mod -p "Inspect the repository"
+```
+
+For a setup without the plugin, merge command hooks into Claude's settings, preserving unrelated hooks. Use `"command": "hopper-hq claude-hook"` with `"type": "command"` and `"timeout": 3` for `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `Stop`, `SubagentStart`, `SubagentStop`, and `SessionEnd`. Use either these manual hooks or the plugin's command hooks. Both send raw Claude payloads to `/api/hooks` using the existing local daemon token; forwarding prints nothing and returns silently if the daemon is unavailable. Set `HOPPER_HQ_HOME` in Claude's environment when using a custom data directory.
+
+`Stop` ends a turn; `SessionEnd` ends the session. A forced process termination may prevent the end hook from running; silence becomes “no signal” rather than proof of an exit. Hopper's own summary runs are excluded. Runs that disable hooks need session files for discovery; runs with neither signal are not supported.
+
 ## Summaries
 
 hopper-hq can write one line per session that says where it stands: what is done, what is in progress, or what it waits for. A language model writes the line, so summaries are off by default. To turn them on:
@@ -362,6 +376,8 @@ Each summary is one call to the model, a small one by default. A session gets at
 ## Codex CLI
 
 Run `hopper-hq up` to discover local Codex CLI and `codex exec` sessions from dated rollout JSONL files under `$CODEX_HOME/sessions` (default `~/.codex/sessions`). Override the directory with `--codex-dir DIR` on `up` or `start`. `start --no-watch` disables both agents' filesystem sources; the demo ignores both files and hooks. No Codex files or configuration are written by hopper-hq.
+
+The same observer hooks described below can report `codex exec` and resumed runs when that Codex version invokes local hooks. Keep the same `CODEX_HOME` and `HOPPER_HQ_HOME` across runs. A run without persisted rollouts needs hooks enabled and trusted; without either source it cannot appear in the building.
 
 Codex and Claude Code sessions share the existing repository/feature floors. The desk panel and `hopper-hq ls` identify the agent. The scanner follows recently modified rollouts, up to seven days old, and refreshes the working directory's current Git branch. Rollout timestamps drive working, done and idle states; silence becomes “no signal” rather than an inferred approval request. Closing a CLI without hooks cannot reliably be distinguished from an idle session.
 

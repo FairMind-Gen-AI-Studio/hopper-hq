@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isSameProcess, parseEtime, parseSessionFile, psProbe, readSessionsDir } from '../../src/adapters/claude-code/sessions-dir.js';
+import { isSameProcess, parseEtime, parseSessionFile, psProbe, processProbe, parseWindowsProcesses, readSessionsDir } from '../../src/adapters/claude-code/sessions-dir.js';
 
 const SAMPLE = {
   pid: 15227,
@@ -102,7 +102,7 @@ describe('parseEtime', () => {
   });
 });
 
-describe('psProbe', () => {
+describe.skipIf(process.platform === 'win32')('psProbe', () => {
   it('finds the start time of a running process and ignores unknown pids', async () => {
     const now = Date.now();
     const starts = (await psProbe([process.pid, 999_999_999], now))!;
@@ -126,7 +126,7 @@ describe('psProbe', () => {
   });
 });
 
-describe('psProbe with a ps that printed something unusable', () => {
+describe.skipIf(process.platform === 'win32')('psProbe with a ps that printed something unusable', () => {
   async function withFakePs(script: string, run: () => Promise<void>) {
     const dir = await mkdtemp(join(tmpdir(), 'shq-fakeps-'));
     await writeFile(join(dir, 'ps'), `#!/bin/sh\n${script}\n`);
@@ -158,6 +158,24 @@ describe('psProbe with a ps that printed something unusable', () => {
       expect(starts).not.toBeNull();
       expect(starts!.size).toBe(0);
     });
+  });
+});
+
+describe('processProbe', () => {
+  it('reads the current process creation time on the host platform', async () => {
+    const now = Date.now();
+    const starts = await processProbe([process.pid, 999_999_999], now);
+    expect(starts?.get(process.pid)).toBeGreaterThan(now - 86400_000);
+    expect(starts?.get(process.pid)).toBeLessThanOrEqual(now);
+    expect(starts?.has(999_999_999)).toBe(false);
+    expect(await processProbe([], now)).toEqual(new Map());
+  });
+  it('distinguishes missing processes from unreadable Windows process data', () => {
+    expect(parseWindowsProcesses('[]', [42])).toEqual(new Map());
+    expect(parseWindowsProcesses('\uFEFF[{"ProcessId":42,"startedAt":"2026-10-18T10:00:00.000Z"}]', [42, 43])).toEqual(new Map([[42, 1792317600000]]));
+    expect(parseWindowsProcesses('[{"ProcessId":42,"startedAt":null}]', [42])).toBeNull();
+    expect(parseWindowsProcesses('Access denied', [42])).toBeNull();
+    expect(parseWindowsProcesses('{}', [42])).toBeNull();
   });
 });
 

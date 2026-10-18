@@ -82,7 +82,7 @@ export async function readSessionsDir(dir: string): Promise<LiveSessionFile[] | 
   return out;
 }
 
-/** pid -> process start time in ms, for the pids that are running; null when ps could not tell. */
+/** pid -> process start time in ms, for the pids that are running; null when the OS could not tell. */
 export type ProcessProbe = (pids: number[], now: number) => Promise<Map<number, number> | null>;
 
 /** Parses ps etime, "[[dd-]hh:]mm:ss", into seconds. */
@@ -118,6 +118,49 @@ export const psProbe: ProcessProbe = async (pids, now) => {
   }
   // A ps -A that ran lists at least itself: output with no line to read is a ps that could not tell.
   return listed === 0 ? null : out;
+};
+
+/** Reads UTC creation times from Windows CIM, without treating an unreadable result as an exit. */
+export function parseWindowsProcesses(text: string, pids: number[]): Map<number, number> | null {
+  try {
+    const rows: unknown = JSON.parse(text.replace(/^\uFEFF/, ''));
+    if (!Array.isArray(rows)) return null;
+    const wanted = new Set(pids);
+    const out = new Map<number, number>();
+    for (const row of rows) {
+      if (!row || typeof row !== 'object') return null;
+      const { ProcessId, startedAt } = row as Record<string, unknown>;
+      if (!Number.isSafeInteger(ProcessId) || typeof startedAt !== 'string') return null;
+      const start = Date.parse(startedAt);
+      if (!Number.isFinite(start)) return null;
+      if (wanted.has(ProcessId as number)) out.set(ProcessId as number, start);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+export const processProbe: ProcessProbe = async (pids, now) => {
+  if (process.platform !== 'win32') return psProbe(pids, now);
+  const wanted = [...new Set(pids.filter(p => Number.isSafeInteger(p) && p > 0))];
+  if (wanted.length === 0) return new Map();
+  try {
+    const starts = new Map<number, number>();
+    // Bound the command line even when a directory contains many stale session files.
+    for (let i = 0; i < wanted.length; i += 100) {
+      const batch = wanted.slice(i, i + 100);
+      const filter = batch.map(pid => `ProcessId=${pid}`).join(' OR ');
+      const script = `$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $rows=@(Get-CimInstance Win32_Process -Filter '${filter}' | Select-Object ProcessId,@{Name='startedAt';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}}); ConvertTo-Json -InputObject $rows -Compress`;
+      const { stdout } = await execFileP('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true });
+      const parsed = parseWindowsProcesses(stdout, batch);
+      if (parsed === null) return null;
+      for (const [pid, start] of parsed) starts.set(pid, start);
+    }
+    return starts;
+  } catch {
+    return null;
+  }
 };
 
 /** True when the running process is the one that wrote the file, not a later process that reused its pid. */
