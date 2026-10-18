@@ -60,6 +60,21 @@ describe('API routes', () => {
     expect(r).toEqual({ status: 200, json: { ok: true, version } });
   });
 
+  it('flags a watcher whose scans stopped', async () => {
+    let lastScanAt = 1_000_000;
+    const s = createApiServer({ collector, token: TOKEN, now: () => 1_030_000, watcher: () => ({ lastScanAt }) });
+    await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
+    const get = async () => {
+      const p = (s.address() as AddressInfo).port;
+      const res = await fetch(`http://127.0.0.1:${p}/api/health`, { headers: { authorization: `Bearer ${TOKEN}` } });
+      return (await res.json()) as any;
+    };
+    expect((await get()).watcher).toEqual({ lastScanAt, ageMs: 30_000, stalled: false });
+    lastScanAt = 900_000;
+    expect((await get()).watcher).toEqual({ lastScanAt, ageMs: 130_000, stalled: true });
+    await new Promise<void>((r) => s.close(() => r()));
+  });
+
   it('accepts hook payloads and reflects them in attention', async () => {
     expect((await call({ method: 'POST', path: '/api/hooks', body: permission })).status).toBe(204);
     await collector.idle();

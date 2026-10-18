@@ -356,7 +356,8 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
   const r = await callDaemon<AttentionSummary>(dataDir, 'GET', '/api/attention', 800);
   const { formatAttentionText, formatTmux } = await import('./cli-format.js');
   if (format === 'tmux') {
-    io.out(r?.ok && r.data ? formatTmux(r.data) : '');
+    const h = await callDaemon<{ watcher?: { stalled: boolean } }>(dataDir, 'GET', '/api/health', 800);
+    io.out(r?.ok && r.data ? formatTmux(r.data, h?.ok === true && h.data?.watcher?.stalled === true) : '');
     return 0;
   }
   if (!r) {
@@ -367,8 +368,14 @@ async function cmdStatus(args: string[], io: Io): Promise<number> {
     io.err(`The daemon answered with status ${r.status}.`);
     return 1;
   }
-  io.out(format === 'json' ? JSON.stringify(r.data) : formatAttentionText(r.data, Date.now()));
-  return 0;
+  const h = await callDaemon<{ watcher?: { ageMs: number; stalled: boolean } }>(dataDir, 'GET', '/api/health', 800);
+  const stalled = h?.ok && h.data?.watcher?.stalled ? h.data.watcher : null;
+  if (format === 'json') io.out(JSON.stringify({ ...r.data, watcherStalled: stalled !== null }));
+  else {
+    io.out(formatAttentionText(r.data, Date.now()));
+    if (stalled) io.err(`Warning: no session scan for ${Math.round(stalled.ageMs / 60_000)} min, so the building may be out of date. Restart: hopper-hq down && hopper-hq up`);
+  }
+  return stalled ? 2 : 0;
 }
 
 async function cmdLs(args: string[], io: Io): Promise<number> {
