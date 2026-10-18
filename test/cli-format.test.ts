@@ -14,6 +14,10 @@ describe('formatAgo', () => {
 });
 
 describe('formatTmux', () => {
+  it('marks a stalled watcher', () => {
+    expect(formatTmux({ needsYou: 0, done: 1 }, true)).toBe('#[fg=colour214,bold]stalled#[default] #[fg=colour114]✓1#[default]');
+  });
+
   it('shows only non-zero counters', () => {
     expect(formatTmux({ needsYou: 2, done: 3 })).toBe('#[fg=colour203,bold]◉2#[default] #[fg=colour114]✓3#[default]');
     expect(formatTmux({ needsYou: 0, done: 1 })).toBe('#[fg=colour114]✓1#[default]');

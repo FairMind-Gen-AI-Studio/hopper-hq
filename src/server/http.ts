@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createRequire } from 'node:module';
 import { mapCodexHook } from '../adapters/codex/hooks.js';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
+import type { WatcherHealth } from '../adapters/claude-code/fs-adapter.js';
 import type { Collector } from '../collector.js';
 import { isSessionId, KEY_MAX } from '../scene/text.js';
 import type { SummaryStatus } from '../summary/summarizer.js';
@@ -30,6 +31,8 @@ export interface ApiOptions {
   onShutdown?: () => void;
   /** Reports on summaries at GET /api/summaries. Default: none, and that route answers 503. */
   summarizer?: { status(): Promise<SummaryStatus> } | null;
+  /** The file watcher's last finished scan, shown at GET /api/health. Default: none, and the answer carries no watcher. */
+  watcher?: (() => WatcherHealth | null) | null;
 }
 
 type Deps = Required<ApiOptions>;
@@ -46,6 +49,7 @@ function withDefaults(o: ApiOptions): Deps {
     focus: o.focus ?? simulatedFocusDriver,
     onShutdown: o.onShutdown ?? (() => {}),
     summarizer: o.summarizer ?? null,
+    watcher: o.watcher ?? null,
   };
 }
 
@@ -79,7 +83,7 @@ function routes(d: Deps): Route[] {
     { methods: GET_HEAD, path: '/ui/index.html', auth: 'public', run: ({ res }) => serveIndex(d, res) },
     { methods: GET_HEAD, path: /^\/ui\/assets\//, auth: 'public', run: ({ res, url }) => serveAsset(d, res, url.pathname) },
     { methods: GET, path: '/ui/login', auth: 'public', run: (c) => login(d, c) },
-    { methods: GET, path: '/api/health', auth: 'bearer', run: ({ res }) => send(res, 200, { ok: true, version: VERSION }) },
+    { methods: GET, path: '/api/health', auth: 'bearer', run: ({ res }) => send(res, 200, health(d)) },
     { methods: GET, path: '/api/building', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.snapshot()) },
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
     { methods: GET, path: '/api/summaries', auth: 'bearer', run: ({ res }) => getSummaries(d, res) },
@@ -303,4 +307,14 @@ function serveAsset(d: Deps, res: ServerResponse, pathname: string): void {
   const file = path === null ? undefined : d.ui?.get(path);
   if (!file) return send(res, 404, { error: 'Not found' });
   sendFile(res, file, ASSET_HEADERS);
+}
+
+/** A watcher whose last scan is older than this is stalled: scans run every second and a hung one is given up on after 30s. */
+export const WATCHER_STALL_MS = 60_000;
+
+function health(d: Deps): { ok: true; version: string; watcher?: { lastScanAt: number; ageMs: number; stalled: boolean } } {
+  const w = d.watcher?.();
+  if (!w) return { ok: true, version: VERSION };
+  const ageMs = Math.max(0, d.now() - w.lastScanAt);
+  return { ok: true, version: VERSION, watcher: { lastScanAt: w.lastScanAt, ageMs, stalled: ageMs > WATCHER_STALL_MS } };
 }

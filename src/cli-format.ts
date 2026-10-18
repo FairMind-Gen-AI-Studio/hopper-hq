@@ -11,8 +11,9 @@ function pad(s: string, width: number): string {
 
 const pane = (p: string | null): string => (p ? `  [${cleanText(p)}]` : '');
 
-export function formatTmux(a: Pick<AttentionSummary, 'needsYou' | 'done'>): string {
+export function formatTmux(a: Pick<AttentionSummary, 'needsYou' | 'done'>, stalled = false): string {
   const parts: string[] = [];
+  if (stalled) parts.push('#[fg=colour214,bold]stalled#[default]');
   if (a.needsYou > 0) parts.push(`#[fg=colour203,bold]◉${a.needsYou}#[default]`);
   if (a.done > 0) parts.push(`#[fg=colour114]✓${a.done}#[default]`);
   return parts.join(' ');
