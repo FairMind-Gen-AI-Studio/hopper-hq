@@ -3,6 +3,7 @@
   import type { FloorDetail, Occupant } from '../../src/scene/types';
   import { singleClick } from '../lib/click';
   import { plural, raisedBy, runSpan, summaryAge, waitText } from '../lib/words';
+  import AgentBadge from './AgentBadge.svelte';
   import StatePill from './StatePill.svelte';
 
   /**
@@ -74,6 +75,8 @@
     <dt>Subagents</dt>
     <dd>{plural(desk.agentsRunning, 'running', 'running')}</dd>
   {/if}
+  <dt>Agent</dt>
+  <dd class="agent-name"><AgentBadge kind={desk.agentKind} />{desk.agentKind === 'codex' ? 'Codex' : 'Claude Code'}</dd>
   <dt>Repo</dt>
   <dd>{desk.checkout.repo}</dd>
   <dt>Branch</dt>
@@ -128,6 +131,7 @@
 {/if}
 
 <style>
+  .agent-name { display: flex; align-items: center; gap: 8px; }
   .back { align-self: flex-start; }
   .head-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .facts { margin: 0; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 12px; }

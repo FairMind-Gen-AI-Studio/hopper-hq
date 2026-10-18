@@ -45,6 +45,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               "id": "p0-0",
               "occupant": {
                 "activity": null,
+                "agentKind": "claude-code",
                 "agentsRunning": 1,
                 "at": {
                   "kind": "room",
@@ -101,6 +102,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               "id": "p0-1",
               "occupant": {
                 "activity": null,
+                "agentKind": "claude-code",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
@@ -148,6 +150,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": true,
                   "since": 1791709200020,
                 },
+                "agentKind": "claude-code",
                 "agentsRunning": 2,
                 "at": {
                   "kind": "room",
@@ -239,6 +242,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": false,
                   "since": 1791709200023,
                 },
+                "agentKind": "claude-code",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
@@ -454,7 +458,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 6,
+      "version": 7,
     },
     {
       "breakArea": {
@@ -499,6 +503,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": true,
                   "since": 1791709200028,
                 },
+                "agentKind": "claude-code",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
@@ -669,7 +674,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 6,
+      "version": 7,
     },
     {
       "breakArea": {
@@ -715,6 +720,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "running": true,
                   "since": 1791709200030,
                 },
+                "agentKind": "claude-code",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
@@ -758,6 +764,7 @@ exports[`the demo building > matches the snapshot 1`] = `
               "id": "p0-1",
               "occupant": {
                 "activity": null,
+                "agentKind": "claude-code",
                 "agentsRunning": 0,
                 "at": {
                   "kind": "desk",
@@ -922,7 +929,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 6,
+      "version": 7,
     },
   ],
   "scene": {
@@ -1130,7 +1137,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         ],
       },
     ],
-    "version": 6,
+    "version": 7,
   },
 }
 `;

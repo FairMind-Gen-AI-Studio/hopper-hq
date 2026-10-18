@@ -249,6 +249,7 @@ function occupantOf(f: FloorSpec, c: CheckoutSpec, d: DeskSpec): Occupant {
   const look = ROBOT[d.state];
   return {
     sessionId: d.id,
+    agentKind: 'claude-code',
     name: d.name,
     title: d.title,
     state: d.state,

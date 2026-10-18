@@ -4,7 +4,7 @@ import { DEFAULT_FEATURE_RULES, deriveFeature, type FeatureRules } from './core/
 import { inLeisureWindow } from './core/leisure.js';
 import { applyEvent, markSeen, normalizeSession, settleRestored } from './core/reducer.js';
 import type { CollectorEvent, EventSourceKind, RawEvent, Session, SessionSummary, WaitReason } from './core/types.js';
-import { buildAttention, buildFloors, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
+import { buildAttention, buildFloors, effectiveState, floorKeyOf, toView, type Attention, type Floor, type SessionView } from './core/view.js';
 import { buildFloorDetail, buildScene } from './scene/build.js';
 import { parseSeating, seatFloor, type Seating } from './scene/seating.js';
 import { cleanOrNull, cleanText, isSessionId, taskTitle } from './scene/text.js';
@@ -138,9 +138,9 @@ export class Collector {
     return floorKeyOf({ workspace: s.workspace, feature: deriveFeature(s.workspace.branch, s.workspace.repoName, this.o.featureRules ?? DEFAULT_FEATURE_RULES) });
   }
 
-  /** The floor a session sits on; null once it has ended. */
+  /** The floor a session sits on; null once it has ended or expired. */
   private liveKey(s: Session | undefined): string | null {
-    return s && s.state !== 'ended' ? this.floorKey(s) : null;
+    return s && effectiveState(s, this.now(), this.o.thresholds ?? DEFAULT_THRESHOLDS).state !== 'ended' ? this.floorKey(s) : null;
   }
 
   private openFloor(key: string, at: number): void {
@@ -240,9 +240,10 @@ export class Collector {
         return;
       }
       const workspace = await this.o.resolveWorkspace(e.cwd);
-      prev = applyEvent(undefined, { type: 'session.seen', sessionId: e.sessionId, ts: e.ts, seq: e.seq, source: e.source, cwd: e.cwd, workspace, startedAt: e.ts });
+      prev = applyEvent(undefined, { type: 'session.seen', sessionId: e.sessionId, ts: e.ts, seq: e.seq, source: e.source, agentKind: e.agentKind, cwd: e.cwd, workspace, startedAt: e.ts });
       created = true;
     }
+    if (prev && e.agentKind === 'codex' && e.cwd && e.cwd !== prev.workspace.cwd) prev = { ...prev, workspace: await this.o.resolveWorkspace(e.cwd) };
     const next = applyEvent(prev, e);
     if (!next) {
       this.dropped++;
@@ -251,12 +252,13 @@ export class Collector {
     // A reply's text lives in the session row only, never in the event log.
     if (e.type !== 'answer') this.o.store?.appendEvent(e);
     if (created || next !== prev) {
+      const from = this.liveKey(stored);
+      const to = this.liveKey(next);
+      // Release expired occupants before a new arrival can reuse their floor.
+      if (from !== to) this.liveViews();
       this.sessions.set(next.id, next);
       // The event that first puts a session on a floor opens it: a new session, a branch switch, a replayed old event.
-      // Only a new workspace or an end can move a session to another floor.
-      if (!stored || stored.workspace !== next.workspace || (stored.state === 'ended') !== (next.state === 'ended')) {
-        this.moveSeat(this.liveKey(stored), this.liveKey(next), e.ts);
-      }
+      this.moveSeat(from, to, e.ts);
       this.changed(next.id);
       this.sessionChanged(stored, next);
     }
@@ -345,12 +347,26 @@ export class Collector {
     return this.sessions.get(id) ?? null;
   }
 
-  /** Views of the sessions still in the building. Ended sessions are skipped before any view is derived for them. */
+  /** Views of the sessions still in the building, excluding ended and expired desks. */
   liveViews(now = this.now()): SessionView[] {
     const t = this.o.thresholds ?? DEFAULT_THRESHOLDS;
     const rules = this.o.featureRules ?? DEFAULT_FEATURE_RULES;
     const out: SessionView[] = [];
-    for (const s of this.sessions.values()) if (s.state !== 'ended') out.push(toView(s, now, t, rules));
+    for (const s of this.sessions.values()) {
+      if (s.state === 'ended') continue;
+      const view = toView(s, now, t, rules);
+      if (view.effectiveState !== 'ended') out.push(view);
+    }
+    // Time-derived expiration must release floor ordering and layouts too.
+    this.occupants.clear();
+    for (const view of out) {
+      const key = this.floorKey(view);
+      this.occupants.set(key, (this.occupants.get(key) ?? 0) + 1);
+    }
+    for (const key of [...this.firstSeen.keys()]) if (!this.occupants.has(key)) {
+      this.forgetFloor(key);
+      this.scheduleSave();
+    }
     return out;
   }
 

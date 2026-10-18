@@ -52,8 +52,8 @@ describe('formatBuilding', () => {
     };
     const lines = formatBuilding(snap).split('\n');
     expect(lines[0]).toBe('checkout-v2  (feature · orders-api, storefront-web)');
-    expect(lines[1]).toMatch(/^ {2}◉ needs you\s+orders-api\*\s+1m\s+Redis or Postgres\?\s+\[%2\]$/);
-    expect(lines[2]).toMatch(/^ {2}● working\s+storefront-web\s+5s\s+Build the address step$/);
+    expect(lines[1]).toMatch(/^ {2}◉ needs you\s+Claude Code\s+orders-api\*\s+1m\s+Redis or Postgres\?\s+\[%2\]$/);
+    expect(lines[2]).toMatch(/^ {2}● working\s+Claude Code\s+storefront-web\s+5s\s+Build the address step$/);
     expect(formatBuilding({ generatedAt: NOW, floors: [], attention: { needsYou: [], done: [] } })).toBe('No sessions yet.');
   });
 
@@ -61,7 +61,7 @@ describe('formatBuilding', () => {
     const at = (id: string, cwd: string) => toView({ ...newSession(id, NOW - 60_000, { cwd, repoRoot: cwd, repoName: 'api', worktree: false, branch: 'feat/x', root: cwd }), state: 'working', stateSince: NOW - 5000, lastEventAt: NOW - 5000 }, NOW);
     const sessions = [at('S1', '/home/dev/oss/api'), at('S2', '/home/dev/work/api')];
     const lines = formatBuilding({ generatedAt: NOW, floors: [{ key: 'feature:x', kind: 'feature', name: 'x', repos: ['api (oss)', 'api (work)'], sessions, counts: {}, openedAt: 0, dormant: false }], attention: { needsYou: [], done: [] } }).split('\n');
-    expect(lines.map((l) => l.trim().replace(/\s+/g, ' '))).toEqual(['x (feature \u00B7 api (oss), api (work))', '\u25CF working api (oss) 5s', '\u25CF working api (work) 5s']);
+    expect(lines.map((l) => l.trim().replace(/\s+/g, ' '))).toEqual(['x (feature \u00B7 api (oss), api (work))', '\u25CF working Claude Code api (oss) 5s', '\u25CF working Claude Code api (work) 5s']);
   });
 
   it('describes a session by its title, else its latest prompt, else its first one, like every other view', () => {

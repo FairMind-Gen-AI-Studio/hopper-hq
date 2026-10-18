@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
+import { mapCodexHook } from '../adapters/codex/hooks.js';
 import { mapHookPayload } from '../adapters/claude-code/hooks.js';
 import type { WatcherHealth } from '../adapters/claude-code/fs-adapter.js';
 import type { Collector } from '../collector.js';
@@ -86,6 +87,7 @@ function routes(d: Deps): Route[] {
     { methods: GET, path: '/api/building', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.snapshot()) },
     { methods: GET, path: '/api/attention', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.attentionSummary()) },
     { methods: GET, path: '/api/summaries', auth: 'bearer', run: ({ res }) => getSummaries(d, res) },
+    { methods: POST, path: '/api/hooks/codex', auth: 'bearer', run: (c) => postHooks(d, c, mapCodexHook) },
     { methods: POST, path: '/api/hooks', auth: 'bearer', run: (c) => postHooks(d, c) },
     { methods: POST, path: '/api/ui/login-code', auth: 'bearer', run: (c) => postLoginCode(d, c) },
     { methods: POST, path: '/api/shutdown', auth: 'bearer', run: ({ res }) => postShutdown(d, res) },
@@ -199,7 +201,7 @@ async function handle(d: Deps, table: Route[], req: IncomingMessage, res: Server
   await found.route.run({ req, res, url, port, params: found.params });
 }
 
-async function postHooks(d: Deps, { req, res }: Ctx): Promise<void> {
+async function postHooks(d: Deps, { req, res }: Ctx, map = mapHookPayload): Promise<void> {
   const raw = await readBody(req, d.maxBodyBytes);
   if (raw === null) return send(res, 413, { error: 'Payload too large' });
   let payload: unknown;
@@ -210,7 +212,7 @@ async function postHooks(d: Deps, { req, res }: Ctx): Promise<void> {
   }
   const now = d.now();
   const items = Array.isArray(payload) ? payload : [payload];
-  for (const item of items) for (const e of mapHookPayload(item, now)) void d.collector.ingest(e);
+  for (const item of items) for (const e of map(item, now)) void d.collector.ingest(e);
   return send(res, 204);
 }
 

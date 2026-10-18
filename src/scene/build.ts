@@ -86,7 +86,8 @@ const bySessionStart = (a: SessionView, b: SessionView): number => a.startedAt -
 
 /** Session name, or '<repo>-<first 4 characters of id>'. */
 function nameOf(v: SessionView): string {
-  return cleanOrNull(v.name) ?? cleanText(`${v.workspace.repoName}-${Array.from(cleanText(v.id)).slice(0, 4).join('')}`);
+  const id = v.agentKind === 'codex' ? v.id.replace(/^codex-/, '') : v.id;
+  return cleanOrNull(v.name) ?? cleanText(`${v.workspace.repoName}-${Array.from(cleanText(id)).slice(0, 4).join('')}`);
 }
 
 /** Focus reaches a local session through its tmux pane. */
@@ -273,6 +274,7 @@ function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place
   const state = v.effectiveState as ShownState;
   return {
     sessionId: idOf(v),
+    agentKind: v.agentKind,
     name: nameOf(v),
     title: taskTitle(v),
     state,
