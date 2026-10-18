@@ -1,8 +1,9 @@
-import type { DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
+import type { AgentKind, DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
 import { SHOWCASE_SESSIONS, showcaseScript } from './showcase.js';
 
 interface DemoSession {
   id: string;
+  agentKind?: AgentKind;
   name: string;
   pane: string;
   workspace: Workspace;
@@ -21,13 +22,13 @@ const ws = (cwd: string, branch: string, repoRoot = cwd): Workspace => ({
 });
 
 export const DEMO_SESSIONS: DemoSession[] = [
-  { id: 'demo-sw-a1', name: 'storefront-web-a1', pane: '%4', workspace: ws('/demo/storefront-web', 'feat/checkout-v2'), title: 'Build the address step of the new checkout', prompt: 'Build the address step', summary: 'Builds the address step of the new checkout while two helpers check the form' },
+  { id: 'demo-sw-a1', agentKind: 'codex', name: 'storefront-web-a1', pane: '%4', workspace: ws('/demo/storefront-web', 'feat/checkout-v2'), title: 'Build the address step of the new checkout', prompt: 'Build the address step', summary: 'Builds the address step of the new checkout while two helpers check the form' },
   { id: 'demo-sw-b2', name: 'storefront-web-b2', pane: '%5', workspace: ws('/demo/storefront-web', 'feat/checkout-v2'), title: 'Rewrite checkout copy and empty states', prompt: 'Rewrite the checkout copy', summary: 'Checkout copy and empty states are rewritten and ready for review' },
-  { id: 'demo-oa-c3', name: 'orders-api-c3', pane: '%7', workspace: ws('/demo/orders-api/.worktrees/checkout-v2', 'feat/checkout-v2', '/demo/orders-api'), title: 'Add idempotency keys to POST /orders', prompt: 'Add idempotency keys', summary: 'Idempotency keys are in; waits for permission to rebuild dist' },
+  { id: 'demo-oa-c3', agentKind: 'codex', name: 'orders-api-c3', pane: '%7', workspace: ws('/demo/orders-api/.worktrees/checkout-v2', 'feat/checkout-v2', '/demo/orders-api'), title: 'Add idempotency keys to POST /orders', prompt: 'Add idempotency keys', summary: 'Idempotency keys are in; waits for permission to rebuild dist' },
   { id: 'demo-ps-d4', name: 'payments-svc-d4', pane: '%9', workspace: ws('/demo/payments-svc', 'feat/checkout-v2'), title: 'Support split payments across two cards', prompt: 'Support split payments', summary: 'Split payments are in; checkout-verify plans, builds, reviews and ships them' },
   { id: 'demo-ss-e5', name: 'search-svc-e5', pane: '%11', workspace: ws('/demo/search-svc', 'feat/search-ranking'), title: 'Tune BM25 weights with click data', prompt: 'Tune the ranking weights', summary: 'Tunes the BM25 weights with click data while the test suite runs' },
   { id: 'demo-oa-g7', name: 'orders-api-g7', pane: '%2', workspace: ws('/demo/orders-api', 'main'), title: 'Investigate duplicate confirmation emails', prompt: 'Why do customers get two emails?', summary: 'Traced the duplicate emails to the retry queue; asks whether it should use Redis or Postgres' },
-  { id: 'demo-oa-h8', name: 'orders-api-h8', pane: '%3', workspace: ws('/demo/orders-api', 'main'), title: 'Bump dependencies and fix type errors', prompt: 'Bump dependencies', summary: 'Dependencies are bumped and the type errors fixed' },
+  { id: 'demo-oa-h8', agentKind: 'codex', name: 'orders-api-h8', pane: '%3', workspace: ws('/demo/orders-api', 'main'), title: 'Bump dependencies and fix type errors', prompt: 'Bump dependencies', summary: 'Dependencies are bumped and the type errors fixed' },
 ];
 
 /**
@@ -37,8 +38,8 @@ export const DEMO_SESSIONS: DemoSession[] = [
 export const DEMO_DROP_INS: DemoSession[] = [
   { id: 'demo-sw-i9', name: 'storefront-web-i9', pane: '%13', workspace: ws('/demo/storefront-web', 'feat/checkout-v2'), title: 'Add a gift note to the cart', prompt: 'Add a gift note', summary: 'Adds a gift note to the cart and shows it on the order summary' },
   { id: 'demo-oa-j10', name: 'orders-api-j10', pane: '%14', workspace: ws('/demo/orders-api/.worktrees/checkout-v2', 'feat/checkout-v2', '/demo/orders-api'), title: 'Explain the order states', prompt: 'Which states can an order be in?', summary: 'Walks through the states an order and its refunds can be in' },
-  { id: 'demo-ps-k11', name: 'payments-svc-k11', pane: '%15', workspace: ws('/demo/payments-svc', 'feat/checkout-v2'), title: 'Log each leg of a split payment', prompt: 'Log split payment legs', summary: 'Logs one line per leg of a split payment, with its card and amount' },
-  { id: 'demo-sw-l12', name: 'storefront-web-l12', pane: '%16', workspace: ws('/demo/storefront-web', 'feat/checkout-v2'), title: 'Show the delivery estimate at checkout', prompt: 'Show a delivery estimate', summary: 'Shows the delivery estimate on the review step of the checkout' },
+  { id: 'demo-ps-k11', agentKind: 'codex', name: 'payments-svc-k11', pane: '%15', workspace: ws('/demo/payments-svc', 'feat/checkout-v2'), title: 'Log each leg of a split payment', prompt: 'Log split payment legs', summary: 'Logs one line per leg of a split payment, with its card and amount' },
+  { id: 'demo-sw-l12', agentKind: 'codex', name: 'storefront-web-l12', pane: '%16', workspace: ws('/demo/storefront-web', 'feat/checkout-v2'), title: 'Show the delivery estimate at checkout', prompt: 'Show a delivery estimate', summary: 'Shows the delivery estimate on the review step of the checkout' },
   { id: 'demo-ps-m13', name: 'payments-svc-m13', pane: '%17', workspace: ws('/demo/payments-svc', 'feat/checkout-v2'), title: 'Retry a declined card once', prompt: 'Retry declined cards once', summary: 'Retries a declined card once before asking for another one' },
 ];
 
@@ -118,7 +119,7 @@ export function demoScript(loop = 0): DemoStep[] {
   const [gift, states, legs, estimate, retry] = DEMO_DROP_INS as [DemoSession, DemoSession, DemoSession, DemoSession, DemoSession];
   /** A drop-in comes to work: seen as it starts (the earliest start is kept), asked, and at its first tool. */
   const arrive = (s: DemoSession, b: number, tool: string, label: string): RawEvent[] => [
-    at(s.id, b, { type: 'session.seen', workspace: s.workspace, pid: null, name: s.name, tmuxPane: s.pane, startedAt: b }),
+    at(s.id, b, { type: 'session.seen', agentKind: s.agentKind ?? 'claude-code', workspace: s.workspace, pid: null, name: s.name, tmuxPane: s.pane, startedAt: b }),
     at(s.id, b, { type: 'title', title: s.title }),
     at(s.id, b, { type: 'prompt', text: loop === 0 ? s.prompt : null }),
     at(s.id, b, { type: 'tool.started', toolId: `${s.id}-t1`, tool, label, agentId: null }),
@@ -147,7 +148,7 @@ export function demoScript(loop = 0): DemoStep[] {
       events: (b) => [
         // Oldest first, each seen when it started, as the filesystem adapter reports them: floors open in that order.
         ...DEMO_SESSIONS.map((s, i) => ({ s, i, startedAt: b - (i + 1) * 600_000 })).reverse().flatMap(({ s, i, startedAt }) => [
-          at(s.id, startedAt, { type: 'session.seen', workspace: s.workspace, pid: null, name: s.name, tmuxPane: s.pane, startedAt }),
+          at(s.id, startedAt, { type: 'session.seen', agentKind: s.agentKind ?? 'claude-code', workspace: s.workspace, pid: null, name: s.name, tmuxPane: s.pane, startedAt }),
           at(s.id, b + i, { type: 'title', title: s.title }),
           at(s.id, b + i, { type: 'prompt', text: loop === 0 ? s.prompt : null }),
         ]),

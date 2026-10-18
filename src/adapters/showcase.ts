@@ -1,8 +1,9 @@
-import type { DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
+import type { AgentKind, DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
 import type { DemoStep } from './demo.js';
 
 interface ShowcaseSession {
   id: string;
+  agentKind: AgentKind;
   name: string;
   pane: string;
   workspace: Workspace;
@@ -24,21 +25,21 @@ const WEB = ws('/demo/storefront-web', BRANCH);
 const API = ws('/demo/orders-api', BRANCH);
 const PAY = ws('/demo/payments-svc', BRANCH);
 
-const session = (id: string, name: string, pane: number, workspace: Workspace, title: string, summary: string): ShowcaseSession => ({ id, name, pane: `%${pane}`, workspace, title, prompt: title, summary });
+const session = (id: string, name: string, pane: number, workspace: Workspace, title: string, summary: string, agentKind: AgentKind = 'claude-code'): ShowcaseSession => ({ id, agentKind, name, pane: `%${pane}`, workspace, title, prompt: title, summary });
 
 /** The twelve sessions of the showcase, all on one feature floor, in the order they are listed in the script's comments. */
 export const SHOWCASE_SESSIONS = {
   web1: session('sc-web-1', 'storefront-web-1', 21, WEB, 'Ship the new checkout', 'Ships the new checkout; release-check verifies it in a meeting room'),
-  web2: session('sc-web-2', 'storefront-web-2', 22, WEB, 'Find every caller of useCart()', 'Maps the callers of useCart() with two helpers'),
+  web2: session('sc-web-2', 'storefront-web-2', 22, WEB, 'Find every caller of useCart()', 'Maps the callers of useCart() with two helpers', 'codex'),
   web3: session('sc-web-3', 'storefront-web-3', 23, WEB, 'Polish the empty states', 'Polishes the empty states, then sweeps the pages for accessibility'),
   web4: session('sc-web-4', 'storefront-web-4', 24, WEB, 'Add a gift message to the cart', 'Adds a gift message to the cart'),
   api1: session('sc-api-1', 'orders-api-1', 25, API, 'Move orders to the new schema', 'Moves orders to the new schema; migration-replay replays a day of them'),
-  api2: session('sc-api-2', 'orders-api-2', 26, API, 'Add idempotency keys to the orders endpoint', 'Idempotency keys are in; asks before it rebuilds dist'),
+  api2: session('sc-api-2', 'orders-api-2', 26, API, 'Add idempotency keys to the orders endpoint', 'Idempotency keys are in; asks before it rebuilds dist', 'codex'),
   api3: session('sc-api-3', 'orders-api-3', 27, API, 'Which states can an order be in?', 'Walks through the states an order can be in'),
   pay1: session('sc-pay-1', 'payments-svc-1', 28, PAY, 'Split a payment across two cards', 'Supports split payments; two helpers read the ledger and the refund path'),
-  pay2: session('sc-pay-2', 'payments-svc-2', 29, PAY, 'Log every leg of a split payment', 'Logs one line per leg of a split payment'),
+  pay2: session('sc-pay-2', 'payments-svc-2', 29, PAY, 'Log every leg of a split payment', 'Logs one line per leg of a split payment', 'codex'),
   pay3: session('sc-pay-3', 'payments-svc-3', 30, PAY, 'Retry a declined card a second time', 'Retries a declined card once before it asks for another'),
-  pay4: session('sc-pay-4', 'payments-svc-4', 31, PAY, 'Show the delivery date at checkout', 'Shows the delivery estimate on the review step'),
+  pay4: session('sc-pay-4', 'payments-svc-4', 31, PAY, 'Show the delivery date at checkout', 'Shows the delivery estimate on the review step', 'codex'),
   pay5: session('sc-pay-5', 'payments-svc-5', 32, PAY, 'Rotate the signing keys', 'Rotates the signing keys of the payments webhooks'),
 };
 
@@ -79,7 +80,7 @@ export function showcaseScript(): DemoStep[] {
   const step = (sec: number, events: (b: number) => RawEvent[]): DemoStep => ({ at: SHOWCASE_LEAD_MS + sec * 1000, events });
   const arrive = (who: ShowcaseSession, sec: number, tool: string, label: string, smoke = false): DemoStep =>
     step(sec, (b) => [
-      at(who.id, b, { type: 'session.seen', workspace: who.workspace, pid: null, name: who.name, tmuxPane: who.pane, startedAt: b }),
+      at(who.id, b, { type: 'session.seen', agentKind: who.agentKind, workspace: who.workspace, pid: null, name: who.name, tmuxPane: who.pane, startedAt: b }),
       at(who.id, b, { type: 'title', title: who.title }),
       at(who.id, b, { type: 'prompt', text: who.prompt }),
       at(who.id, b, { type: 'tool.started', toolId: `${who.id}-t1`, tool, label, agentId: null, ...(smoke ? { smoke: true } : {}) }),
@@ -99,7 +100,7 @@ export function showcaseScript(): DemoStep[] {
         [s.pay1, s.api1, s.web2, s.web1].flatMap((who, i) => {
           const startedAt = b - (i + 1) * 600_000;
           return [
-            at(who.id, startedAt, { type: 'session.seen', workspace: who.workspace, pid: null, name: who.name, tmuxPane: who.pane, startedAt }),
+            at(who.id, startedAt, { type: 'session.seen', agentKind: who.agentKind, workspace: who.workspace, pid: null, name: who.name, tmuxPane: who.pane, startedAt }),
             at(who.id, b + i, { type: 'title', title: who.title }),
             at(who.id, b + i, { type: 'prompt', text: who.prompt }),
             at(who.id, b + i, { type: 'tool.started', toolId: `${who.id}-t0`, tool: 'Edit', label: 'Edit src/checkout/index.ts', agentId: null }),

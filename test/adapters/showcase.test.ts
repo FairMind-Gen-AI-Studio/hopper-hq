@@ -25,6 +25,18 @@ const leisureOf = (agents: readonly { agentId: string; leisure: string | null }[
   (agents ?? []).filter((a) => a.leisure !== null).map((a): [string, string | null] => [a.agentId, a.leisure]).sort(byId);
 
 describe('the showcase', () => {
+  it('keeps Codex and Claude Code identities through arrivals and bar breaks', async () => {
+    const { c, at } = await playShowcase(() => DEMO_LEISURE_HOUR);
+    for (const session of Object.values(SHOWCASE_SESSIONS)) {
+      expect(c.session(session.id)!.agentKind).toBe(session.agentKind);
+    }
+    expect(c.session(SHOWCASE_SESSIONS.web2.id)!.agentKind).toBe('codex');
+    expect(c.session(SHOWCASE_SESSIONS.web1.id)!.agentKind).toBe('claude-code');
+    const rooms = at.get(SHOWCASE_LEAD_MS + 39_000)!.rooms;
+    expect(rooms.flatMap((room) => room.agents).some((agent) => agent.leisure === 'biliardino')).toBe(true);
+    expect(rooms.find((room) => room.hostSessionId === SHOWCASE_SESSIONS.web2.id)!.agents.some((agent) => agent.leisure === 'gintonic')).toBe(true);
+  });
+
   it('plays in time order, after its lead, and writes every session its own summary line', () => {
     const steps = showcaseScript();
     expect(steps.map((s) => s.at)).toEqual([...steps.map((s) => s.at)].sort((a, b) => a - b));
