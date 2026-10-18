@@ -1,7 +1,7 @@
 import { mapHookPayload } from '../claude-code/hooks.js';
 import type { RawEvent } from '../../core/types.js';
 import { codexSessionId, object, string } from './rollout.js';
-import { isSessionId } from '../../scene/text.js';
+import { cleanOrNull, isSessionId } from '../../scene/text.js';
 
 /** Codex's experimental Claude-compatible hooks carry raw payloads, never normalized collector events. */
 export function mapCodexHook(payload: unknown, now: number): RawEvent[] {
@@ -16,7 +16,7 @@ export function mapCodexHook(payload: unknown, now: number): RawEvent[] {
   const pane = string(p.hopper_tmux_pane);
   if (/^%\d+$/.test(pane)) {
     // Collector fills workspace via its resolver; metadata is attached by the dedicated event.
-    events.push({ type: 'session.focus', sessionId, agentKind: 'codex', source: 'hook', cwd: string(p.cwd), ts: now, tmuxPane: pane, tmuxSession: string(p.hopper_tmux_session) || null });
+    events.push({ type: 'session.focus', sessionId, agentKind: 'codex', source: 'hook', cwd: string(p.cwd), ts: now, tmuxPane: pane, tmuxSession: cleanOrNull(p.hopper_tmux_session, 100) });
   }
   return events;
 }

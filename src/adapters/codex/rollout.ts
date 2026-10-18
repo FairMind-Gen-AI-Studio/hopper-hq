@@ -2,7 +2,7 @@ import type { RawEvent } from '../../core/types.js';
 import { truncate } from '../../core/tool-label.js';
 import { isSessionId } from '../../scene/text.js';
 
-export const CODEX_VERSIONS = ['0.162.0'] as const;
+export const CODEX_VERSIONS = ['0.162.0', '0.162.1'] as const;
 export const codexSessionId = (id: string): string => `codex-${id}`;
 export const object = (v: unknown): Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
 export const string = (v: unknown): string => typeof v === 'string' ? v : '';

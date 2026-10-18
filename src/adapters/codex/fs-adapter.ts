@@ -5,7 +5,9 @@ import type { WorkspaceResolver } from '../git.js';
 import { readHeadLines, readNewLines, type TailState } from '../claude-code/jsonl.js';
 import { CODEX_VERSIONS, codexSessionId, parseRolloutLine, rolloutMeta, type RolloutMeta } from './rollout.js';
 
-interface Tracked { meta: RolloutMeta; tail: TailState; refreshed: number }
+interface Tracked { meta: RolloutMeta; tail: TailState; refreshed: number; grew: number; polled: number }
+const QUIET_AFTER_MS = 10 * 60_000;
+const QUIET_POLL_MS = 15_000;
 export interface CodexAdapterOptions {
   codexDir: string;
   emit: (event: RawEvent) => void;
@@ -43,8 +45,14 @@ export class CodexAdapter {
         this.lastDiscovery = now;
         await this.scan(join(this.o.codexDir, 'sessions'));
       }
-      for (const path of this.tracked.keys()) {
-        try { await this.follow(path); } catch { /* Continue following the other sessions. */ }
+      for (const [path, t] of [...this.tracked]) {
+        // A rollout quiet for a while is read rarely: a week of history must not cost a read per second each.
+        if (now - t.grew >= QUIET_AFTER_MS && now - t.polled < QUIET_POLL_MS) continue;
+        t.polled = now;
+        try { await this.follow(path); } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'ENOENT') this.tracked.delete(path);
+          /* Otherwise continue following the other sessions. */
+        }
       }
       if (this.skipped > skipped) this.o.log?.(`Codex skipped ${this.skipped - skipped} unsupported or malformed records (${this.skipped} total)`);
     }
@@ -76,7 +84,7 @@ export class CodexAdapter {
       if (!meta || this.o.ignoreCwd?.(meta.cwd)) return;
       // The store retains a week; old historical sessions must not repopulate dormant floors forever.
       if ((await stat(path)).mtimeMs < now - 7 * 86400_000) return;
-      t = { meta, tail: { path, offset: 0, skipping: false }, refreshed: now };
+      t = { meta, tail: { path, offset: 0, skipping: false }, refreshed: now, grew: now, polled: now };
       this.tracked.set(path, t);
       if (!(CODEX_VERSIONS as readonly string[]).includes(meta.version) && !this.warned.has(meta.version)) {
         this.warned.add(meta.version);
@@ -85,13 +93,14 @@ export class CodexAdapter {
       this.o.emit({ type: 'session.seen', agentKind: 'codex', sessionId: codexSessionId(meta.id), ts: meta.ts, source: 'fs', cwd: meta.cwd, workspace: await this.o.resolveWorkspace(meta.cwd), transcriptPath: path, startedAt: meta.ts });
 
     }
-    if (!this.o.ignoreCwd?.(t.meta.cwd) && now - t.refreshed >= 5000) {
+    if (!this.o.ignoreCwd?.(t.meta.cwd) && now - t.refreshed >= (now - t.grew >= QUIET_AFTER_MS ? 60_000 : 5000)) {
       t.refreshed = now;
       this.o.emit({ type: 'session.seen', agentKind: 'codex', sessionId: codexSessionId(t.meta.id), ts: now, source: 'fs', cwd: t.meta.cwd, workspace: await this.o.resolveWorkspace(t.meta.cwd), transcriptPath: path });
     }
     const next = await readNewLines(t.tail);
     if (next.state.skipping && !t.tail.skipping) this.skipped++;
     t.tail = next.state;
+    if (next.lines.length > 0) t.grew = now;
     for (const line of next.lines) await this.handle(t, line);
   }
   private async handle(t: Tracked, line: string): Promise<void> {

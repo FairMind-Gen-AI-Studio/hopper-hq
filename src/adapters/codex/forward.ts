@@ -7,12 +7,15 @@ import { object } from './rollout.js';
 /** Optional observer hook: silent on stdout, bounded input, no decisions and no Codex configuration writes. */
 export async function forwardCodexHook(input: AsyncIterable<Buffer | string> = process.stdin, env = process.env): Promise<void> {
   try {
-    let raw = '';
+    const chunks: Buffer[] = [];
+    let size = 0;
     for await (const chunk of input) {
-      raw += chunk.toString();
-      if (Buffer.byteLength(raw) > 900_000) return;
+      const part = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      size += part.length;
+      if (size > 900_000) return;
+      chunks.push(part);
     }
-    const payload = object(JSON.parse(raw));
+    const payload = object(JSON.parse(Buffer.concat(chunks).toString('utf8')));
     if (!payload.session_id || !payload.hook_event_name) return;
     const info = await readDaemonFile(resolvePaths({}, env).dataDir);
     if (!info) return;
