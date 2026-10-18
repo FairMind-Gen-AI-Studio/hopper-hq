@@ -172,7 +172,7 @@ async function serve(opts: DaemonOptions, paths: Paths, lock: DataDirLock): Prom
   const focus = opts.demo ? simulatedFocusDriver : tmuxFocusDriver();
   let requestStop!: () => void;
   const stopRequested = new Promise<void>((resolve) => (requestStop = resolve));
-  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, onShutdown: () => requestStop() });
+  const server = createApiServer({ collector, token, auth, ui, hub, focus, summarizer, watcher: () => fsAdapter?.health() ?? null, onShutdown: () => requestStop() });
 
   let port: number;
   try {
