@@ -16,7 +16,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: '22'
+          # Node 24 ships npm 11, which trusted publishing needs (11.5.1 or later): no npm upgrade step.
+          node-version: '24'
           cache: npm
           registry-url: https://registry.npmjs.org
       - name: Tag matches the package and the plugin
@@ -32,6 +33,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      # Node 22 ships npm 10; trusted publishing needs npm 11.5.1 or later. Pinned: this job holds the publish credential.
-      - run: npm install -g npm@11.21.1
+      - name: npm is new enough for trusted publishing
+        run: node -e "const [a,b,c]=process.argv[1].split('.').map(Number); if (a*1e6+b*1e3+c < 11005001) { console.error('npm ' + process.argv[1] + ' is older than 11.5.1'); process.exit(1) }" "$(npm --version)"
       - run: npm publish --provenance
