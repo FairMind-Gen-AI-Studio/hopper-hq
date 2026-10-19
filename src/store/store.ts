@@ -39,6 +39,7 @@ export class Store {
   private readonly insertEvent: StatementSync;
   private readonly upsertFloor: StatementSync;
   private readonly deleteFloor: StatementSync;
+  private readonly deleteSession: StatementSync;
 
   private constructor(private readonly db: DatabaseSync) {
     // Another process may hold the write lock for a moment (a second `start` on the same data dir): wait for it instead of failing.
@@ -56,6 +57,7 @@ export class Store {
       'INSERT INTO floors (key, first_seen, plan) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET first_seen = excluded.first_seen, plan = excluded.plan',
     );
     this.deleteFloor = db.prepare('DELETE FROM floors WHERE key = ?');
+    this.deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?');
   }
 
   /** Opens or creates the database. Use ':memory:' for a throwaway store. */
@@ -120,6 +122,34 @@ export class Store {
   /** Deletes events older than `before`; returns how many. */
   prune(before: number): number {
     return Number(this.db.prepare('DELETE FROM events WHERE ts < ?').run(before).changes);
+  }
+
+  /**
+   * Deletes the sessions that ended before `before`, by when they ended; returns how many. Only a session saved as ended
+   * goes: one whose desk expires without it ending, a Codex session's, stays so that a resumed turn can return. A row
+   * that does not read back stays too: loadSessions skips it, and nothing says when it ended.
+   */
+  pruneEndedSessions(before: number): number {
+    const rows = this.db.prepare('SELECT id, json FROM sessions').all() as unknown as { id: string; json: string }[];
+    const ended: string[] = [];
+    for (const r of rows) {
+      try {
+        const s = JSON.parse(r.json) as Partial<Session>;
+        if (s.state === 'ended' && typeof s.stateSince === 'number' && s.stateSince < before) ended.push(r.id);
+      } catch {
+        // a corrupt row: keep it
+      }
+    }
+    if (ended.length === 0) return 0;
+    this.db.exec('BEGIN');
+    try {
+      for (const id of ended) this.deleteSession.run(id);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    return ended.length;
   }
 
   close(): void {
