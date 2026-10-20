@@ -19,6 +19,7 @@ import {
   RingGeometry,
   SphereGeometry,
   SRGBColorSpace,
+  TorusGeometry,
   type BufferGeometry,
   type Material,
   type Object3D,
@@ -113,6 +114,16 @@ export class Geometries {
 
   ring(inner: number, outer: number): BufferGeometry {
     return this.shared(`ring ${inner} ${outer}`, () => new RingGeometry(inner, outer, 48));
+  }
+
+  /**
+   * An arc of this `radius` (centre to the tube's own centreline) and `tube` thickness, swept `angle` radians
+   * starting from local +X: at `angle = PI` its ends sit at local (±radius, 0, ~0) and its mid-point bows out to
+   * local (0, radius, ~0) — the on-call headset's hook (robot.ts HEADSET), built from one primitive rather than a
+   * lathe.
+   */
+  arc(radius: number, tube: number, angle: number): BufferGeometry {
+    return this.shared(`arc ${radius} ${tube} ${angle}`, () => new TorusGeometry(radius, tube, 8, 24, angle));
   }
 
   get size(): number {

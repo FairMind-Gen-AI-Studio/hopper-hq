@@ -64,6 +64,37 @@ describe('demoScript', () => {
     }
   });
 
+  it('exercises every FairMind family, and the family:null default, somewhere in the loop (hq-mcp-switchboard proposal.md §5 Phase 3)', () => {
+    const base = 1_000_000_000;
+    const families = new Set<string | null>();
+    for (const step of demoScript()) {
+      for (const e of step.events(base + step.at)) {
+        if (e.type === 'tool.started' && e.mcp?.fairmind) families.add(e.mcp.family);
+      }
+    }
+    for (const family of ['Brain', 'Code', 'General', 'Insights', 'Studio', null]) expect(families.has(family)).toBe(true);
+    expect(families.size).toBe(6);
+  });
+
+  it('calls six distinct MCP servers in parallel from one session, none finishing before the others ("parallel MCP calls" follow-up, from a real report)', () => {
+    const base = 1_000_000_000;
+    const started = new Map<string, { ts: number; server: string }>();
+    const finished: string[] = [];
+    for (const step of demoScript()) {
+      for (const e of step.events(base + step.at)) {
+        if (e.type === 'tool.started' && e.mcp && e.toolId?.startsWith('g7-par')) started.set(e.toolId, { ts: e.ts, server: e.mcp.server });
+        if (e.type === 'tool.finished' && e.toolId?.startsWith('g7-par')) finished.push(e.toolId);
+      }
+    }
+    expect(started.size).toBe(6);
+    // Every one starts at the same instant: genuinely parallel, not staggered.
+    expect(new Set([...started.values()].map((s) => s.ts)).size).toBe(1);
+    // Six distinct servers, the real report's own list (friendly-name follow-up: raw, prefixed spellings on the wire).
+    expect(new Set([...started.values()].map((s) => s.server))).toEqual(new Set(['clickup', 'Notion', 'Google_Calendar', 'Gmail', 'Google_Drive', 'slack']));
+    // None finishes before every one of the six has started: all six are concurrently open at once.
+    expect(finished).toHaveLength(6);
+  });
+
   it("spawns agents across at least 5 distinct personas (hq-agent-personas TP3), alongside the plain explorer/generalist interns", () => {
     const BASE = 1_000_000_000;
     const types = demoScript().flatMap((step) => step.events(BASE + step.at)).flatMap((e) => (e.type === 'agent.started' ? [e.agentType] : []));
@@ -110,10 +141,11 @@ describe('the demo workflow run', () => {
         runId: 'wf_demo-checkout',
         hostSessionId: 'demo-ps-d4',
         name: 'checkout-verify',
+        topic: 'checkout-verify',
         summary: 'Verify split payments end to end',
         phases: [{ title: 'Plan', state: 'current' }, { title: 'Build', state: 'upcoming' }, { title: 'Review', state: 'upcoming' }, { title: 'Ship', state: 'upcoming' }],
         counts: { running: 1, finished: 0 },
-        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'fairmind-coding:Technical Lead / Architect', running: true, smoking: false, leisure: null }],
+        agents: [{ agentId: 'demo-wf-0', label: 'Map the split payment flow', phase: 'Plan', type: 'fairmind-coding:Technical Lead / Architect', running: true, smoking: false, leisure: null, call: null }],
         look,
         rect: { x: 18, y: 2, w: 8, h: 6 },
         slot: 0,
@@ -416,14 +448,14 @@ describe('startDemo', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(got).toHaveLength(35);
     await vi.advanceTimersByTimeAsync(59_000);
-    expect(got).toHaveLength(87);
-    // The second loop starts at 60 s; its next step is due at 63 s.
+    expect(got).toHaveLength(123);
+    // The second loop starts at 60 s; its own `at: 0` batch (35 events, the same every loop) fires immediately.
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(got).toHaveLength(122);
+    expect(got).toHaveLength(158);
     expect(got.flatMap((e) => (e.type === 'workflow.started' ? [e.runId] : []))).toEqual(['wf_demo-checkout', 'wf_demo-replay', 'wf_demo-checkout-2']);
     demo.stop();
     await vi.advanceTimersByTimeAsync(200_000);
-    expect(got).toHaveLength(122);
+    expect(got).toHaveLength(158);
   });
 });
 

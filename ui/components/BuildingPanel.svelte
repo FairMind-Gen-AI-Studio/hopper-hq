@@ -52,6 +52,15 @@
         <span class="ld">{STATES[state].description}</span>
       </li>
     {/each}
+    <!-- The rooftop switchboard's own legend entry (hq-mcp-switchboard Phase 4 — requirement 3's legend bullet):
+         the façade's antennas carry a tag, a plaque and a hover/focus tooltip of their own (Facade.svelte), but a
+         viewer who never hovers one still deserves a one-line explanation of what they are, right here with every
+         other colour the building uses. -->
+    <li class="sw-mcp">
+      <span class="sw" aria-hidden="true"></span>
+      <span class="ln">Rooftop antennas</span>
+      <span class="ld">MCP servers in use right now; FairMind lights the mast in teal.</span>
+    </li>
   </ul>
 </section>
 

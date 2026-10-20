@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { PHASE, RUN_STATUS, STATES, STATE_ORDER, floorLabel, floorMeta, floorWhat, needYou, plural, raisedBy, runCounts, runSpan, sessionsOf, waitText } from '../../lib/words';
+import type { ActiveLine } from '../../../src/scene/types';
+import {
+  PHASE,
+  RUN_STATUS,
+  STATES,
+  STATE_ORDER,
+  antennaTag,
+  antennaTooltip,
+  floorLabel,
+  floorMeta,
+  floorWhat,
+  needYou,
+  plural,
+  raisedBy,
+  runCounts,
+  runSpan,
+  sessionsOf,
+  waitText,
+} from '../../lib/words';
 import { NOW, makeScene } from '../helpers/fixtures';
 
 describe('words', () => {
@@ -75,5 +93,49 @@ describe('words', () => {
     expect(RUN_STATUS).toEqual({ running: 'Running', completed: 'Completed', failed: 'Failed', killed: 'Stopped' });
     expect(runCounts({ running: 2, finished: 5 })).toBe('2 running · 5 done');
     expect(Object.values(PHASE).map((p) => `${p.mark} ${p.word}`)).toEqual(['✓ done', '● current', '○ upcoming']);
+  });
+
+  describe('rooftop antennas (hq-mcp-switchboard Phase 4 — requirements 1 and 3)', () => {
+    const line = (extra: Partial<ActiveLine> = {}): ActiveLine => ({
+      slot: 2,
+      fairmind: false,
+      count: 1,
+      server: 'Notion',
+      family: null,
+      tool: 'search',
+      caller: 'api-feat4',
+      ...extra,
+    });
+
+    it("names a line's own server, or the brand (with its family) for the Fairmind line, with a count past one", () => {
+      expect(antennaTag(line())).toBe('Notion');
+      expect(antennaTag(line({ count: 3 }))).toBe('Notion ×3');
+      expect(antennaTag(line({ fairmind: true, server: 'fairmind', family: null }))).toBe('FairMind');
+      expect(antennaTag(line({ fairmind: true, server: 'fairmind', family: 'Brain', count: 2 }))).toBe('FairMind · Brain ×2');
+    });
+
+    it('names the server (or brand/family), the tool and the caller in the hover/focus tooltip, with the rest of the calls counted past one', () => {
+      expect(antennaTooltip(line())).toBe('Notion · search · called by api-feat4');
+      expect(antennaTooltip(line({ count: 3 }))).toBe('Notion · search · called by api-feat4 · +2 more calls');
+      expect(antennaTooltip(line({ count: 2 }))).toBe('Notion · search · called by api-feat4 · +1 more call');
+      expect(antennaTooltip(line({ fairmind: true, server: 'fairmind', family: 'Studio', tool: 'Studio_get_task', caller: 'address-desk' }))).toBe(
+        'FairMind · Studio · Studio_get_task · called by address-desk',
+      );
+    });
+
+    it("renders a non-Fairmind line's own friendly server name (\"friendly server names\" follow-up), never its raw canonical token", () => {
+      expect(antennaTag(line({ server: 'Google_Calendar' }))).toBe('Google Calendar');
+      expect(antennaTag(line({ server: 'clickup', count: 2 }))).toBe('ClickUp ×2');
+      expect(antennaTooltip(line({ server: 'Google_Calendar', tool: 'list_calendars' }))).toBe('Google Calendar · list_calendars · called by api-feat4');
+    });
+
+    it("never carries anything past server, family, tool and caller names — never a call's own inputs", () => {
+      // antennaTag/antennaTooltip only ever read these five fields (Pick<ActiveLine, …> above): there is no other
+      // surface for an argument to leak through, by construction of their own signatures. A tool name that itself
+      // looks argument-shaped (a real but adversarial tool verb) still comes through as plain text, same as any
+      // other untrusted string this UI already renders as text, never markup.
+      const hostile = line({ tool: '<script>alert(1)</script>', caller: '"; DROP TABLE sessions; --' });
+      expect(antennaTooltip(hostile)).toBe('Notion · <script>alert(1)</script> · called by "; DROP TABLE sessions; --');
+    });
   });
 });

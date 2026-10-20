@@ -3,8 +3,9 @@
  * rendering around a FloorScene. It takes the renderer and the browser services it uses as arguments, so tests
  * drive it with stand-ins; mountFloorView passes the real WebGLRenderer.
  *
- * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize,
- * and while the controls settle, a tween runs, an arrow key is held, a robot walks or the elevator doors open or close
+ * Rendering is on demand: a frame is drawn after a camera move, a floor or theme change, a selection, a resize, the
+ * pointer finding or leaving a room (its own full-detail card, labels.hoverRoom), and while the controls settle, a
+ * tween runs, an arrow key is held, a robot walks or the elevator doors open or close
  * (motion.frameRate); doors held open ask for no frame until they start to close. Otherwise, while a robot at its place
  * runs its loop (design §6.2), an ambient frame is drawn every AMBIENT_MS, about 20 a second; no loop runs under reduced
  * motion or with motion: false, where robots rest in their poses and nothing is drawn while nothing moves. Nothing is
@@ -208,6 +209,10 @@ export function createFloorView(
   let press: PointerEvent | null = null;
   /** The last press on a tag went on to the canvas as a drag. */
   let relayed = false;
+  /** The room the pointer was last found over on the canvas (its floor, its whiteboard, or any of its own agents),
+   * so its own full-detail card shows (labels.hoverRoom); null off any room, or while a press might still become a
+   * drag of the camera. */
+  let hoveredRoom: string | null = null;
   /** Cancels the frame asked for when the next ambient frame is due, or when the elevator doors, held open, start to close. */
   let wake: (() => void) | null = null;
   /** The arrows held on the canvas, whether Shift is down with them, and when they last moved the camera. */
@@ -420,6 +425,21 @@ export function createFloorView(
   };
   const onDoubleClick = (e: MouseEvent) => doubleClick(() => pickAt(e.clientX, e.clientY));
 
+  /** Finds which room (if any) the pointer sits over on the canvas, and shows that room's full-detail card
+   * (labels.hoverRoom) the same way hovering its door tag already does, so hovering the room's own floor or its
+   * whiteboard works too. Skips the raycast while a press might still become a drag of the camera. */
+  function setHoveredRoom(next: string | null): void {
+    if (next === hoveredRoom) return;
+    hoveredRoom = next;
+    labels.hoverRoom(next);
+    request();
+  }
+  const onCanvasPointerMove = (e: PointerEvent) => {
+    const target = down ? null : pickAt(e.clientX, e.clientY);
+    setHoveredRoom(target?.kind === 'room' ? target.id : null);
+  };
+  const onCanvasPointerLeave = () => setHoveredRoom(null);
+
   /** Hands a press on a tag to the canvas, where the controls take it as the start of a drag. */
   function relay(e: PointerEvent): void {
     relayed = true;
@@ -538,6 +558,8 @@ export function createFloorView(
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('click', onClick);
   canvas.addEventListener('dblclick', onDoubleClick);
+  canvas.addEventListener('pointermove', onCanvasPointerMove);
+  canvas.addEventListener('pointerleave', onCanvasPointerLeave);
   canvas.addEventListener('keydown', onKeyDown);
   canvas.addEventListener('keyup', onKeyUp);
   canvas.addEventListener('blur', stopKeys);
@@ -657,6 +679,8 @@ export function createFloorView(
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('click', onClick);
       canvas.removeEventListener('dblclick', onDoubleClick);
+      canvas.removeEventListener('pointermove', onCanvasPointerMove);
+      canvas.removeEventListener('pointerleave', onCanvasPointerLeave);
       canvas.removeEventListener('keydown', onKeyDown);
       canvas.removeEventListener('keyup', onKeyUp);
       canvas.removeEventListener('blur', stopKeys);

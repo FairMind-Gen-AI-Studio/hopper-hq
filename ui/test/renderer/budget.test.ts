@@ -4,7 +4,7 @@ import { BLOCKS_MAX, BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, ROOMS_MAX, SEATS_MA
 import { FloorScene } from '../../renderer/floor-scene';
 import { PERSONA_MESHES } from '../../renderer/persona';
 import { dayTheme } from '../../renderer/theme';
-import { checkoutSpecs, fullestFloor, leisureIntern, makeFloor } from './fixtures';
+import { checkoutSpecs, fullestFloor, fullestFloorOnBrainCall, fullestFloorOnCall, leisureIntern, makeFloor } from './fixtures';
 
 /**
  * What a frame of the fullest floor costs (design §7.1), re-measured for the merge of the personas
@@ -109,6 +109,80 @@ describe('the budget of the fullest floor', () => {
     const interns = [...fs.sessions.values()].flatMap((e) => [...e.interns.values()]);
     expect(interns).toHaveLength((BLOCKS_MAX * BLOCK_DESKS - 1) * INTERNS_MAX);
     expect(interns.reduce((n, robot) => n + costOf(robot.group).casters, 0)).toBe(0);
+  });
+});
+
+/**
+ * The fullest floor again, with every robot that has one also on an MCP call (hq-mcp-switchboard proposal.md §4
+ * "Budget impact": "Worst case = every robot on the fullest floor on a call simultaneously"), including a
+ * Fairmind call on every intern and room agent `fullestFloor` already types to a Fairmind plugin, so the
+ * headset's extra Fairmind-mark mesh (robot.ts HEADSET) is pinned too. As measured, with a tenth to spare,
+ * rounded down: 4,121 meshes and 217 instanced meshes, which draw 1,656 instances, in 4,338 draw calls, and 423
+ * of them cast a shadow — the same 423 as BUDGET above: the headset's hook and bead, and every per-family VIP
+ * form (fairmind-forms.ts), are all `cast: false` (robot.ts), so showing a call on every robot simultaneously
+ * raises meshes and draws alone, never casters.
+ *
+ * Re-measured again for the round-2 enlargement (fairmind-forms.ts, robot.ts FAIRMIND_FORM_Y): every one of
+ * these entities is *also* typed to a Fairmind plugin (`fullestFloor`'s own worst case), so each now carries its
+ * big call form above the head *and* its own Fairmind badge (fairmind-badge.ts) — and floor-scene.ts hides that
+ * badge for as long as the call's own form shows, since the two would otherwise double up the same brand mark in
+ * the same screen slot. Net effect per such entity: the badge's own 2 meshes (disc + mark) drop out; the one-mesh
+ * default-form mark the MVP already pinned here stays (now bigger, not a new mesh) — two fewer meshes and draws
+ * per intern/room-agent entity than before this round (125 of them, 250 meshes), which is why this budget is
+ * *lower* than its own pre-round-2 numbers (4,371 / 4,588) rather than higher: enlarging these forms cost no new
+ * meshes at all, and replacing the badge with the form saved two.
+ *
+ * Re-measured a third time for round 3 (robot.ts HEADSET/BOOM_MIC: a dispatched note that the on-call headset
+ * itself, not only FairMind's own forms, read as a speck at the floor's own default zoom — the band and the ear
+ * cup grew, and a boom mic with a glowing tip joined them, two new meshes per shown headset, Fairmind's call or
+ * any other's alike). As measured, with a tenth to spare, rounded down: 4,433 meshes and 217 instanced meshes,
+ * which draw 1,656 instances, in 4,650 draw calls, and 423 of them cast a shadow — still the same 423 (the boom's
+ * rod and its tip are both `cast: false`, like every other headset mesh). Up by 312 meshes and draws from round 2
+ * (4,121 / 4,338): 156 robots carry a call here (every kind the fixture gives one to, Fairmind's or not — the
+ * boom mic is the generic headset's own feature, not gated on `call.fairmind` the way `fairmindForms` is), each
+ * two meshes heavier.
+ */
+const SWITCHBOARD_BUDGET = { meshes: 4876, draws: 5115, casters: BUDGET.casters };
+
+describe('the budget of the fullest floor, every robot also on a call', () => {
+  it('draws it within its own budget of meshes and draw calls, and never raises the shadow casters', () => {
+    const fs = new FloorScene(dayTheme());
+    fs.apply(fullestFloorOnCall());
+    const cost = costOf(fs.scene);
+    expect(cost.meshes).toBeLessThanOrEqual(SWITCHBOARD_BUDGET.meshes);
+    expect(cost.draws).toBeLessThanOrEqual(SWITCHBOARD_BUDGET.draws);
+    expect(cost.casters).toBeLessThanOrEqual(SWITCHBOARD_BUDGET.casters);
+  });
+});
+
+/**
+ * The same fullest-floor-every-robot-on-a-call worst case, but every Fairmind call is the Brain family — the one
+ * per-family VIP form with two meshes instead of one (`fairmind-forms.ts`, hq-mcp-switchboard proposal.md §5
+ * Phase 3), the real worst case for Phase 3's own added meshes (every other form costs the same single mesh the
+ * MVP's own brand-mark default already did). Re-measured directly, with a tenth to spare, rounded down: 4,246
+ * meshes and 217 instanced meshes, which draw 1,656 instances, in 4,463 draw calls, and 423 of them cast a
+ * shadow — unchanged from `fullestFloorOnCall`'s own 423 (every form mesh is `cast: false`, so swapping the
+ * default mark for the Brain orb on every Fairmind-plugin intern and room agent raises meshes and draws alone,
+ * never casters), and still exactly 125 meshes and draws past `fullestFloorOnCall` itself — the same 125
+ * Fairmind-plugin interns and room agents, each now one mesh heavier for the Brain orb's own extra gold ring,
+ * unaffected by the round-2 badge-hide-while-on-a-call change (that saving, and this one's cost, are independent
+ * of each other).
+ *
+ * Re-measured again for round 3 (HEADSET/BOOM_MIC, SWITCHBOARD_BUDGET's own comment above): the same +312
+ * meshes/draws `fullestFloorOnCall` itself picked up (156 robots on a call, two boom-mic meshes each) land here
+ * too, independently of the Brain orb's own +125 — 4,246 + 312 = 4,558 meshes, 4,463 + 312 = 4,775 draws, 423
+ * casters still (the boom is `cast: false` like everything else on the headset). Comfortably under
+ * `SWITCHBOARD_BUDGET` itself (4,876 / 5,115 / 465) — not a new, higher cap, since this worst case never needed
+ * one: it is checked against the existing budget, not a raised one.
+ */
+describe('the budget of the fullest floor, every call the Brain-core orb (hq-mcp-switchboard proposal.md §5 Phase 3)', () => {
+  it('draws it within the same switchboard budget, and never raises the shadow casters', () => {
+    const fs = new FloorScene(dayTheme());
+    fs.apply(fullestFloorOnBrainCall());
+    const cost = costOf(fs.scene);
+    expect(cost.meshes).toBeLessThanOrEqual(SWITCHBOARD_BUDGET.meshes);
+    expect(cost.draws).toBeLessThanOrEqual(SWITCHBOARD_BUDGET.draws);
+    expect(cost.casters).toBeLessThanOrEqual(SWITCHBOARD_BUDGET.casters);
   });
 });
 

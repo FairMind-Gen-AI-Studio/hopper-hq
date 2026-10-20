@@ -5,10 +5,93 @@
  */
 import type { AgentTelemetry, AgentKind, RunStatus, SessionState, WaitKind } from '../core/types.js';
 
-export const SCENE_VERSION = 7;
+/**
+ * SCENE_VERSION 12 (merge of the MCP switchboard, room-board and Codex/workflow lines, each of which had bumped
+ * the counter on its own branch past the shared ancestor at version 6 — this is the one value past every one of
+ * them, per the merge's own rule that a schema bump always exceeds every side's): `MeetingRoom` gains `topic`,
+ * its board's heading (feat/room-screens); `Occupant` gains `agentKind` and `RunSummary` gains `agents` /
+ * `MeetingAgent` gains `telemetry` (the Codex adapter and workflow-usage-metrics work already on main) landed
+ * under the same version 7 as the MCP switchboard's own Phase 1 below, two independent bumps off the same base
+ * that happened to pick the same number; version 12 is also the first number that was never claimed by any of
+ * them.
+ *
+ * SCENE_VERSION 11 ("parallel MCP calls" follow-up — one Claude Code turn calling several MCP servers in one
+ * message used to light at most one antenna, since every entity's `call`/`callAt` held only its single
+ * most-recently-started call): `OnCallView` gains `count`, how many of the entity's own MCP calls are
+ * concurrently live right now, for the robot's own "×N" next to its most-recent call (the chip, the side panel's
+ * "Running" line) — `activeLinesOf` itself needed no new field, since `ActiveLine.count` already tallied live
+ * calls building-wide; it now tallies every one of an entity's concurrent calls, not just its single most-recent.
+ *
+ * SCENE_VERSION 10 (hq-mcp-switchboard proposal.md §4 Façade, Phase 4 — user feedback 2026-10-19, "ora sono
+ * antenne ma non si capisce a cosa servono", "now they're antennas but it's not clear what they're for"):
+ * `ActiveLine` gains `tool` and `caller`, the first-tallied call's own tool verb (`McpCall.tool`, tool-label.ts)
+ * and the name of whoever is calling it — a session's own name, or a subagent's type/label, exactly the names
+ * already shown elsewhere in the UI (desk tags, intern/meeting-agent lists) — so the façade's own antenna tooltip
+ * can read "server, tool, caller" without reaching back into the raw session tree itself. SCENE_VERSION 9
+ * (`ActiveLine` gains `family`) landed in Phase 3; SCENE_VERSION 8 (`ActiveLine` gains `server`) landed in Phase 2;
+ * SCENE_VERSION 7 (Occupant/Intern/MeetingAgent gain `call`, BuildingScene gains `activeLines`) landed in Phase 1.
+ */
+export const SCENE_VERSION = 12;
 
 /** What a waiting sub-agent is shown doing at leisure: a gin tonic, table football (paired), or a coffee break outside the leisure window. */
 export type SceneLeisure = 'gintonic' | 'biliardino' | 'coffee';
+
+/**
+ * A robot's on-call headset, projected from the entity's `McpCall` + the building-level line slot it was assigned
+ * (hq-mcp-switchboard proposal.md §3 "Scene-model changes"; contract.md #scene-call). `slot` is a palette index,
+ * `0..LINE_SLOTS-1` (src/scene/palette.ts), already resolved server-side so the renderer never hashes a server name
+ * itself — mirroring how a robot carries its repo/feature slot rather than their names. `error` is the ~0.5 s
+ * "dropped call" flash (proposal.md §2 "Error / dropped call"). Null while no call is live (or still in its
+ * minimum-hold window at build time — build.ts's `callOf`, MIN_HOLD_MS).
+ */
+export interface OnCallView {
+  slot: number;
+  family: string | null;
+  write: boolean;
+  fairmind: boolean;
+  error: boolean;
+  /**
+   * How many of this entity's own MCP calls are concurrently live right now ("parallel MCP calls" follow-up):
+   * absent or 1 for a single call, the pre-existing case every caller already handles unchanged. Past 1, the
+   * entity's single headset/chip still shows its most-recent call alone (`call`/`callAt`, core/types.ts) — a robot
+   * has one headset, not several — with this count as the "×N" that says more are live at once.
+   */
+  count?: number;
+}
+
+/**
+ * One distinct MCP server with a live call somewhere in the building, for the façade rooftop switchboard
+ * (proposal.md §2 "Many parallel calls" / §4 Façade; contract.md #scene-activelines). `count` backs the busiest
+ * line's `+N` badge; `fairmind` lights the mast, never an antenna stub (proposal.md §2 "FairMind never renders
+ * as a generic grey bead" — the façade's own form of that rule; Facade.svelte excludes a `fairmind: true` line
+ * from the stub/sign lookup for exactly this reason). `server` is the canonical name `classifyMcp` resolved the
+ * line's call to (same string `McpCall.server` carries, kept alongside the hashed `slot` rather than in place of
+ * it — `slot` still picks the stub's fixed position and line colour, `server` is what Phase 2's façade sign
+ * reads to choose a known-server glyph or fall back to colour + first letter, proposal.md §5 Phase 2 / §7 Q4).
+ * Collisions are the same accepted limitation as the colour slot's own (proposal.md §6): two different server
+ * names can still hash to the same `slot`, and only one's `server` (whichever tallied first) is carried — the
+ * DOM chip remains the one authoritative identity.
+ *
+ * `family` (SCENE_VERSION 9, proposal.md §5 Phase 3) is the Fairmind line's own family, by the same
+ * first-tallied-wins rule as `server` above — null for every non-Fairmind line (a family is a Fairmind-only
+ * concept, `classifyMcp`) and also null for a Fairmind line whose first-tallied call carried none (e.g.
+ * `bulk_update_status`), which is exactly the "sensible default form" case the mast's own sign falls back to.
+ *
+ * `tool` and `caller` (SCENE_VERSION 10, Phase 4 — the façade antenna tooltip, requirement 3) are the same
+ * first-tallied call's own tool verb (`McpCall.tool`) and the name of whoever placed it: a session's own name
+ * (`nameOf`) or a subagent's type/label, the same names its own desk tag or intern/meeting-agent list already
+ * shows elsewhere in the UI — never anything from the call's own arguments (`tool` carries only what
+ * `classifyMcp` read from the tool's name, same privacy rule `server`/`family` already keep).
+ */
+export interface ActiveLine {
+  slot: number;
+  fairmind: boolean;
+  count: number;
+  server: string;
+  family: string | null;
+  tool: string;
+  caller: string;
+}
 
 /** States a desk can show. Ended sessions have left the building. */
 export type ShownState = Exclude<SessionState, 'ended'>;
@@ -67,6 +150,8 @@ export interface BuildingScene {
   floors: FloorSummary[];
   /** needsYou: longest wait first. done: oldest first. */
   attention: { needsYou: AttentionEntry[]; done: AttentionEntry[] };
+  /** Distinct MCP servers with a live call anywhere in the building, for the façade rooftop switchboard (build.ts's activeLinesOf). */
+  activeLines: ActiveLine[];
 }
 
 export interface GridRect {
@@ -121,6 +206,8 @@ export interface Intern {
   smoking: boolean;
   /** What it is doing while it waits for a running sibling; null while it is running, or has no running sibling. */
   leisure: SceneLeisure | null;
+  /** Its open tool is a live or min-hold MCP call: it wears the headset (build.ts's callOf). Null otherwise. */
+  call: OnCallView | null;
 }
 
 /** One run of a session, for its desk panel. */
@@ -148,6 +235,8 @@ export interface MeetingAgent {
   smoking: boolean;
   /** What it is doing while it waits for a running sibling; null while it is running, or has no running sibling. */
   leisure: SceneLeisure | null;
+  /** Its open tool is a live or min-hold MCP call: it wears the headset (build.ts's callOf). Null otherwise. */
+  call: OnCallView | null;
 }
 
 /** A running workflow run, or the crew of a session's running subagents: a room in the meeting wing of its host's floor. */
@@ -157,6 +246,12 @@ export interface MeetingRoom {
   runId: string;
   hostSessionId: string;
   name: string | null;
+  /**
+   * Its board's heading: the host's title for a crew's room, else the run's name; while that is missing (for a crew,
+   * its name is only ever its fixed 'Subagents', never a real topic), the current phase's title; a generic
+   * 'Subagents' failing all of that. Unlike `name`, never null and never the run id.
+   */
+  topic: string;
   summary: string | null;
   /** Phase titles with their state; empty when the run's phases are unknown. */
   phases: { title: string; state: PhaseState }[];
@@ -199,6 +294,8 @@ export interface Occupant {
   activity: DeskActivity | null;
   /** Its own open tool is a smoke test: it holds a cigar. Only while it is actually open (working or no_signal). */
   smoking: boolean;
+  /** Its own open tool is a live or min-hold MCP call: it wears the headset (build.ts's callOf). Null otherwise. */
+  call: OnCallView | null;
   /** Running subagents and workflow agents. */
   agentsRunning: number;
   summary: DeskSummary | null;

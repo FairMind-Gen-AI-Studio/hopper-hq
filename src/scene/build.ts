@@ -2,16 +2,17 @@
  * Session views -> the scene model the browser draws (types.ts). Server-only: it builds on core/view.ts.
  * Pure and deterministic: the same views in any order give the same scene, down to its JSON text. Every string is cleaned.
  */
-import type { WorkflowRun } from '../core/types.js';
+import type { McpCall, OpenCall, WorkflowRun } from '../core/types.js';
 import { assignLeisure, waitingSubagents } from '../core/leisure.js';
 import { liveRun } from '../core/reducer.js';
 import { buildFloors, byCodeUnit, floorKeyOf, islandKeyOf, repoLabels, repoRootOf, type Floor, type SessionView } from '../core/view.js';
 import { INTERNS_MAX, layoutPlan, LOUNGE_SEATS, MEETING_AGENTS_MAX, POD_DESKS, RUNS_SHOWN, UNSEATED_MAX } from './layout.js';
-import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
-import { CREW_PREFIX, roomRunsOf, seatFloor, type RoomRun, type Seating } from './seating.js';
+import { FEATURE_SLOTS, LINE_SLOTS, REPO_SLOTS, slotOf } from './palette.js';
+import { CREW_NAME, CREW_PREFIX, roomRunsOf, seatFloor, type RoomRun, type Seating } from './seating.js';
 import { capKey, cleanOrNull, cleanText, KEY_MAX, taskTitle } from './text.js';
 import {
   SCENE_VERSION,
+  type ActiveLine,
   type AttentionEntry,
   type Badge,
   type BuildingScene,
@@ -26,6 +27,7 @@ import {
   type MeetingAgent,
   type MeetingRoom,
   type Occupant,
+  type OnCallView,
   type PhaseState,
   type Place,
   type Pod,
@@ -122,7 +124,7 @@ function deskSummaryOf(v: SessionView): DeskSummary | null {
  * The session's plain subagents: running ones in the order they started (the order the reducer first saw them), then
  * finished ones, the latest to finish first; one per id once cleaned; at most INTERNS_MAX, and how many more there are.
  */
-function internsOf(v: SessionView, inRoom: boolean, leisureOpen: boolean): { interns: Intern[]; internsMore: number } {
+function internsOf(v: SessionView, inRoom: boolean, leisureOpen: boolean, now?: number): { interns: Intern[]; internsMore: number } {
   const finished = v.children
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => !c.running)
@@ -140,6 +142,7 @@ function internsOf(v: SessionView, inRoom: boolean, leisureOpen: boolean): { int
       inRoom: inRoom && c.running,
       smoking: c.running && c.smoking === true,
       leisure: leisure.get(c.id) ?? null,
+      call: agentCallOf(c, now),
     })),
     internsMore: all.length - shown.length,
   };
@@ -183,7 +186,7 @@ function phasesOf(r: WorkflowRun): MeetingRoom['phases'] {
 }
 
 /** Running agents first, in start order, then finished ones, the latest to finish first; one per id once cleaned; at most MEETING_AGENTS_MAX. */
-function meetingAgentsOf(r: WorkflowRun, leisureOpen: boolean, limit = MEETING_AGENTS_MAX): MeetingAgent[] {
+function meetingAgentsOf(r: WorkflowRun, leisureOpen: boolean, limit = MEETING_AGENTS_MAX, now?: number): MeetingAgent[] {
   const running = r.agents.filter((a) => a.running).sort((a, b) => a.startedAt - b.startedAt || byCodeUnit(a.id, b.id));
   const finished = r.agents.filter((a) => !a.running).sort((a, b) => b.updatedAt - a.updatedAt || b.startedAt - a.startedAt || byCodeUnit(a.id, b.id));
   const leisure = leisureMapOf(r.agents, leisureOpen);
@@ -196,6 +199,7 @@ function meetingAgentsOf(r: WorkflowRun, leisureOpen: boolean, limit = MEETING_A
     running: a.running,
     smoking: a.running && a.smoking === true,
     leisure: leisure.get(a.id) ?? null,
+    call: agentCallOf(a, now),
   }));
 }
 
@@ -212,6 +216,78 @@ function activityOf(v: SessionView): DeskActivity | null {
 function smokingOf(v: SessionView): boolean {
   const open = v.effectiveState === 'working' || v.effectiveState === 'no_signal' ? v.openTool : null;
   return open?.smoking === true;
+}
+
+/**
+ * Minimum time an on-call headset holds once lit, even once the call itself finishes: MCP calls are typically
+ * sub-second, so a naive light-while-open bead would flash for one frame (hq-mcp-switchboard proposal.md §6 "Sub-
+ * second lifetime"). Driven by the entity's `callAt` timestamp against `now` (core/types.ts's `call`/`callAt`
+ * pair), not by `openTool` alone. Tunable; confirm once real MCP poll cadence vs call rate is measured (proposal.md
+ * §7 Q3; default ~1.8 s).
+ */
+export const MIN_HOLD_MS = 1800;
+
+/**
+ * Every one of an entity's own MCP calls currently live, `now` against `MIN_HOLD_MS`: the live members of its
+ * `calls` map (core/types.ts's `OpenCall`, keyed by toolId) — the same liveness rule `headsetOf` already applies
+ * to the single most-recent call, applied here per call, for however many of them are concurrently tracked
+ * ("parallel MCP calls" follow-up: a session's own `openTool` is one object, but `calls` is not — two parallel
+ * `tool.started` events on the same entity now register as two entries here, instead of the second silently
+ * overwriting the first) — when that map has at least one live entry, `call`/`callAt` play no further part: they
+ * are themselves always one of the map's own entries by construction (reducer.ts sets both from the same event).
+ * `call`/`callAt` are the fallback only when the map has none live: a call held past its own `tool.finished` (which
+ * `withoutCall`, reducer.ts, already removed from the map) within its `MIN_HOLD_MS` tail, or an entity the map
+ * never existed for at all (every pre-existing fixture/snapshot, and a session restored from a store saved before
+ * `calls` did) — both read exactly as a single live call used to, before this map existed. `now` undefined (no
+ * pre-existing caller gives build.ts a clock) reads as no live calls, same as before.
+ */
+function liveCalls(calls: Record<string, OpenCall> | undefined, now: number | undefined, call: McpCall | undefined, callAt: number | undefined): McpCall[] {
+  if (now === undefined) return [];
+  const fromMap = calls
+    ? Object.values(calls)
+        .filter((c) => now - c.callAt < MIN_HOLD_MS)
+        .map((c) => c.call)
+    : [];
+  if (fromMap.length > 0) return fromMap;
+  return call !== undefined && callAt !== undefined && now - callAt < MIN_HOLD_MS ? [call] : [];
+}
+
+/**
+ * An on-call headset from an entity's most recent MCP call (`call`), when it started (`callAt`), its retained
+ * `error` flag and how many of its calls are concurrently live (`count`, `liveCalls` above — "parallel MCP calls"
+ * follow-up), shared by a session's own open tool, a plain subagent and a run's agent (hq-mcp-switchboard
+ * proposal.md §3 "Scene-model changes"; contract.md #scene-call). Live from `callAt` for `MIN_HOLD_MS`: covers both
+ * a call still open and the minimum-hold window after a sub-second one already closed (proposal.md §6). `now`
+ * undefined means the caller gave build.ts no clock (every call site before this feature, and every existing
+ * fixture/snapshot): reads as "no call live," unconditionally — the exact behaviour before this function had a
+ * body, so no pre-existing caller needs updating. `slot` resolves the call's canonical server (tool-label.ts's
+ * `classifyMcp`) to a stable palette index the renderer never has to hash itself (scene/palette.ts's `slotOf`).
+ * `count` is omitted past a single call (`OnCallView`'s own doc comment).
+ */
+function headsetOf(call: McpCall | undefined, callAt: number | undefined, error: boolean, now: number | undefined, calls: Record<string, OpenCall> | undefined): OnCallView | null {
+  if (!call || callAt === undefined || now === undefined || now - callAt >= MIN_HOLD_MS) return null;
+  const count = liveCalls(calls, now, call, callAt).length;
+  return { slot: slotOf(call.server, LINE_SLOTS), family: call.family, write: call.write, fairmind: call.fairmind, error, ...(count > 1 ? { count } : {}) };
+}
+
+/**
+ * A session's on-call headset: `headsetOf` from its own `call`/`callAt`/`error`, live only while it is actually open
+ * (`smokingOf`'s own gate, just above) — a `call`/`callAt` left over from before the session moved to needs_you or
+ * done must not still light a headset, exactly as a leftover `smoking` flag must not still light a cigar (the
+ * "stale" case in `smokingOf`'s own test).
+ */
+function callOf(v: SessionView, now?: number): OnCallView | null {
+  const open = v.effectiveState === 'working' || v.effectiveState === 'no_signal';
+  return open ? headsetOf(v.call, v.callAt, v.error === true, now, v.calls) : null;
+}
+
+/**
+ * An intern's or a meeting agent's on-call headset: `headsetOf` from a `ChildAgent`/`RunAgent`'s own
+ * `call`/`callAt`/`error`, live only while it is running — mirrors `smoking`'s own `c.running && …` gate (`internsOf`/
+ * `meetingAgentsOf` below): a finished subagent's leftover `call` must not still light a headset.
+ */
+function agentCallOf(a: { running: boolean; call?: McpCall; callAt?: number; error?: boolean; calls?: Record<string, OpenCall> }, now?: number): OnCallView | null {
+  return a.running ? headsetOf(a.call, a.callAt, a.error === true, now, a.calls) : null;
 }
 
 /** The leisure of every waiting sub-agent among `agents`: coffee outside the window, else paired biliardino or a lone gintonic. */
@@ -272,7 +348,7 @@ function checkoutOf(v: SessionView, label: (v: SessionView) => string): Checkout
 }
 
 /** A session on the floor, its robot at `at`, in its own repository's and feature's colours. */
-function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place, crewSeated = false, leisureOpen = false): Occupant {
+function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place, crewSeated = false, leisureOpen = false, now?: number): Occupant {
   const state = v.effectiveState as ShownState;
   return {
     sessionId: idOf(v),
@@ -284,9 +360,10 @@ function occupantOf(v: SessionView, label: (v: SessionView) => string, at: Place
     reason: reasonOf(v),
     activity: activityOf(v),
     smoking: smokingOf(v),
+    call: callOf(v, now),
     agentsRunning: v.children.filter((c) => c.running).length + v.runs.reduce((n, r) => n + countsOf(r).running, 0),
     summary: deskSummaryOf(v),
-    ...internsOf(v, crewSeated, leisureOpen),
+    ...internsOf(v, crewSeated, leisureOpen, now),
     runs: runsOf(v),
     location: v.location,
     pane: cleanOrNull(v.tmuxPane),
@@ -311,17 +388,30 @@ function podLook(views: SessionView[], label: (v: SessionView) => string): Pick<
   return { color: null, placard: null };
 }
 
+/**
+ * The room's topic for its board heading: the host's title for a crew's room; else the run's name, while that is
+ * not just the crew's fixed placeholder name; else the current phase's title; a generic 'Subagents' failing all of
+ * that (design: board heading = the topic, with this fallback chain).
+ */
+function topicOf(crew: boolean, host: SessionView, name: string | null, phases: MeetingRoom['phases']): string {
+  const phase = phases.find((p) => p.state === 'current')?.title ?? null;
+  return (crew ? taskTitle(host) : null) ?? (name !== null && name !== CREW_NAME ? name : null) ?? phase ?? CREW_NAME;
+}
+
 /** The room of a live run in its slot. */
-function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect, leisureOpen: boolean): MeetingRoom {
+function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect, leisureOpen: boolean, now?: number): MeetingRoom {
+  const name = cleanOrNull(run.name, RUN_NAME_MAX);
+  const phases = phasesOf(run);
   return {
     kind: crew ? 'crew' : 'workflow',
     runId: capKey(run.id),
     hostSessionId: idOf(host),
-    name: cleanOrNull(run.name, RUN_NAME_MAX),
+    name,
+    topic: topicOf(crew, host, name, phases),
     summary: cleanOrNull(run.summary),
-    phases: phasesOf(run),
+    phases,
     counts: countsOf(run),
-    agents: meetingAgentsOf(run, leisureOpen),
+    agents: meetingAgentsOf(run, leisureOpen, MEETING_AGENTS_MAX, now),
     look: lookOf(repoRootOf(host), host.feature),
     rect,
     slot,
@@ -337,7 +427,7 @@ function roomOf({ run, host, crew }: RoomRun, slot: number, rect: GridRect, leis
  * seat; its desk. The crew's subagents show as interns over the desk only while the crew has no room. The floor counts
  * the live runs and crews without a room, every host's: a run two hosts name counts twice.
  */
-function detailOf(floor: Floor, number: number, label: (v: SessionView) => string, seating: Seating, leisureOpen: boolean): FloorDetail {
+function detailOf(floor: Floor, number: number, label: (v: SessionView) => string, seating: Seating, leisureOpen: boolean, now?: number): FloorDetail {
   const plan = layoutPlan(seating);
   const on = new Map(floor.sessions.map((v) => [v.id, v]));
   const runs = roomRunsOf(floor);
@@ -360,7 +450,7 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     p.desks.map((_, n) => {
       const v = on.get(seating.desks[i * POD_DESKS + n] ?? '');
       if (!v || seated.has(v.id)) return null;
-      seated.set(v.id, occupantOf(v, label, placeOf(v), slotOfKey(capKey(CREW_PREFIX + v.id)) !== -1, leisureOpen));
+      seated.set(v.id, occupantOf(v, label, placeOf(v), slotOfKey(capKey(CREW_PREFIX + v.id)) !== -1, leisureOpen, now));
       return v;
     }),
   );
@@ -377,12 +467,12 @@ function detailOf(floor: Floor, number: number, label: (v: SessionView) => strin
     };
   });
   const waiting = floor.sessions.filter((v) => !seated.has(v.id)).sort(bySessionStart);
-  const unseated = waiting.slice(0, UNSEATED_MAX).map((v) => occupantOf(v, label, { kind: 'gone' }, false, leisureOpen));
+  const unseated = waiting.slice(0, UNSEATED_MAX).map((v) => occupantOf(v, label, { kind: 'gone' }, false, leisureOpen, now));
   const rooms = runs
     .map((r) => ({ r, slot: slotOfKey(r.key) }))
     .filter(({ slot }) => slot !== -1)
     .sort((a, b) => a.slot - b.slot)
-    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!, leisureOpen));
+    .map(({ r, slot }) => roomOf(r, slot, plan.rooms[slot]!, leisureOpen, now));
   const liveRuns = floor.sessions.reduce((n, v) => n + v.runs.filter(liveRun).length + (v.children.some((c) => c.running) ? 1 : 0), 0);
 
   const { windows: _windows, ...summary } = summaryOf(floor, number, seating);
@@ -426,15 +516,106 @@ function attentionOf(views: readonly SessionView[], state: AttentionEntry['state
 }
 
 /**
- * The building every client sees: floors top to bottom, each from its seating in `seating` (a floor with none there is
- * seated from scratch), and the attention queue.
+ * The canonical server token `classifyMcp` (tool-label.ts) resolves every Fairmind spelling to. Used here, not a
+ * slot number, to key the one combined Fairmind line: the mast is the building's single hotline, never a line among
+ * the others (proposal.md §2 "FairMind tool families" — "FairMind never renders as a generic grey bead").
  */
-export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMap<string, number>, seating?: ReadonlyMap<string, Seating>): BuildingScene {
+const FAIRMIND_LINE_KEY = 'fairmind';
+
+/**
+ * Distinct MCP servers with a live call anywhere in the building, for the façade rooftop switchboard (proposal.md
+ * §2 "Many parallel calls"/§4; contract.md #scene-activelines). Scans every session's own calls and its children's
+ * and its workflow runs' agents' — the same places `callOf`/`agentCallOf` gate liveness on — rather than a second
+ * accumulator kept in the reducer (contract.md Seam 1's own recommendation: computing it here "avoids a second
+ * source of truth and keeps the reducer's existing 'no building-level state' invariant"). Every Fairmind call
+ * collapses into one line regardless of which of the ~8 line slots its tool name would otherwise hash to. `now`
+ * undefined reads as no call anywhere live, consistent with `callOf`/`agentCallOf`.
+ *
+ * "Parallel MCP calls" follow-up: tallies every one of an entity's own concurrently-live calls (`liveCalls`), not
+ * only its single most-recent (`call`/`callAt`) — one Claude Code turn calling several MCP servers in one message
+ * used to light at most one antenna per entity, since `callOf`/`agentCallOf` only ever read the latest. A session
+ * with, say, three parallel calls to three distinct servers now tallies into all three of their slots.
+ *
+ * Each non-Fairmind slot also keeps the canonical `server` name of whichever live call tallied into it first
+ * (proposal.md §5 Phase 2: the façade sign needs the real name, not just the hashed slot, to pick a known-server
+ * glyph). `server` is read straight off the same raw `McpCall` `liveCalls` already filtered for liveness, never
+ * re-derived, so it can't disagree with the slot/fairmind verdict `headsetOf` would make for the same call. The
+ * Fairmind line keeps `family` by the same first-tallied rule (SCENE_VERSION 9, proposal.md §5 Phase 3): the
+ * mast's own sign needs it to pick a VIP motif the way the glyph sign needs `server`.
+ *
+ * `tool` and `caller` (SCENE_VERSION 10, Phase 4: the façade antenna tooltip) follow the identical first-tallied
+ * rule, read off the same raw `call` as `server`: `tool` is `McpCall.tool`; `caller` is the entity's own
+ * already-shown name — a session's (`nameOf`), or a subagent's type/label, the same fallback chain its own
+ * intern/meeting-agent list already uses (`DeskPanel.svelte`'s `intern.type ?? 'Subagent'`, `RunPanel.svelte`'s
+ * `agent.label ?? agent.type ?? 'Agent'`) so the tooltip never invents a name the rest of the UI would not.
+ */
+function activeLinesOf(views: readonly SessionView[], now?: number): ActiveLine[] {
+  const perServer = new Map<string, { count: number; tool: string; caller: string }>();
+  let fairmind = 0;
+  let fairmindFamily: string | null = null;
+  let fairmindTool = '';
+  let fairmindCaller = '';
+  let fairmindFamilySeen = false;
+  const tally = (raw: McpCall, caller: string) => {
+    if (raw.fairmind) {
+      fairmind += 1;
+      if (!fairmindFamilySeen) {
+        fairmindFamily = raw.family;
+        fairmindTool = raw.tool;
+        fairmindCaller = caller;
+        fairmindFamilySeen = true;
+      }
+    } else {
+      const prev = perServer.get(raw.server);
+      perServer.set(raw.server, { count: (prev?.count ?? 0) + 1, tool: prev?.tool ?? raw.tool, caller: prev?.caller ?? caller });
+    }
+  };
+  const tallyEntity = (open: boolean, call: McpCall | undefined, callAt: number | undefined, calls: Record<string, OpenCall> | undefined, caller: string) => {
+    if (!open) return;
+    for (const raw of liveCalls(calls, now, call, callAt)) tally(raw, caller);
+  };
+  for (const v of views) {
+    tallyEntity(v.effectiveState === 'working' || v.effectiveState === 'no_signal', v.call, v.callAt, v.calls, nameOf(v));
+    for (const c of v.children) tallyEntity(c.running, c.call, c.callAt, c.calls, typeOf(c.type) ?? 'Subagent');
+    for (const r of v.runs) for (const a of r.agents) tallyEntity(a.running, a.call, a.callAt, a.calls, a.label ?? typeOf(a.type) ?? 'Agent');
+  }
+  // Each live server gets its own antenna: its hashed slot when free, else the next free one (servers in name order,
+  // so the probe is deterministic). Only past LINE_SLOTS distinct servers do two share a stub, first-tallied wins.
+  const perSlot = new Map<number, { count: number; server: string; tool: string; caller: string }>();
+  for (const [server, entry] of [...perServer.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
+    const home = slotOf(server, LINE_SLOTS);
+    let slot = home;
+    for (let i = 0; i < LINE_SLOTS && perSlot.has(slot); i++) slot = (home + i + 1) % LINE_SLOTS;
+    const prev = perSlot.get(slot);
+    perSlot.set(slot, prev ? { ...prev, count: prev.count + entry.count } : { server, ...entry });
+  }
+  const lines = [...perSlot.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([slot, { count, server, tool, caller }]): ActiveLine => ({ slot, fairmind: false, count, server, family: null, tool, caller }));
+  if (fairmind > 0) {
+    lines.unshift({ slot: slotOf(FAIRMIND_LINE_KEY, LINE_SLOTS), fairmind: true, count: fairmind, server: FAIRMIND_LINE_KEY, family: fairmindFamily, tool: fairmindTool, caller: fairmindCaller });
+  }
+  return lines;
+}
+
+/**
+ * The building every client sees: floors top to bottom, each from its seating in `seating` (a floor with none there is
+ * seated from scratch), and the attention queue. `now` is optional and trails every existing parameter so no
+ * pre-existing caller needs to change: omitted, `activeLines` reads as empty, exactly as before this parameter
+ * existed (hq-mcp-switchboard contract.md #scene-activelines).
+ */
+export function buildScene(
+  views: readonly SessionView[],
+  firstSeen?: ReadonlyMap<string, number>,
+  seating?: ReadonlyMap<string, Seating>,
+  now?: number,
+): BuildingScene {
   const floors = buildFloors(views, firstSeen);
   return {
     version: SCENE_VERSION,
     floors: floors.map((f, i) => summaryOf(f, floors.length - i, seating?.get(f.key) ?? seatFloor(null, f))),
     attention: { needsYou: attentionOf(views, 'needs_you'), done: attentionOf(views, 'done') },
+    activeLines: activeLinesOf(views, now),
   };
 }
 
@@ -442,7 +623,9 @@ export function buildScene(views: readonly SessionView[], firstSeen?: ReadonlyMa
  * One floor in detail: its plan, filled from its seating in `seating` (a floor with none there is seated from scratch).
  * Null when no live session is on it. `leisureOpen` gates whether a waiting sub-agent (intern or meeting agent) is shown
  * at the bar/biliardino (true) or on a coffee break (false, the default): the caller reads `now` (see collector.ts,
- * via `inLeisureWindow`) and passes the result in, keeping this function itself clock-free and deterministic.
+ * via `inLeisureWindow`) and passes the result in, keeping this function itself clock-free and deterministic. `now`
+ * is also, separately, every occupant's and meeting agent's on-call clock (`callOf`/`agentCallOf`): optional and
+ * trailing, like `buildScene`'s, so it is a pure addition.
  */
 export function buildFloorDetail(
   views: readonly SessionView[],
@@ -450,10 +633,11 @@ export function buildFloorDetail(
   firstSeen?: ReadonlyMap<string, number>,
   seating?: ReadonlyMap<string, Seating>,
   leisureOpen = false,
+  now?: number,
 ): FloorDetail | null {
   const floors = buildFloors(views, firstSeen);
   const i = floors.findIndex((f) => f.key === key);
   const floor = floors[i];
   if (!floor) return null;
-  return detailOf(floor, floors.length - i, repoLabels(views), seating?.get(key) ?? seatFloor(null, floor), leisureOpen);
+  return detailOf(floor, floors.length - i, repoLabels(views), seating?.get(key) ?? seatFloor(null, floor), leisureOpen, now);
 }

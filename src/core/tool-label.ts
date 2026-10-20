@@ -1,5 +1,5 @@
-import { cleanText } from '../scene/text.js';
-import type { WaitReason } from './types.js';
+import { cleanText, friendlyServer } from '../scene/text.js';
+import type { McpCall, WaitReason } from './types.js';
 
 const MAX_LABEL = 80;
 
@@ -27,8 +27,15 @@ function asRecord(input: unknown): Record<string, unknown> {
 export function toolLabel(tool: string, input: unknown, cwd?: string): string {
   const i = asRecord(input);
   if (tool.startsWith('mcp__')) {
-    const [, server = '', ...rest] = tool.split('__');
-    return truncate(`${server}: ${rest.join('__') || 'tool'}`);
+    const [, rawServer = '', ...rest] = tool.split('__');
+    // Friendly server names ("friendly server names" follow-up): the DOM chip and the side panel's "Running" line
+    // both read this same label, so the readable name belongs here, not layered on separately at either call site.
+    // Fairmind keeps its own raw spelling, unchanged — `labels.ts`'s own `tagTitle` doc comment already names this
+    // as deliberate (the chip shows whatever case the real tool name happened to use for Fairmind), and this
+    // function must not quietly start canonicalising it.
+    const { server, fairmind } = resolveServer(rawServer);
+    const shown = fairmind ? rawServer : friendlyServer(server);
+    return truncate(`${shown}: ${rest.join('__') || 'tool'}`);
   }
   switch (tool) {
     case 'Bash':
@@ -62,6 +69,73 @@ export function toolLabel(tool: string, input: unknown, cwd?: string): string {
     default:
       return truncate(tool);
   }
+}
+
+/**
+ * The server segment of an MCP tool name (`mcp__<server>__<tool>`), resolved to one canonical human token
+ * (hq-mcp-switchboard proposal.md §3 item 2, the shared prerequisite both judge panels flagged):
+ * - `plugin_<plugin>_<server>` (a plugin-qualified server) reduces to `<server>` — its last `_`-separated segment,
+ *   so a multi-word plugin name ('plugin_fairmind-coding_fairmind') still resolves to the server alone.
+ * - `claude_ai_<Name>` (the claude.ai connector naming) reduces to `<Name>`, the whole remainder after the prefix.
+ * - every other spelling is the server as-is.
+ * Returns the resolved token and whether it is a Fairmind identity (see FAIRMIND_SERVER below) — callers canonicalise
+ * a Fairmind identity to the literal `'fairmind'` themselves, so a non-Fairmind resolved token keeps its own case.
+ */
+export function resolveServer(raw: string): { server: string; fairmind: boolean } {
+  let server = raw;
+  if (/^plugin_/i.test(server)) {
+    const rest = server.slice('plugin_'.length);
+    const at = rest.lastIndexOf('_');
+    server = at === -1 ? rest : rest.slice(at + 1);
+  } else if (/^claude_ai_/i.test(server)) {
+    server = server.slice('claude_ai_'.length);
+  }
+  return { server, fairmind: FAIRMIND_SERVER.test(server) };
+}
+
+/**
+ * The plugin's own anchored rule for 'this is Fairmind, not merely something that starts the same way' (from
+ * `_mcp_config.py`), applied here to the MCP *server* segment — a different axis from `src/scene/fairmind.ts`'s
+ * `FAIRMIND_NAMESPACE` (an agent *identity*: which plugin spawned it). Matches 'Fairmind' and 'fairmind-dev' (so
+ * both collapse to one identity); rejects 'fairmindish' (the lookahead fails: 'i' follows) and 'not-fairmind-proxy'
+ * (not anchored at the start).
+ */
+const FAIRMIND_SERVER = /^fairmind(?![a-z0-9])/i;
+
+/** A Fairmind MCP tool name's family prefix: the work graph, projects/sessions/RAG, the decision graph, telemetry write-back, or the code graph (proposal.md §2). */
+const FAMILY_PREFIX: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^Studio_/i, 'Studio'],
+  [/^(General_|rag_)/i, 'General'],
+  [/^Brain_/i, 'Brain'],
+  [/^Insights_/i, 'Insights'],
+  [/^Code_/i, 'Code'],
+];
+
+/** Write verbs (record/set-status/journal/document/supersede/bind): every other verb defaults to read. */
+const WRITE_VERB = /^(record_|set_status|bulk_update_status|process_journal|add_document|supersede_|bind_repository)/i;
+
+/**
+ * Classifies an MCP tool call from its name alone (`mcp__<server>__<tool>`) — never its arguments (privacy:
+ * proposal.md §3). Pure; no I/O. Returns null for a non-MCP tool. `tool` is the verb segment as spelled in the name
+ * (truncated like every other untrusted string this module emits), the same text `toolLabel`'s own 'server: tool'
+ * DOM chip already shows — `classifyMcp` keeps its own copy so a caller that only has the classified `McpCall` (the
+ * façade's antenna tooltip, build.ts's `activeLinesOf`) can still name the tool, never its arguments.
+ */
+export function classifyMcp(tool: string): McpCall | null {
+  if (!tool.startsWith('mcp__')) return null;
+  const [, rawServer = '', ...rest] = tool.split('__');
+  const verb = rest.join('__');
+  const { server, fairmind } = resolveServer(rawServer);
+  let family: string | null = null;
+  let remainder = verb;
+  for (const [prefix, name] of FAMILY_PREFIX) {
+    if (prefix.test(verb)) {
+      family = name;
+      remainder = verb.replace(prefix, '');
+      break;
+    }
+  }
+  return { server: fairmind ? 'fairmind' : server, family: fairmind ? family : null, write: WRITE_VERB.test(remainder), fairmind, tool: truncate(verb || 'tool') };
 }
 
 const SMOKE_RUNNER_PKG = /\b(npm|pnpm|yarn|npx|bun)\b/;

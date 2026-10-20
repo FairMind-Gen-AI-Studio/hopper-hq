@@ -3,10 +3,41 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OrthographicCamera } from 'three';
 import type { ShownState } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
-import { AGENT_TAG, COMPACT_PX, DOT_PX, LabelLayer, RANK, declutter, projectToScreen, roomTitle, tagRank, tagTitle, type LabelBox, type LabelEvents } from '../../renderer/labels';
+import {
+  AGENT_TAG,
+  BOARD_PX,
+  COMPACT_PX,
+  DOT_PX,
+  LabelLayer,
+  RANK,
+  TOPIC_FONT,
+  boardMatrix,
+  declutter,
+  matrixToCss,
+  projectToScreen,
+  roomTitle,
+  tagRank,
+  tagTitle,
+  type LabelBox,
+  type LabelEvents,
+} from '../../renderer/labels';
 import css from '../../renderer/labels.css?raw';
-import { LABEL_Y, boardAnchor, headSpot, labelAnchor, loungeSpots, roomTagAnchor } from '../../renderer/world';
-import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec } from './fixtures';
+import tokens from '../../styles/tokens.css?raw';
+import {
+  BOARD_NORMAL,
+  HOME_AZIMUTH,
+  LABEL_Y,
+  boardCorners,
+  cameraOffset,
+  facesCamera,
+  floorCenter,
+  frustumFor,
+  headSpot,
+  labelAnchor,
+  loungeSpots,
+  roomTagAnchor,
+} from '../../renderer/world';
+import { checkoutFloor, checkoutSpecs, checkoutRooms, isoCamera, makeFloor, roomFloor, seatOf, seatsOf, type CheckoutSpec, type RoomSpec } from './fixtures';
 
 /** A camera looking straight down at a 10 m square around the origin. */
 function topDown(): OrthographicCamera {
@@ -14,6 +45,18 @@ function topDown(): OrthographicCamera {
   camera.position.set(0, 10, 0);
   camera.up.set(0, 0, -1);
   camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
+  return camera;
+}
+
+/** The floor view's camera fitted to `size`, at `azimuth` rather than isoCamera's fixed HOME_AZIMUTH. */
+function azimuthCamera(size: { w: number; h: number }, azimuth: number, aspect = 1.6): OrthographicCamera {
+  const f = frustumFor(size, aspect, azimuth);
+  const camera = new OrthographicCamera(f.left, f.right, f.top, f.bottom, 0.1, 300);
+  const c = floorCenter(size);
+  const o = cameraOffset(azimuth);
+  camera.position.set(c.x + o.x, o.y, c.z + o.z);
+  camera.lookAt(c.x, 0, c.z);
   camera.updateMatrixWorld();
   return camera;
 }
@@ -41,6 +84,28 @@ function rule(selector: string): string {
   const at = css.indexOf(`\n${selector} {\n`);
   expect(at, selector).toBeGreaterThanOrEqual(0);
   return css.slice(at, css.indexOf('}', at));
+}
+
+/** Every `--name: #hex;` custom property declared in the first block of `sheet` that opens with `header` (tokens.css
+ * lists every theme's own block in full, never by reference to another, so reading just one block's text is enough). */
+function cssVars(sheet: string, header: string): Record<string, string> {
+  const at = sheet.indexOf(header);
+  expect(at, header).toBeGreaterThanOrEqual(0);
+  const block = sheet.slice(at, sheet.indexOf('}', at));
+  return Object.fromEntries([...block.matchAll(/(--[\w-]+):\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1]!, m[2]!]));
+}
+
+/** WCAG's own relative luminance of a '#rrggbb' colour. */
+function luminance(hex: string): number {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+/** WCAG's own contrast ratio between two '#rrggbb' colours, always >= 1. */
+function contrastRatio(a: string, b: string): number {
+  const [l1, l2] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+  return (l1 + 0.05) / (l2 + 0.05);
 }
 
 afterEach(() => document.body.replaceChildren());
@@ -455,7 +520,7 @@ describe('the label layer', () => {
     expect(rule('.fv-tag')).toContain('touch-action: none;');
     expect(rule('.fv-tag')).toContain('user-select: none;');
     const hidden = rule(
-      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge),\n' +
+      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge):not(.fv-counts),\n' +
         '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name',
     );
     expect(hidden).toContain('clip-path: inset(50%);');
@@ -483,6 +548,39 @@ describe('the label layer', () => {
   it('describes a session for its tooltip', () => {
     expect(tagTitle(seatsOf(checkoutFloor())[0]!.occupant)).toBe('sw-a1 · working · 1 agent running');
   });
+
+  it("shows the on-call chip, with a colour swatch and the dropped-call mark, lists the same in the tooltip, and re-renders as the call or the activity label changes", () => {
+    const { labels } = layer();
+    const floor = checkoutFloor();
+    const occupant = seatOf(floor, 'sw-a1').occupant;
+    occupant.call = { slot: 3, family: null, write: false, fairmind: false, error: false };
+    occupant.activity = { label: 'notion: search', since: 500, running: true };
+    labels.sync(floor);
+    const tag = labels.tag('sw-a1')!;
+    expect(tag.querySelector('.fv-call')!.textContent).toBe('notion: search');
+    expect([...tag.querySelector('.fv-call')!.classList]).toEqual(['fv-call', 'fv-call-line-3']);
+    expect(tagTitle(occupant)).toContain('notion: search');
+
+    occupant.call = { ...occupant.call, error: true };
+    labels.sync(floor);
+    expect(tag.querySelector('.fv-call')!.textContent).toBe('notion: search ✗');
+    expect([...tag.querySelector('.fv-call')!.classList]).toEqual(['fv-call', 'fv-call-line-3', 'fv-call-error']);
+    expect(tagTitle(occupant)).toContain('notion: search ✗');
+
+    occupant.call = { ...occupant.call, fairmind: true, error: false };
+    labels.sync(floor);
+    expect([...tag.querySelector('.fv-call')!.classList]).toEqual(['fv-call', 'fv-call-fairmind']);
+
+    // No activity label has reached the scene yet (the rare min-hold frame): the chip still names the call.
+    occupant.activity = null;
+    labels.sync(floor);
+    expect(tag.querySelector('.fv-call')!.textContent).toBe('on a call');
+
+    occupant.call = null;
+    labels.sync(floor);
+    expect(tag.querySelector('.fv-call')).toBeNull();
+    expect(tagTitle(occupant)).not.toContain('on a call');
+  });
 });
 
 describe('room labels', () => {
@@ -490,7 +588,7 @@ describe('room labels', () => {
   const SECOND = 'wf_0000aaaa-002';
   const parts = (el: Element) => [...el.children].map((c) => [c.className, c.textContent]);
 
-  it('shows a tag per room: its name, its current phase and its counts, as a button that names the run', () => {
+  it('shows a tag per room: only its dot and its counts, as a button that names the run', () => {
     const { root, labels } = layer();
     labels.sync(roomFloor());
     expect(root.querySelectorAll('.fv-room')).toHaveLength(2);
@@ -500,83 +598,244 @@ describe('room labels', () => {
     expect([...tag.classList]).toEqual(['fv-tag', 'fv-room']);
     expect(parts(tag)).toEqual([
       ['fv-dot', ''],
-      ['fv-name', 'checkout-verify'],
-      ['fv-phase', 'Build'],
       ['fv-counts', '3 running · 2 done'],
     ]);
+    // Its tooltip still carries the name and the phase the board now shows.
     expect(tag.title).toBe('checkout-verify · Build · 3 running · 2 done · Verify split payments end to end');
-    // The second run has no phases and no summary yet.
+    // The second run has no phases and no summary yet; its tag looks the same regardless.
     expect(parts(labels.roomTag(SECOND)!)).toEqual([
       ['fv-dot', ''],
-      ['fv-name', 'docs-sweep'],
       ['fv-counts', '10 running · 0 done'],
     ]);
     expect(labels.roomTag(SECOND)!.title).toBe('docs-sweep · 10 running · 0 done');
   });
 
-  it('names a room without a name by its run id', () => {
+  it("falls back to the run id in a nameless room's tooltip; its tag still shows only its dot and counts", () => {
     const { labels } = layer();
     const rooms = checkoutRooms();
     rooms[1] = { ...rooms[1]!, name: null };
     labels.sync(roomFloor(rooms));
-    expect(labels.roomTag(SECOND)!.querySelector('.fv-name')!.textContent).toBe(SECOND);
+    expect(parts(labels.roomTag(SECOND)!)).toEqual([['fv-dot', ''], ['fv-counts', '10 running · 0 done']]);
     expect(roomTitle(roomFloor(rooms).rooms[1]!)).toBe(`${SECOND} · 10 running · 0 done`);
   });
 
-  it('lists the phases on the whiteboard, each with its mark and, for screen readers, its word, and then the counts', () => {
+  it("shows only the room's topic on its board, never a phase, a crew line or the counts", () => {
     const { labels } = layer();
     labels.sync(roomFloor());
     const board = labels.board(FIRST)!;
     expect(board.tagName).toBe('DIV');
     expect(board.className).toBe('fv-board');
     expect(board.dataset.run).toBe(FIRST);
-    const items = [...board.querySelectorAll('ol > li')];
-    expect(items.map((li) => [li.className, li.textContent])).toEqual([
-      ['fv-ph-done', '\u2713Plan (done)'],
-      ['fv-ph-current', '\u25CFBuild (current)'],
-      ['fv-ph-upcoming', '\u25CBReview (upcoming)'],
-      ['fv-ph-upcoming', '\u25CBShip (upcoming)'],
-    ]);
-    const mark = items[0]!.querySelector('.fv-mark')!;
-    expect(mark.getAttribute('aria-hidden')).toBe('true');
-    expect(items[0]!.querySelector('.fv-sr')!.textContent).toBe(' (done)');
-    expect(board.querySelector('p')!.textContent).toBe('3 running · 2 done');
-    // A run whose phases are unknown shows its counts only.
+    expect(parts(board)).toEqual([['fv-topic', 'checkout-verify']]);
+    expect(board.querySelector('.fv-phase, .fv-body, .fv-counts, .fv-crew')).toBeNull();
+    expect(board.querySelector<HTMLElement>('.fv-topic')!.title).toBe('checkout-verify');
+    // A run with no name falls back to its run id, same as the board always has.
     const other = labels.board(SECOND)!;
-    expect(other.querySelector('ol')).toBeNull();
-    expect(other.textContent).toBe('10 running · 0 done');
+    expect(parts(other)).toEqual([['fv-topic', 'docs-sweep']]);
   });
 
-  it('writes run names, summaries and phases as text, never as markup', () => {
+  it("shrinks the board's own topic to fit two lines, down to a floor, rather than grow the board", () => {
+    const { labels } = layer();
+    labels.sync(roomFloor());
+    const topic = labels.board(FIRST)!.querySelector<HTMLElement>('.fv-topic')!;
+    // happy-dom lays nothing out: scrollHeight and clientHeight both read 0, so fitTopicFont's own loop never
+    // fires and the topic keeps its starting size, as big as the board can take.
+    expect(topic.style.fontSize).toBe(`${TOPIC_FONT.max}px`);
+    // A long topic that a real layout would say overflows its two-line box at every size down to the floor.
+    const overflow = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(999);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40);
+    const rooms = checkoutRooms();
+    rooms[0] = { ...rooms[0]!, topic: 'A topic so long no font size could ever make it fit two lines of this board' };
+    labels.sync(roomFloor(rooms));
+    const shrunk = labels.board(FIRST)!.querySelector<HTMLElement>('.fv-topic')!;
+    expect(shrunk.style.fontSize).toBe(`${TOPIC_FONT.min}px`);
+    overflow.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a crew room's topic (its host's title) as its card's heading, its running sub-agents first, capped, then the counts, but only its topic on its board", () => {
+    const { labels } = layer();
+    const rooms: RoomSpec[] = [{
+      runId: 'crew:host',
+      host: 'host',
+      kind: 'crew',
+      name: 'Subagents',
+      topic: 'Investigate the checkout bug',
+      phases: [],
+      running: 3,
+      finished: 3,
+      labels: ['Reproduce the failing test', 'Bisect the regression', 'Draft the fix', 'Write a test', 'Clean up', 'Old task'],
+    }];
+    labels.sync(roomFloor(rooms));
+    expect(parts(labels.board('crew:host')!)).toEqual([['fv-topic', 'Investigate the checkout bug']]);
+    const card = labels.card('crew:host')!;
+    expect(card.tagName).toBe('DIV');
+    expect(card.className).toBe('fv-card');
+    expect(card.dataset.run).toBe('crew:host');
+    expect(parts(card)[0]).toEqual(['fv-topic', 'Investigate the checkout bug']);
+    const crewLines = [...card.querySelectorAll('.fv-crew li')].map((li) => li.textContent);
+    // Running agents (a0-a2) come before the finished ones (a3-a5); the card shows 4 at most.
+    expect(crewLines).toEqual(['Reproduce the failing test', 'Bisect the regression', 'Draft the fix', 'Write a test']);
+    expect(card.querySelector('.fv-crew li')!.getAttribute('title')).toBe('Reproduce the failing test');
+    expect(card.querySelector('.fv-more')!.textContent).toBe('+2 more');
+    expect(parts(card)[2]).toEqual(['fv-counts', '3 running · 3 done']);
+  });
+
+  it("shows a workflow room's current phase with its ordinal, then the counts, on its card", () => {
+    const { labels } = layer();
+    labels.sync(roomFloor());
+    const card = labels.card(FIRST)!;
+    expect(parts(card)).toEqual([
+      ['fv-topic', 'checkout-verify'],
+      ['fv-body', 'Build 2/4'],
+      ['fv-counts', '3 running · 2 done'],
+    ]);
+    expect(card.querySelector('.fv-phase')!.textContent).toBe('Build 2/4');
+    // A run whose phases are unknown shows its topic and counts only, no body at all.
+    expect(parts(labels.card(SECOND)!)).toEqual([
+      ['fv-topic', 'docs-sweep'],
+      ['fv-counts', '10 running · 0 done'],
+    ]);
+  });
+
+  it("writes the topic, the phase ordinal and a crew's sub-agent lines as text, never as markup, on the board and the card alike", () => {
     const { root, labels } = layer();
     const floor = roomFloor();
-    floor.rooms[0] = { ...floor.rooms[0]!, name: HOSTILE, summary: HOSTILE, phases: [{ title: HOSTILE, state: 'current' }] };
+    floor.rooms[0] = { ...floor.rooms[0]!, topic: HOSTILE, phases: [{ title: HOSTILE, state: 'current' }] };
     labels.sync(floor);
-    expect([...root.querySelectorAll('img')].filter(img => !img.closest('.agent-badge'))).toHaveLength(0);
-    const tag = labels.roomTag(FIRST)!;
-    expect(tag.querySelector('.fv-name')!.textContent).toBe(HOSTILE);
-    expect(tag.querySelector('.fv-phase')!.textContent).toBe(HOSTILE);
-    expect(tag.title).toBe(`${HOSTILE} · ${HOSTILE} · 3 running · 2 done · ${HOSTILE}`);
-    expect(labels.board(FIRST)!.querySelector('li')!.textContent).toBe(`\u25CF${HOSTILE} (current)`);
+    expect([...root.querySelectorAll('img')].filter((img) => !img.closest('.agent-badge'))).toHaveLength(0);
+    expect(labels.board(FIRST)!.querySelector('.fv-topic')!.textContent).toBe(HOSTILE);
+    const card = labels.card(FIRST)!;
+    expect(card.querySelector('.fv-topic')!.textContent).toBe(HOSTILE);
+    expect(card.querySelector('.fv-phase')!.textContent).toBe(`${HOSTILE} 1/1`);
+    const crewRooms: RoomSpec[] = [{ runId: 'crew:x', host: 'x', kind: 'crew', topic: HOSTILE, phases: [], running: 1, labels: [HOSTILE] }];
+    labels.sync(roomFloor(crewRooms));
+    expect(labels.board('crew:x')!.querySelector('img')).toBeNull();
+    const crewCard = labels.card('crew:x')!;
+    expect(crewCard.querySelector('img')).toBeNull();
+    expect(crewCard.querySelector('.fv-crew li')!.textContent).toBe(HOSTILE);
   });
 
-  it('updates a room in place and removes the labels of a room that closes', () => {
+  it("never shows the run's summary on the board or the card (privacy): only in the door tag's tooltip", () => {
+    const { labels } = layer();
+    labels.sync(roomFloor());
+    expect(labels.board(FIRST)!.textContent).not.toContain('Verify split payments end to end');
+    expect(labels.card(FIRST)!.textContent).not.toContain('Verify split payments end to end');
+    expect(labels.roomTag(FIRST)!.title).toContain('Verify split payments end to end');
+  });
+
+  it('updates a room in place and removes the labels of a room that closes, board and card alike', () => {
     const { root, labels } = layer();
     labels.sync(roomFloor());
     const tag = labels.roomTag(FIRST)!;
     const board = labels.board(FIRST)!;
+    const card = labels.card(FIRST)!;
     const rooms = checkoutRooms();
     rooms[0] = { ...rooms[0]!, running: 1, finished: 4 };
     labels.sync(roomFloor(rooms));
     expect(labels.roomTag(FIRST)).toBe(tag);
     expect(labels.board(FIRST)).toBe(board);
+    expect(labels.card(FIRST)).toBe(card);
     expect(tag.querySelector('.fv-counts')!.textContent).toBe('1 running · 4 done');
+    expect(card.querySelector('.fv-counts')!.textContent).toBe('1 running · 4 done');
     labels.sync(roomFloor(rooms.slice(1)));
     expect(labels.roomTag(FIRST)).toBeUndefined();
     expect(labels.board(FIRST)).toBeUndefined();
-    expect(tag.isConnected || board.isConnected).toBe(false);
+    expect(labels.card(FIRST)).toBeUndefined();
+    expect(tag.isConnected || board.isConnected || card.isConnected).toBe(false);
     labels.sync(checkoutFloor());
-    expect(root.querySelectorAll('.fv-room, .fv-board')).toHaveLength(0);
+    expect(root.querySelectorAll('.fv-room, .fv-board, .fv-card')).toHaveLength(0);
+  });
+
+  it("names its card in its door tag's aria-describedby, so the card's content is reachable from a screen reader once the tag has the focus", () => {
+    const { labels } = layer();
+    labels.sync(roomFloor());
+    const tag = labels.roomTag(FIRST)!;
+    const card = labels.card(FIRST)!;
+    expect(tag.getAttribute('aria-describedby')).toBe(card.id);
+    expect(card.id).not.toBe('');
+    expect(labels.roomTag(SECOND)!.getAttribute('aria-describedby')).toBe(labels.card(SECOND)!.id);
+    expect(card.id).not.toBe(labels.card(SECOND)!.id);
+  });
+
+  it("hides a room's full-detail card until it is hovered or selected, marking it aria-hidden the opposite way", () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    const camera = isoCamera(floor.size);
+    labels.position(camera, 1600, 1000);
+    const card = labels.card(FIRST)!;
+    expect(card.style.visibility).toBe('hidden');
+    expect(card.getAttribute('aria-hidden')).toBe('true');
+    // Hovering the door tag itself shows it.
+    labels.roomTag(FIRST)!.dispatchEvent(new Event('pointerenter'));
+    expect(card.style.visibility).toBe('');
+    expect(card.hasAttribute('aria-hidden')).toBe(false);
+    labels.roomTag(FIRST)!.dispatchEvent(new Event('pointerleave'));
+    expect(card.style.visibility).toBe('hidden');
+    expect(card.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it("shows a room's card on hoverRoom too, the way view.ts's own canvas picking finds it over the room's floor or its whiteboard, wherever over the room the pointer lands, and hides it again at null", () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    labels.position(isoCamera(floor.size), 1600, 1000);
+    expect(labels.card(FIRST)!.style.visibility).toBe('hidden');
+    labels.hoverRoom(FIRST);
+    expect(labels.card(FIRST)!.style.visibility).toBe('');
+    expect(labels.card(SECOND)!.style.visibility).toBe('hidden');
+    // Moving to the other room's floor hides the first card and shows the second's, in one call.
+    labels.hoverRoom(SECOND);
+    expect(labels.card(FIRST)!.style.visibility).toBe('hidden');
+    expect(labels.card(SECOND)!.style.visibility).toBe('');
+    labels.hoverRoom(null);
+    expect(labels.card(SECOND)!.style.visibility).toBe('hidden');
+  });
+
+  it('shows a room\'s card while it is selected, with no hover at all, and hides it again once deselected', () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    labels.position(isoCamera(floor.size), 1600, 1000);
+    const card = labels.card(FIRST)!;
+    expect(card.style.visibility).toBe('hidden');
+    labels.setSelected(roomTarget(FIRST));
+    expect(card.style.visibility).toBe('');
+    labels.setSelected(null);
+    expect(card.style.visibility).toBe('hidden');
+  });
+
+  it("shows a room's card while its door tag has the keyboard focus alone, before any pointer ever finds the room", () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    labels.position(isoCamera(floor.size), 1600, 1000);
+    const card = labels.card(FIRST)!;
+    labels.roomTag(FIRST)!.focus();
+    expect(card.style.visibility).toBe('');
+    labels.roomTag(FIRST)!.blur();
+    expect(card.style.visibility).toBe('hidden');
+  });
+
+  it('positions a room\'s card above it, clamped inside the viewport by its own real size, however far off the edge its anchor projects', () => {
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(280);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(160);
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    const camera = isoCamera(floor.size);
+    labels.position(camera, 1600, 1000);
+    labels.setSelected(roomTarget(FIRST));
+    const card = labels.card(FIRST)!;
+    const m = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) translate\(-50%, -100%\)/.exec(card.style.transform)!;
+    const [x, y] = [Number(m[1]), Number(m[2])];
+    expect(x).toBeGreaterThanOrEqual(140);
+    expect(x).toBeLessThanOrEqual(1600 - 140);
+    expect(y).toBeGreaterThanOrEqual(160);
+    expect(y).toBeLessThanOrEqual(1000);
+    width.mockRestore();
+    height.mockRestore();
   });
 
   it('selects a room on click and activates it on double-click, and on Enter once it is selected', () => {
@@ -633,7 +892,7 @@ describe('room labels', () => {
     expect(labels.roomTag(SECOND)!.tabIndex).toBe(0);
   });
 
-  it('hangs each room tag over its door and each board from the top of its whiteboard', () => {
+  it("hangs each room tag over its door, and maps each board exactly onto its whiteboard's own projected quad", () => {
     const { labels } = layer();
     const floor = roomFloor();
     labels.sync(floor);
@@ -641,21 +900,94 @@ describe('room labels', () => {
     labels.position(camera, 1600, 1000);
     const room = floor.rooms[0]!;
     const tag = projectToScreen(roomTagAnchor(room.rect), camera, 1600, 1000);
-    const board = projectToScreen(boardAnchor(room.rect), camera, 1600, 1000);
     expect(labels.roomTag(FIRST)!.style.transform).toBe(`translate(${tag.x}px, ${tag.y}px) translate(-50%, -100%)`);
-    expect(labels.board(FIRST)!.style.transform).toBe(`translate(${board.x}px, ${board.y}px) translate(-50%, -100%)`);
+    // The board's own transform is the affine map (boardMatrix) of its whiteboard's own projected corners, not a
+    // translate hung from a single point: it foreshortens with the board, and never grows past its own area.
+    const c = boardCorners(room.rect);
+    const project = (p: { x: number; y: number; z: number }) => projectToScreen(p, camera, 1600, 1000);
+    const expected = matrixToCss(boardMatrix({ tl: project(c.tl), tr: project(c.tr), bl: project(c.bl) }, BOARD_PX.w, BOARD_PX.h));
+    expect(labels.board(FIRST)!.style.transform).toBe(expected);
+    expect(labels.board(FIRST)!.style.transformOrigin).toBe('');
     expect(labels.board(FIRST)!.style.visibility).toBe('');
   });
 
-  it('keeps only the run names at low zoom: room tags keep their name, and the boards go, letting clicks through', () => {
-    const name = rule(
-      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge),\n' +
+  it("hides a board once its whiteboard turns away from the camera, mirrored text being worse than none, and shows it again face-on", () => {
+    const { labels } = layer();
+    const floor = roomFloor();
+    labels.sync(floor);
+    labels.position(isoCamera(floor.size), 1600, 1000);
+    expect(labels.board(FIRST)!.style.visibility).toBe('');
+    // A half-turn from home looks at the room from its board's own back (world.test.ts's facesCamera/visibleWalls
+    // agree: the north wall that carries the board is the one cut away on that side of the floor).
+    labels.position(azimuthCamera(floor.size, HOME_AZIMUTH + Math.PI), 1600, 1000);
+    expect(labels.board(FIRST)!.style.visibility).toBe('hidden');
+    // Back to a face-on azimuth: the board shows again.
+    labels.position(isoCamera(floor.size), 1600, 1000);
+    expect(labels.board(FIRST)!.style.visibility).toBe('');
+  });
+
+  it("maps a board's own fixed box onto three projected corners, the fourth (bottom-right) following the parallelogram identity (an orthographic camera never distorts that)", () => {
+    // A board seen flat on: twice life size (scale 2), moved right 100px and down 40px, no skew.
+    const tl = { x: 100, y: 40, visible: true };
+    const tr = { x: 100 + 2 * BOARD_PX.w, y: 40, visible: true };
+    const bl = { x: 100, y: 40 + 2 * BOARD_PX.h, visible: true };
+    const br = { x: tr.x + (bl.x - tl.x), y: tr.y + (bl.y - tl.y), visible: true };
+    const m = boardMatrix({ tl, tr, bl }, BOARD_PX.w, BOARD_PX.h);
+    expect(m).toEqual({ a: 2, b: 0, c: 0, d: 2, e: 100, f: 40 });
+    // The matrix maps the box's own bottom-right corner (w, h) to the same point the fourth projected corner gives.
+    expect(m.a * BOARD_PX.w + m.c * BOARD_PX.h + m.e).toBeCloseTo(br.x, 10);
+    expect(m.b * BOARD_PX.w + m.d * BOARD_PX.h + m.f).toBeCloseTo(br.y, 10);
+    // A camera turned to an angle skews the box: its top edge no longer stays level.
+    const skewed = boardMatrix({ tl: { x: 0, y: 0, visible: true }, tr: { x: 100, y: 20, visible: true }, bl: { x: -10, y: 60, visible: true } }, 100, 60);
+    expect(skewed).toEqual({ a: 1, b: 0.2, c: -0.16666666666666666, d: 1, e: 0, f: 0 });
+    expect(matrixToCss(skewed)).toBe('matrix(1, 0.2, -0.16666666666666666, 1, 0, 0)');
+  });
+
+  it("faces a camera on its own side of the board (dot > 0), not edge-on or from behind (dot <= 0)", () => {
+    expect(facesCamera(BOARD_NORMAL, { x: 0, y: 0, z: 1 })).toBe(true);
+    expect(facesCamera(BOARD_NORMAL, { x: 5, y: 2, z: 0.1 })).toBe(true);
+    expect(facesCamera(BOARD_NORMAL, { x: 0, y: 0, z: 0 })).toBe(false);
+    expect(facesCamera(BOARD_NORMAL, { x: 5, y: 2, z: -0.1 })).toBe(false);
+    expect(facesCamera(BOARD_NORMAL, { x: 0, y: 0, z: -1 })).toBe(false);
+  });
+
+  it('sits in no card of its own: no background, border or fixed foreground colour, just dark marker-style text clipped to its own box', () => {
+    const board = rule('.fv-board');
+    expect(board).not.toContain('background');
+    expect(board).not.toMatch(/\bborder:|\bborder-(?!box)/);
+    expect(board).toContain('overflow: hidden;');
+    expect(board).toContain(`width: ${BOARD_PX.w}px;`);
+    expect(board).toContain(`height: ${BOARD_PX.h}px;`);
+  });
+
+  it("gives the board's own topic a theme-aware ink/halo pair, with enough contrast against the board's own surface colour in both themes", () => {
+    const topic = rule('.fv-board .fv-topic');
+    expect(topic).toContain('color: var(--board-ink');
+    expect(topic).toContain('var(--board-halo');
+    // Day: a dark ink, reads against the board's own light day colour (--scene-board) at full contrast.
+    const day = cssVars(tokens, ':root {');
+    expect(contrastRatio(day['--board-ink']!, day['--board-halo']!)).toBeGreaterThanOrEqual(7);
+    // Night (both the system-preference and the explicit toggle give the same pair): flipped from day, a light ink
+    // with a dark halo, since the night board can darken well below its own flat token under a cast shadow.
+    for (const block of [':root:not([data-theme="light"]) {', ':root[data-theme="dark"] {']) {
+      const night = cssVars(tokens, block);
+      expect(contrastRatio(night['--board-ink']!, night['--board-halo']!)).toBeGreaterThanOrEqual(7);
+      expect(night['--board-ink']).not.toBe(day['--board-ink']);
+    }
+  });
+
+  it('keeps only the room counts at low zoom: room tags keep their dot and counts, and the boards go, letting clicks through', () => {
+    const hidden = rule(
+      '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge):not(.fv-counts),\n' +
         '.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name',
     );
-    expect(name).toContain('clip-path: inset(50%);');
+    expect(hidden).toContain('clip-path: inset(50%);');
     expect(rule('.fv-compact .fv-board')).toContain('display: none;');
     expect(rule('.fv-board')).toContain('pointer-events: none;');
-    expect(rule('.fv-sr')).toContain('clip-path: inset(50%);');
+    // The card is a text-only overlay too, letting clicks through, and keeps working from far: hovering or
+    // selecting a room still reveals its detail even at the floor's own compact zoom.
+    expect(rule('.fv-card')).toContain('pointer-events: none;');
+    expect(css).not.toContain('.fv-compact .fv-card');
   });
 });
 

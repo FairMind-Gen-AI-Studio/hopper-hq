@@ -1,5 +1,6 @@
 import { OrthographicCamera } from 'three';
 import { BLOCK_DESKS, INTERNS_MAX, LOUNGE_SEATS, MEETING_AGENTS_MAX, ROOMS_PER_COL, SEATS_MAX } from '../../../src/scene/layout';
+import { LINE_SLOTS } from '../../../src/scene/palette';
 import {
   SCENE_VERSION,
   type Checkout,
@@ -8,6 +9,7 @@ import {
   type Intern,
   type MeetingAgent,
   type MeetingRoom,
+  type OnCallView,
   type Occupant,
   type Place,
   type PodDesk,
@@ -63,6 +65,7 @@ export function makeOccupant(spec: DeskSpec, body: number, tie: number | null, c
     reason: null,
     activity: null,
     smoking: false,
+    call: null,
     agentsRunning: spec.agents ?? 0,
     summary: null,
     interns: spec.interns ?? [],
@@ -86,12 +89,18 @@ export interface RoomSpec {
   runId: string;
   /** The host's session id: its checkout gives the room's colours. */
   host: string;
+  /** 'workflow' by default. */
+  kind?: MeetingRoom['kind'];
   name?: string | null;
+  /** The board's heading; defaults to the name, then the run id, as a workflow room's always does once built. */
+  topic?: string;
   summary?: string | null;
   phases?: MeetingRoom['phases'];
   /** Running agents (`<runId>-a0` …), then finished ones. */
   running?: number;
   finished?: number;
+  /** A running or finished agent's task description, by index (running first); unset ones fall back to `Agent <k>`. */
+  labels?: (string | null)[];
   /** The host sits at the head of the table. */
   seated?: boolean;
   /** Its room slot; its place in the list of room specs by default. */
@@ -100,12 +109,12 @@ export interface RoomSpec {
 
 /** A finished intern waiting for a running sibling, at this leisure, over at the break area rather than its desk. */
 export function leisureIntern(agentId: string, leisure: SceneLeisure): Intern {
-  return { agentId, type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure };
+  return { agentId, type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure, call: null };
 }
 
 /** A finished room agent waiting for a running sibling, at this leisure, over at the break area rather than the table. */
 export function leisureAgent(agentId: string, leisure: SceneLeisure): MeetingAgent {
-  return { agentId, label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure };
+  return { agentId, label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure, call: null };
 }
 
 /** The phases of the demo's run, in its Build phase. */
@@ -119,21 +128,25 @@ export const PHASES: MeetingRoom['phases'] = [
 export function makeRoom(spec: RoomSpec, rect: GridRect, body: number, tie: number | null, slot = 0): MeetingRoom {
   const running = spec.running ?? 0;
   const finished = spec.finished ?? 0;
+  const kind = spec.kind ?? 'workflow';
   const agent = (k: number, live: boolean): MeetingAgent => ({
     agentId: `${spec.runId}-a${k}`,
-    label: `Agent ${k}`,
+    label: spec.labels ? spec.labels[k] ?? null : `Agent ${k}`,
     phase: live ? 'Build' : 'Plan',
     type: 'workflow-subagent',
     running: live,
     smoking: false,
     leisure: null,
+    call: null,
   });
   const agents = [...Array.from({ length: running }, (_, k) => agent(k, true)), ...Array.from({ length: finished }, (_, k) => agent(running + k, false))];
+  const name = spec.name === undefined ? 'checkout-verify' : spec.name;
   return {
-    kind: 'workflow',
+    kind,
     runId: spec.runId,
     hostSessionId: spec.host,
-    name: spec.name === undefined ? 'checkout-verify' : spec.name,
+    name,
+    topic: spec.topic ?? name ?? spec.runId,
     summary: spec.summary === undefined ? 'Verify split payments end to end' : spec.summary,
     phases: spec.phases ?? PHASES,
     counts: { running, finished },
@@ -262,7 +275,7 @@ export function roomFloor(rooms = checkoutRooms()): FloorDetail {
 export function fullestFloor(): FloorDetail {
   const busy: ShownState[] = ['working', 'needs_you', 'done', 'no_signal'];
   const interns = (id: string): Intern[] =>
-    Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'fairmind-coding:Software Engineer', label: 'Find the callers', running: true, inRoom: false, smoking: true, leisure: null }));
+    Array.from({ length: INTERNS_MAX }, (_, k) => ({ agentId: `${id}-i${k}`, type: 'fairmind-coding:Software Engineer', label: 'Find the callers', running: true, inRoom: false, smoking: true, leisure: null, call: null }));
   const repos = ['storefront-web', 'orders-api', 'payments-svc', 'search-svc'];
   const checkouts = repos.map((repo, r): CheckoutSpec => ({
     key: `/demo/${repo}`,
@@ -288,6 +301,56 @@ export function fullestFloor(): FloorDetail {
     agent.smoking = agent.running;
     agent.type = 'fairmind-coding:QA Engineer';
   }
+  return floor;
+}
+
+/** An `OnCallView` by line slot, Fairmind or not, never in error: the on-call headset's own worst case never needs the flash. */
+function callOf(n: number, fairmind: boolean, family: string | null = null): OnCallView {
+  return { slot: n % LINE_SLOTS, family, write: n % 2 === 0, fairmind, error: false };
+}
+
+/**
+ * The fullest floor (design §7.1) with every robot that has one also on an MCP call — the real worst case for the
+ * on-call headset's added meshes (hq-mcp-switchboard proposal.md §4 "Budget impact"): every session occupant,
+ * every running intern (already typed to a Fairmind plugin by `fullestFloor`, so its headset's Fairmind-mark mesh
+ * is pinned too) and every room agent. Not an arbitrary sample: every entity `fullestFloor` already gives a
+ * robot, on a call, so `ui/test/renderer/budget.test.ts`'s SWITCHBOARD_BUDGET is pinned to what a real floor
+ * could actually cost.
+ */
+export function fullestFloorOnCall(): FloorDetail {
+  const floor = fullestFloor();
+  let n = 0;
+  for (const pod of floor.pods) {
+    for (const desk of pod.desks) {
+      if (!desk.occupant) continue;
+      desk.occupant.call = callOf(n++, false);
+      for (const intern of desk.occupant.interns) intern.call = callOf(n++, true);
+    }
+  }
+  for (const room of floor.rooms) for (const agent of room.agents) agent.call = callOf(n++, true);
+  return floor;
+}
+
+/**
+ * The fullest floor with every robot that has one also on a FairMind call of the Brain family (hq-mcp-switchboard
+ * proposal.md §5 Phase 3) — the real worst case for the per-family VIP forms' added meshes: Brain is the one form
+ * with two meshes instead of one (`fairmind-forms.ts`), so every Fairmind-plugin intern and room agent
+ * `fullestFloor` already types (the same entities `fullestFloorOnCall` above pins) now shows it, raising meshes
+ * and draws past `fullestFloorOnCall`'s own default-mark worst case by exactly one per such entity, never a
+ * caster (every form mesh is `cast: false`). The desk occupant's own call stays non-Fairmind (`fullestFloor`
+ * never types a session itself to a Fairmind plugin), unaffected either way.
+ */
+export function fullestFloorOnBrainCall(): FloorDetail {
+  const floor = fullestFloor();
+  let n = 0;
+  for (const pod of floor.pods) {
+    for (const desk of pod.desks) {
+      if (!desk.occupant) continue;
+      desk.occupant.call = callOf(n++, false);
+      for (const intern of desk.occupant.interns) intern.call = callOf(n++, true, 'Brain');
+    }
+  }
+  for (const room of floor.rooms) for (const agent of room.agents) agent.call = callOf(n++, true, 'Brain');
   return floor;
 }
 

@@ -51,6 +51,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "kind": "room",
                   "slot": 0,
                 },
+                "call": null,
                 "checkout": {
                   "branch": "feat/checkout-v2",
                   "path": "/demo/payments-svc",
@@ -107,6 +108,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "at": {
                   "kind": "desk",
                 },
+                "call": null,
                 "checkout": {
                   "branch": "feat/checkout-v2",
                   "path": "/demo/storefront-web",
@@ -156,6 +158,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   "kind": "room",
                   "slot": 1,
                 },
+                "call": null,
                 "checkout": {
                   "branch": "feat/checkout-v2",
                   "path": "/demo/storefront-web",
@@ -166,6 +169,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "interns": [
                   {
                     "agentId": "demo-a1-explore",
+                    "call": null,
                     "inRoom": true,
                     "label": "Find every caller of useCart()",
                     "leisure": null,
@@ -175,6 +179,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                   },
                   {
                     "agentId": "demo-a1-review",
+                    "call": null,
                     "inRoom": true,
                     "label": "Check the address form against the design",
                     "leisure": null,
@@ -247,6 +252,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "at": {
                   "kind": "desk",
                 },
+                "call": null,
                 "checkout": {
                   "branch": "feat/checkout-v2",
                   "path": "/demo/orders-api/.worktrees/checkout-v2",
@@ -359,6 +365,7 @@ exports[`the demo building > matches the snapshot 1`] = `
           "agents": [
             {
               "agentId": "demo-wf-0",
+              "call": null,
               "label": "Map the split payment flow",
               "leisure": null,
               "phase": "Plan",
@@ -405,11 +412,13 @@ exports[`the demo building > matches the snapshot 1`] = `
           "runId": "wf_demo-checkout",
           "slot": 0,
           "summary": "Verify split payments end to end",
+          "topic": "checkout-verify",
         },
         {
           "agents": [
             {
               "agentId": "demo-a1-explore",
+              "call": null,
               "label": "Find every caller of useCart()",
               "leisure": null,
               "phase": null,
@@ -419,6 +428,7 @@ exports[`the demo building > matches the snapshot 1`] = `
             },
             {
               "agentId": "demo-a1-review",
+              "call": null,
               "label": "Check the address form against the design",
               "leisure": null,
               "phase": null,
@@ -448,6 +458,7 @@ exports[`the demo building > matches the snapshot 1`] = `
           "runId": "crew:demo-sw-a1",
           "slot": 1,
           "summary": null,
+          "topic": "Build the address step of the new checkout",
         },
       ],
       "roomsMore": 0,
@@ -458,7 +469,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 7,
+      "version": 12,
     },
     {
       "breakArea": {
@@ -508,6 +519,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "at": {
                   "kind": "desk",
                 },
+                "call": null,
                 "checkout": {
                   "branch": "feat/search-ranking",
                   "path": "/demo/search-svc",
@@ -674,7 +686,7 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 7,
+      "version": 12,
     },
     {
       "breakArea": {
@@ -725,6 +737,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "at": {
                   "kind": "desk",
                 },
+                "call": null,
                 "checkout": {
                   "branch": "main",
                   "path": "/demo/orders-api",
@@ -769,6 +782,7 @@ exports[`the demo building > matches the snapshot 1`] = `
                 "at": {
                   "kind": "desk",
                 },
+                "call": null,
                 "checkout": {
                   "branch": "main",
                   "path": "/demo/orders-api",
@@ -929,10 +943,11 @@ exports[`the demo building > matches the snapshot 1`] = `
       },
       "unseated": [],
       "unseatedMore": 0,
-      "version": 7,
+      "version": 12,
     },
   ],
   "scene": {
+    "activeLines": [],
     "attention": {
       "done": [
         {
@@ -1137,7 +1152,7 @@ exports[`the demo building > matches the snapshot 1`] = `
         ],
       },
     ],
-    "version": 7,
+    "version": 12,
   },
 }
 `;

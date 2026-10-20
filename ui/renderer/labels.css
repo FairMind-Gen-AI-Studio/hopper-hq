@@ -97,7 +97,6 @@
 
 .fv-agents,
 .fv-remote,
-.fv-phase,
 .fv-counts {
   color: var(--muted, #566173);
 }
@@ -106,16 +105,57 @@
 .fv-room { --fv-state: var(--s-meeting, #6857db); }
 
 /*
- * A camera far out (.fv-compact): a tag shows its dot and agent badge, and its name as well when its desk needs you or is done or
- * it names a room. Hovered, focused or selected, it shows everything. Hidden text is clipped, not removed: it still
- * names the button. The pods' placards hide (labels.ts) and the rooms' boards go: only the run names stay.
+ * The on-call chip (hq-mcp-switchboard proposal.md §2 "a transient chip"): the server/tool name (DeskActivity's
+ * own label, the call's authoritative identity), with a colour swatch — a line slot's token, or Fairmind's own
+ * fixed teal (robot.ts HEADSET, materials.ts FAIRMIND_TEAL) — as the glance next to it.
+ */
+.fv-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted, #566173);
+}
+
+.fv-call::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--fv-call-color, var(--muted, #566173));
+}
+
+.fv-call-line-0 { --fv-call-color: var(--line-0); }
+.fv-call-line-1 { --fv-call-color: var(--line-1); }
+.fv-call-line-2 { --fv-call-color: var(--line-2); }
+.fv-call-line-3 { --fv-call-color: var(--line-3); }
+.fv-call-line-4 { --fv-call-color: var(--line-4); }
+.fv-call-line-5 { --fv-call-color: var(--line-5); }
+.fv-call-line-6 { --fv-call-color: var(--line-6); }
+.fv-call-line-7 { --fv-call-color: var(--line-7); }
+/* Fixed, not a theme token (materials.ts FAIRMIND_TEAL): the brand holds identically by day and by night. */
+.fv-call-fairmind { --fv-call-color: #2ec4a5; }
+
+.fv-call-error {
+  color: var(--needs-ink, #b92d2d);
+  font-weight: 600;
+}
+.fv-call-error::before {
+  background: var(--s-needs, #d63a3a);
+}
+
+/*
+ * A camera far out (.fv-compact): a tag shows its dot and agent badge, and its name as well when its desk needs you
+ * or is done, or its counts when it is a room's. Hovered, focused or selected, it shows everything. Hidden text is
+ * clipped, not removed: it still names the button. The pods' placards hide (labels.ts) and the rooms' boards go:
+ * only their door tags stay.
  */
 .fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) {
   gap: 0;
   padding: 3px;
 }
 
-.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge),
+.fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel) > :not(.fv-dot):not(.fv-name):not(.agent-badge):not(.fv-counts),
 .fv-compact .fv-tag:not(:hover):not(:focus-visible):not(.fv-sel):not(.fv-st-needs_you):not(.fv-st-done):not(.fv-room) > .fv-name {
   position: absolute;
   width: 1px;
@@ -126,7 +166,7 @@
 }
 
 /*
- * From far, a tag that is selected, needs you, is done or names a room, but that a tag ranking higher covers, shows its
+ * From far, a tag that is selected, needs you, is done or is a room's, but that a tag ranking higher covers, shows its
  * compact identity and state (labels.ts), until it is hovered or focused.
  */
 .fv-compact .fv-tag.fv-dot-only:not(:hover):not(:focus-visible) {
@@ -179,66 +219,154 @@
 }
 
 /*
- * A meeting room's board, over its whiteboard: the phases, each with its mark, and the counts, in ink on the board's
- * colour by day and by night. Clicks go through it to the room.
+ * A meeting room's board, printed on its whiteboard, not floating over it: its own box is a fixed "whiteboard pixel"
+ * canvas (labels.ts's BOARD_PX), mapped by a `matrix()` transform (labels.ts's positionBoard/boardMatrix) onto the
+ * four corners the whiteboard's own surface projects to, so it foreshortens with the board exactly as the board
+ * itself does under the orthographic camera, is clipped to the board's own area (never a neighbouring room's), and
+ * is hidden rather than drawn small or mirrored once the board turns away from the camera. Its topic alone, sized to
+ * fill the board (labels.ts's fitTopicFont): the phase, the crew and the counts moved to the full-detail card
+ * (.fv-card below), shown only on hover or selection, so the board stays readable at the floor's own working zoom.
+ * Clicks go through it to the room.
  */
 .fv-board {
   position: absolute;
   left: 0;
   top: 0;
-  white-space: nowrap;
+  width: 340px;
+  height: 120px;
+  transform-origin: 0 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  padding: 10px 16px;
+  white-space: normal;
   will-change: transform;
-  max-width: 36ch;
-  padding: 3px 7px;
-  font: 500 10px/1.35 var(--font-mono, ui-monospace, monospace);
-  color: var(--sign-bg, #20263a);
-  background: var(--scene-board, #fafafa);
-  border: 1px solid var(--scene-frame, #5c6170);
-  border-radius: 3px;
   pointer-events: none;
 }
 
-.fv-board ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 8px;
+/* The board's topic, as big as fitTopicFont leaves it (down to a floor, labels.ts's TOPIC_FONT.min), marker-bold on
+   the board's own light (day) or mid (night) surface colour — the real colour of the mesh behind it, not a
+   background of its own. A halo of --board-halo around every glyph (its own theme-aware pair with --board-ink,
+   tokens.css) keeps it legible however a room's own cast shadow darkens the board below its flat token colour, day
+   or night; a topic too long for two lines even at the floor size ends in an ellipsis (line-clamp's own), its
+   tooltip carrying it whole. */
+.fv-board .fv-topic {
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* A long phase title ends in an ellipsis. */
-.fv-board li {
-  max-width: 20ch;
+  width: 100%;
+  font: 800 28px/1.12 var(--font-display, "Archivo", "Arial Narrow", sans-serif);
+  text-align: center;
+  color: var(--board-ink, #1c2531);
+  text-shadow:
+    0 0 2px var(--board-halo, #fafafa),
+    0 0 4px var(--board-halo, #fafafa),
+    0 0 6px var(--board-halo, #fafafa);
+  -webkit-text-stroke: 2px var(--board-halo, #fafafa);
+  paint-order: stroke fill;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.fv-board .fv-mark {
-  margin-right: 3px;
-}
-
-.fv-board .fv-ph-current {
-  font-weight: 700;
-}
-
-.fv-board p {
-  margin: 0;
-  opacity: 0.8;
 }
 
 .fv-compact .fv-board {
   display: none;
 }
 
-/* Read, not shown: the words for the marks on a board. */
-.fv-sr {
+/*
+ * A room's full-detail card: the board's own content before the hybrid (topic, phase or crew, counts), floating
+ * above the room (labels.ts's positionCard/world.ts's cardAnchor), shown only while the room is hovered — over its
+ * floor, its whiteboard or its door tag — or selected, or its door tag has the keyboard focus; hidden otherwise.
+ * Clamped inside the viewport by its own real size. Clicks go through it to the room or whatever lies beneath.
+ */
+.fv-card {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  left: 0;
+  top: 0;
+  width: 280px;
+  max-height: 220px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  clip-path: inset(50%);
+  padding: 8px 12px;
+  white-space: normal;
+  will-change: transform;
+  font: 500 11px/1.3 var(--font-mono, ui-monospace, monospace);
+  color: var(--fg, #18202b);
+  background: var(--panel, #fbfcfd);
+  border: 1px solid var(--line, #d0d8e1);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px var(--shadow, #1c25312e);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* The heading and the counts (labels.ts always gives the card exactly one of each) keep their own full height;
+   only the body between them (phase or crew) gives way, clipping rather than pushing the counts out. */
+.fv-card .fv-topic,
+.fv-card .fv-counts {
+  flex: 0 0 auto;
+}
+
+/* The card's topic: the run's name, or the host's title for a crew's room. Long text wraps to two lines, then an
+   ellipsis; its tooltip carries it whole. */
+.fv-card .fv-topic {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.fv-card .fv-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fv-card .fv-phase,
+.fv-card .fv-more {
+  margin: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fv-card .fv-more {
+  margin-top: 1px;
+  opacity: 0.8;
+}
+
+.fv-card .fv-crew {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A long task description ends in an ellipsis; its tooltip carries it whole. */
+.fv-card .fv-crew li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fv-card .fv-counts {
+  margin: 6px 0 0;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (prefers-reduced-motion: reduce) {

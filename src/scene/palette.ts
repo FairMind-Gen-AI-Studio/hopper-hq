@@ -5,6 +5,12 @@
 
 export const REPO_SLOTS = 8;
 export const FEATURE_SLOTS = 8;
+/**
+ * MCP server line-colour slots (hq-mcp-switchboard proposal.md §6 "bounded line-colour palette collides beyond
+ * ~8-10 servers — accepted; the DOM name chip is the authoritative identity"). A Fairmind call never takes a slot:
+ * it renders in fixed teal (materials.ts FAIRMIND_TEAL) outside this rotation, by `OnCallView.fairmind` alone.
+ */
+export const LINE_SLOTS = 8;
 
 /** 32-bit FNV-1a over UTF-16 code units, from the standard offset basis or another seed. */
 export function fnv1a32(text: string, seed = 0x811c9dc5): number {

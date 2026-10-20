@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Matrix4, Mesh, Quaternion, Vector3, type Object3D } from 'three';
 import { PERSONAS } from '../../../src/scene/persona';
-import type { Pose, Robot } from '../../../src/scene/types';
+import type { OnCallView, Pose, Robot } from '../../../src/scene/types';
+import { fairmindMarkGeometry } from '../../renderer/fairmind-badge';
 import { Materials } from '../../renderer/materials';
 import { Geometries, type PickData } from '../../renderer/props';
 import {
   BILIARDINO_REACH,
   BOT,
+  CALL_PULSE,
   GLASS,
   FOOSBALL_HOVER_Y,
   HEAD_DOWN,
@@ -25,6 +27,7 @@ import {
   poseOf,
   poseRobot,
   rootHeight,
+  setOnCall,
   setSmoking,
   strideRobot,
   type Loop,
@@ -296,8 +299,12 @@ describe('robots', () => {
   it('stays inside its desk cells, under its label, on either side of a pod', () => {
     const sides = new Set<string>();
     for (const { floor, desk, occupant, obj } of posed()) {
-      // A hidden laptop still has extent, and a desk's robot has none open.
+      // A hidden laptop still has extent, and a desk's robot has none open; so does a hidden FairMind call form
+      // (round-2 enlargement, robot.ts FAIRMIND_FORM_Y) — Box3 reads every mesh's own geometry regardless of
+      // `.visible`, and none of `posed()`'s own desk occupants is on a call, so the whole fairmindForms group is
+      // never shown here, only ever a phantom extent above the real, visible head.
       obj.rig.laptop.removeFromParent();
+      obj.rig.fairmindForms.group.removeFromParent();
       const box = new Box3().setFromObject(obj.group);
       const name = `${occupant.state} at ${desk.id}`;
       sides.add(desk.chair);
@@ -342,7 +349,11 @@ describe('robots', () => {
     expect(agent.pickables.filter((m) => m.material === mats.body(5))).toHaveLength(1);
     expect(agent.rig.legL.children.length).toBeGreaterThan(0);
     // Standing side by side, the agent is shorter, but less so than its scale alone would make it: the hat tops it.
+    // Neither is on a call, so their (hidden, but Box3-visible-regardless) fairmindForms groups are excluded —
+    // left in, that phantom extent (robot.ts FAIRMIND_FORM_Y, well above either head or hat) would swamp the very
+    // hat-height difference this test measures.
     const height = (o: RobotObject) => {
+      o.rig.fairmindForms.group.removeFromParent();
       o.group.updateMatrixWorld(true);
       const box = new Box3().setFromObject(o.group);
       return box.max.y - box.min.y;
@@ -564,6 +575,222 @@ describe('the cigar', () => {
     expect(puffAt(1).scale).toBeCloseTo(0, 9);
     expect(puffAt(0.6).scale).toBeGreaterThan(puffAt(0.4).scale);
     expect(puffAt(1).y).toBeCloseTo(PUFF.rise, 9);
+  });
+});
+
+describe('the on-call headset', () => {
+  const look = { pose: 'typing', badge: 'typing', body: 0, tie: null } as const;
+  const read: OnCallView = { slot: 2, family: null, write: false, fairmind: false, error: false };
+  const write: OnCallView = { ...read, write: true };
+  const fairmind: OnCallView = { ...read, fairmind: true };
+  const errored: OnCallView = { ...read, error: true };
+
+  it('shows while its look holds a call, hidden otherwise (the default, with the field left out), on every kind', () => {
+    const { geo, mats } = kit();
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      expect(buildRobot('s-on', { ...look, call: read }, geo, mats, kind).rig.headset.visible, kind).toBe(true);
+      expect(buildRobot('s-off', { ...look, call: null }, geo, mats, kind).rig.headset.visible, kind).toBe(false);
+      expect(buildRobot('s-unset', look, geo, mats, kind).rig.headset.visible, kind).toBe(false);
+    }
+  });
+
+  it('toggles with setOnCall, on the same robot, without rebuilding it', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, call: null }, geo, mats);
+    const size = geo.size;
+    expect(obj.rig.headset.visible).toBe(false);
+    const { group, rig } = obj;
+    setOnCall(obj, read);
+    expect(obj.rig.headset.visible).toBe(true);
+    setOnCall(obj, null);
+    expect(obj.rig.headset.visible).toBe(false);
+    // Still the very same objects: no second buildRobot, no new geometry.
+    expect(obj.group).toBe(group);
+    expect(obj.rig).toBe(rig);
+    expect(geo.size).toBe(size);
+  });
+
+  it('casts no shadow, from its earpiece hook, its bead or its Fairmind mark (now on fairmindForms, not the bead), on any kind', () => {
+    const { geo, mats } = kit();
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const obj = buildRobot('s1', { ...look, call: fairmind, body: 2, tie: 3 }, geo, mats, kind);
+      const before = obj.pickables.filter((m) => m.castShadow).length;
+      obj.rig.headset.traverse((o) => {
+        if ((o as Mesh).isMesh) expect((o as Mesh).castShadow, kind).toBe(false);
+      });
+      // The Fairmind mark/forms (round-2 enlargement) no longer live under `headset` — they're on their own
+      // group, above the head (robot.ts FAIRMIND_FORM_Y) — so they get their own traversal here.
+      obj.rig.fairmindForms.group.traverse((o) => {
+        if ((o as Mesh).isMesh) expect((o as Mesh).castShadow, kind).toBe(false);
+      });
+      expect(obj.pickables.filter((m) => m.castShadow).length, kind).toBe(before);
+    }
+  });
+
+  it("colours the hook, the bead and the boom mic's own tip from materials.ts lineColor: the call's line slot, Fairmind's fixed teal, or the dropped-call flash", () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, call: read }, geo, mats);
+    expect(obj.rig.headsetHook.material).toBe(mats.lineColor(read));
+    expect(obj.rig.headsetBead.material).toBe(mats.lineColor(read));
+    expect(obj.rig.headsetMicTip.material).toBe(mats.lineColor(read));
+    setOnCall(obj, fairmind);
+    expect(obj.rig.headsetBead.material).toBe(mats.fairmindDisc);
+    expect(obj.rig.headsetMicTip.material).toBe(mats.fairmindDisc);
+    setOnCall(obj, errored);
+    expect(obj.rig.headsetBead.material).toBe(mats.surface.headsetError);
+    expect(obj.rig.headsetHook.material).toBe(mats.surface.headsetError);
+    expect(obj.rig.headsetMicTip.material).toBe(mats.surface.headsetError);
+  });
+
+  it("round-3 enlargement: gives the headset a boom mic — the rod itself in the robot's own plastic, never recoloured by the call, only its tip", () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, call: read }, geo, mats);
+    expect(obj.rig.headsetMic.material).toBe(mats.surface.shell);
+    setOnCall(obj, fairmind);
+    expect(obj.rig.headsetMic.material).toBe(mats.surface.shell);
+    for (const kind of ['session', 'workflow', 'intern'] as const) {
+      const k = buildRobot('s2', { ...look, call: fairmind }, geo, mats, kind);
+      expect(k.rig.headsetMic.castShadow, kind).toBe(false);
+      expect(k.rig.headsetMicTip.castShadow, kind).toBe(false);
+      expect(k.rig.headsetMic.parent, kind).toBe(k.rig.headset);
+      expect(k.rig.headsetMicTip.parent, kind).toBe(k.rig.headset);
+    }
+  });
+
+  it('shows the Fairmind mark, above the head, only for a Fairmind call with no family, reusing the badge mark geometry and material (0 new geometry)', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, call: read }, geo, mats);
+    expect(obj.rig.headsetMark.visible).toBe(false);
+    expect(obj.rig.headsetMark.geometry).toBe(fairmindMarkGeometry(geo));
+    expect(obj.rig.headsetMark.material).toBe(mats.fairmindMark);
+    // Round-2 enlargement: the mark sits on fairmindForms.group (above the head), not on the headset's own bead.
+    expect(obj.rig.headsetMark.parent).toBe(obj.rig.fairmindForms.group);
+    const size = geo.size;
+    setOnCall(obj, fairmind);
+    expect(obj.rig.headsetMark.visible).toBe(true);
+    expect(geo.size).toBe(size);
+    setOnCall(obj, read);
+    expect(obj.rig.headsetMark.visible).toBe(false);
+  });
+
+  it('pulses the bead outward for a write and inward for a read, resetting to its resting size each time setOnCall is called', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, call: write }, geo, mats);
+    poseRobot(obj, look, { x: 0, z: 0, facing: 0 });
+    let maxScale = -Infinity;
+    let minScale = Infinity;
+    for (let k = 0; k <= 100; k++) {
+      animateRobot(obj, look, (k / 100) * (2 * Math.PI) / CALL_PULSE.rate, 0);
+      const s = obj.rig.headsetBead.scale.x;
+      maxScale = Math.max(maxScale, s);
+      minScale = Math.min(minScale, s);
+    }
+    expect(minScale).toBeGreaterThanOrEqual(1 - 1e-9);
+    expect(maxScale).toBeGreaterThan(1 + CALL_PULSE.amp * 0.9);
+
+    setOnCall(obj, read);
+    expect(obj.rig.headsetBead.scale.x).toBe(1);
+    maxScale = -Infinity;
+    minScale = Infinity;
+    for (let k = 0; k <= 100; k++) {
+      animateRobot(obj, look, (k / 100) * (2 * Math.PI) / CALL_PULSE.rate, 0);
+      const s = obj.rig.headsetBead.scale.x;
+      maxScale = Math.max(maxScale, s);
+      minScale = Math.min(minScale, s);
+    }
+    expect(maxScale).toBeLessThanOrEqual(1 + 1e-9);
+    expect(minScale).toBeLessThan(1 - CALL_PULSE.amp * 0.9);
+  });
+
+  describe("FairMind's per-family VIP forms (hq-mcp-switchboard proposal.md §5 Phase 3; fairmind-forms.ts)", () => {
+    /** The form keys currently shown (`.visible`) on a robot's `fairmindForms`. */
+    function shownForms(obj: RobotObject): string[] {
+      return Object.entries(obj.rig.fairmindForms.byKey).filter(([, node]) => node.visible).map(([key]) => key);
+    }
+    const fairmindCall = (family: string | null, write = false): OnCallView => ({ slot: 2, family, write, fairmind: true, error: false });
+
+    it("shows exactly the family's own form and hides the other five, for each of the five families", () => {
+      const { geo, mats } = kit();
+      const obj = buildRobot('s1', { ...look, call: null }, geo, mats);
+      for (const family of ['Studio', 'General', 'Brain', 'Insights', 'Code'] as const) {
+        setOnCall(obj, fairmindCall(family));
+        expect(shownForms(obj), family).toEqual([family]);
+      }
+    });
+
+    it("falls back to the default brand mark for a FairMind call with no family, or one this table doesn't know", () => {
+      const { geo, mats } = kit();
+      const obj = buildRobot('s1', { ...look, call: null }, geo, mats);
+      setOnCall(obj, fairmindCall(null));
+      expect(shownForms(obj)).toEqual(['default']);
+      setOnCall(obj, fairmindCall('NotAFamily'));
+      expect(shownForms(obj)).toEqual(['default']);
+    });
+
+    it('hides every form for a non-Fairmind call, and for none at all', () => {
+      const { geo, mats } = kit();
+      const obj = buildRobot('s1', { ...look, call: fairmindCall('Brain') }, geo, mats);
+      expect(shownForms(obj)).toEqual(['Brain']);
+      setOnCall(obj, read);
+      expect(shownForms(obj)).toEqual([]);
+      setOnCall(obj, fairmindCall('Code'));
+      expect(shownForms(obj)).toEqual(['Code']);
+      setOnCall(obj, null);
+      expect(shownForms(obj)).toEqual([]);
+    });
+
+    it('gives the Brain orb two meshes — the only form with more than one, the premium beat (user-decisions.md Q2) — every other form exactly one', () => {
+      const { geo, mats } = kit();
+      const meshCount = (node: Object3D): number => {
+        let n = 0;
+        node.traverse((o) => {
+          if ((o as Mesh).isMesh) n++;
+        });
+        return n;
+      };
+      const obj = buildRobot('s1', { ...look, call: null }, geo, mats);
+      const counts = Object.fromEntries(Object.entries(obj.rig.fairmindForms.byKey).map(([key, node]) => [key, meshCount(node)]));
+      expect(counts).toEqual({ default: 1, Studio: 1, General: 1, Brain: 2, Insights: 1, Code: 1 });
+    });
+
+    it('casts no shadow from any of the six forms, shown or hidden', () => {
+      const { geo, mats } = kit();
+      const obj = buildRobot('s1', { ...look, call: fairmindCall('Brain') }, geo, mats);
+      obj.rig.fairmindForms.group.traverse((o) => {
+        if ((o as Mesh).isMesh) expect((o as Mesh).castShadow).toBe(false);
+      });
+    });
+
+    it('pulses the shown form outward for a write and inward for a read, the same direction as the bead, only while the call is Fairmind\'s', () => {
+      const { geo, mats } = kit();
+      const obj = buildRobot('s1', { ...look, call: fairmindCall('Brain', true) }, geo, mats);
+      poseRobot(obj, look, { x: 0, z: 0, facing: 0 });
+      let maxScale = -Infinity;
+      for (let k = 0; k <= 100; k++) {
+        animateRobot(obj, look, (k / 100) * (2 * Math.PI) / CALL_PULSE.rate, 0);
+        maxScale = Math.max(maxScale, obj.rig.fairmindForms.group.scale.x);
+      }
+      expect(maxScale).toBeGreaterThan(1 + CALL_PULSE.amp * 0.9);
+
+      // A plain, non-Fairmind write call still pulses the bead, but never the (hidden) Fairmind forms group.
+      setOnCall(obj, write);
+      let formScale = -Infinity;
+      for (let k = 0; k <= 100; k++) {
+        animateRobot(obj, look, (k / 100) * (2 * Math.PI) / CALL_PULSE.rate, 0);
+        formScale = Math.max(formScale, obj.rig.fairmindForms.group.scale.x);
+      }
+      expect(formScale).toBe(1);
+    });
+  });
+
+  it('never pulses while hidden, and sits lit at its resting size with motion off (animateRobot never called)', () => {
+    const { geo, mats } = kit();
+    const obj = buildRobot('s1', { ...look, call: null }, geo, mats);
+    poseRobot(obj, look, { x: 0, z: 0, facing: 0 });
+    for (let k = 0; k <= 10; k++) animateRobot(obj, look, k * 0.3, 1.2);
+    expect(obj.rig.headsetBead.scale.x).toBe(1);
+    setOnCall(obj, read);
+    expect(obj.rig.headsetBead.scale.x).toBe(1);
   });
 });
 

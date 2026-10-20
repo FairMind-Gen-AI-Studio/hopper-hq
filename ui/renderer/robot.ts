@@ -5,9 +5,11 @@
  * swinging its legs and arms.
  * Two smaller kinds share the build: a workflow agent wears a hard hat, and an intern flies on a jetpack, without legs.
  */
-import { CylinderGeometry, Euler, Group, InstancedMesh, LatheGeometry, Object3D, Quaternion, SphereGeometry, Vector2, type Mesh } from 'three';
+import { CylinderGeometry, Euler, Group, InstancedMesh, LatheGeometry, Mesh, Object3D, Quaternion, SphereGeometry, Vector2, type Material } from 'three';
 import { type Persona } from '../../src/scene/persona';
-import type { Pose, Robot } from '../../src/scene/types';
+import type { OnCallView, Pose, Robot } from '../../src/scene/types';
+import { BADGE } from './fairmind-badge';
+import { attachFairmindForms, orientFairmindForms, setFairmindForm, type FairmindForms } from './fairmind-forms';
 import type { Materials } from './materials';
 import { PERSONA_BODY, buildPersona, hasHeadgear, setPersonaVisible, type PersonaRig } from './persona';
 import { part, type Geometries, type PickData } from './props';
@@ -24,10 +26,13 @@ export type RobotKind = 'session' | 'intern' | 'workflow';
  * whether it holds a lit cigar, and which persona's costume it wears. Neither stays in the shared
  * `Robot` type — `smoking` never goes over the wire on its own (the server sends it as
  * `Occupant`/`Intern`/`MeetingAgent.smoking`, src/scene/types.ts); `persona` is never sent at all
- * (src/scene/persona.ts, a pure function of the agent-type string the renderer already has). Both
- * optional, so every existing look literal reads as not smoking and persona 'none'.
+ * (src/scene/persona.ts, a pure function of the agent-type string the renderer already has). `call`
+ * (hq-mcp-switchboard proposal.md §4) does go over the wire, as `Occupant`/`Intern`/`MeetingAgent.call`
+ * (src/scene/types.ts `OnCallView`), carried through here only so `floor-scene.ts`'s one `cast()` pass can read
+ * it off the same `look` it already builds, next to `smoking`. All three optional, so every existing look literal
+ * reads as not smoking, persona 'none', and no call.
  */
-export type Look = Robot & { smoking?: boolean; persona?: Persona };
+export type Look = Robot & { smoking?: boolean; persona?: Persona; call?: OnCallView | null };
 /** How big each kind stands. */
 export const KIND_SCALE: Readonly<Record<RobotKind, number>> = { session: 1, intern: 0.55, workflow: 0.8 };
 /** How high an intern floats: its feet would be here, and its body above the top of the desk's monitor. */
@@ -156,6 +161,47 @@ export interface RobotRig {
   cigar: Group;
   /** The smoke above the cigar's tip, a column of puffs (PUFF) that rise, grow and vanish (animateRobot) while the cigar shows; a still column otherwise. */
   puff: InstancedMesh;
+  /** The on-call headset's band, ear cup and boom mic (HEADSET, BOOM_MIC), at the ear: shown and recoloured by
+   * `setOnCall`, in any pose, without rebuilding. Round-2 enlargement (see `FAIRMIND_FORM_Y`) moved FairMind's own
+   * big per-family read to `fairmindForms`, above the head; round-3 enlargement grew this headset itself — every
+   * call, not only FairMind's — into a proper gaming-headset silhouette (band, cup, boom, glowing tip), legible at
+   * the floor's own default zoom on its own. */
+  headset: Group;
+  /** The headset's band: `setOnCall` recolours it together with the cup and the boom's own tip, so the whole headset reads as one colour. */
+  headsetHook: Mesh;
+  /** The headset's ear cup alone: `setOnCall` recolours it (with the band and the boom's tip) and resets its pulse scale; `animateRobot` pulses it while it shows. */
+  headsetBead: Mesh;
+  /** The boom mic's own rod (BOOM_MIC): the robot's own plastic (`s.shell`), never recoloured by the call — a
+   * physical boom, not a signal. */
+  headsetMic: Mesh;
+  /** The boom mic's own tip (BOOM_MIC.tip): the "glowing on-air bead" a dispatched note asked for — `setOnCall`
+   * recolours it the same as the band and the cup, the third and last mesh that colour touches. */
+  headsetMicTip: Mesh;
+  /** The default (family-less) VIP form — the Fairmind mark alone, at the real badge's own mark scale
+   * (`fairmind-badge.ts` `BADGE.mark`, reused by `fairmind-forms.ts`): `fairmindForms.byKey.default`, kept under
+   * its own field name since `ui/test/renderer/robot.test.ts` already addresses it this way (the MVP's own field,
+   * unchanged name, enlarged and relocated meaning). No longer "on the bead" — like every other form, it now sits
+   * on `fairmindForms.group`, above the head. */
+  headsetMark: Mesh;
+  /** The call's family-specific VIP form (hq-mcp-switchboard proposal.md §5 Phase 3; `fairmind-forms.ts`), shown
+   * instead of `headsetMark` once the call's family picks one. Parented directly on the robot's own top-level
+   * group, not the neck and not `headset` (round-2 enlargement): at `FAIRMIND_FORM_Y`, the same screen slot and
+   * the same "never tips or nods with the head" reasoning `fairmind-badge.ts` gives its own badge — a form that
+   * rode the neck would bow with `POSES`' own neck tilt and `LOOPS.breathe`/`doze`'s nod, which a brand display
+   * above the head should not. `animateRobot` pulses this whole group the same way it pulses `headsetBead`, so a
+   * shown form reads its call's read/write direction too; `floor-scene.ts` turns it to face the camera every
+   * frame (`orientFairmindForms`), the same billboard the badge gets. */
+  fairmindForms: FairmindForms;
+  /** `true` while the shown call is a write (animateRobot's pulse direction): meaningless while `headset` is hidden. Not part of the wire `OnCallView`
+   * itself — the one bit `animateRobot` needs that `headset.visible` does not already carry. */
+  headsetWrite: boolean;
+  /** `true` while the shown call is Fairmind's (animateRobot pulses `fairmindForms.group` only then): meaningless
+   * while `headset` is hidden — `setOnCall` always toggles the two together, even though `fairmindForms.group` no
+   * longer lives under `headset` in the scene graph. */
+  headsetFairmind: boolean;
+  /** The headset's own colour, by the call it is given (materials.ts `lineColor`, with the dropped-call flash and Fairmind's fixed teal both folded in):
+   * closed over `mats` at build time so `setOnCall(obj, call)` stays the same two-argument shape as `setSmoking`. */
+  headsetColor: (call: OnCallView) => Material;
   /** Its gin tonic (buildDrink), in its right hand: shown only in the gintonic pose. */
   drink: Group;
   /** Its coffee cup and saucer, in its right hand, counter-rotated against the coffee pose's own arm swing the same
@@ -184,6 +230,88 @@ export const CIGAR_TIP = { r: 0.013, z: CIGAR.z + CIGAR.len / 2 + 0.006 } as con
  * at each cycle's ends is never seen (it is scaled to ~0 there).
  */
 export const PUFF = { puffs: 7, r: 0.045, rise: 0.8, grow: 1.6, drift: 0.06, rate: 0.45, y: CIGAR.y + 0.03, z: CIGAR_TIP.z + 0.01 } as const;
+
+/**
+ * The on-call headset (hq-mcp-switchboard proposal.md §4 "Meshes"): an earpiece at the robot's own left ear — "an
+ * earpiece bead at the ear" (singular) reads as one bluetooth-style earpiece, not a double-sided over-head band,
+ * so persona.ts's own single-earpiece precedent (security's `head(geo.ball(0.022), s.frame, 0.2, 0.215, 0.07)`,
+ * the mirror side) is the template, not the hard hat's dome. `x` is negative (persona.ts's security earpiece sits
+ * at the positive mirror) so the two never share one spot when both show; `y`/`z` lift it a little above and in
+ * front of the visor's own height (0.21, z 0.137) — just past where `typing`'s forearm swings (POSES.typing: the
+ * shoulder's own waist-local y tops out at 0.31, well under this) — so it clears the camera's default
+ * `HOME_AZIMUTH` (world.ts, π/4) view of a working robot's own arm, the floor's single most common pose. `x` sits
+ * 0.04 past the head's own half-width (0.19, robot.ts `rbox`), a deliberately generous protrusion: a sliver as
+ * thin as the head's own silhouette margin (the first-cut 0.01) read, at floor distance, as nothing at most
+ * azimuths — confirmed by rendering it (ui/lab, hq-mcp-switchboard round 1) before this round's numbers.
+ *
+ * Round-3 enlargement (a dispatched note: "la cuffietta non si vede molto" — the generic on-call headset, not
+ * only FairMind's own forms, read as a speck at the floor's own default zoom): `beadR` (the ear cup) grew from
+ * 0.03 to 0.052 and `hookTube` (the band's own thickness) from 0.01 to 0.02, a visibly chunkier cup and band.
+ * `hookR` (the band's own radius) only grew a little, from 0.04 to 0.05 — not nearly double, like the cup and the
+ * tube — because the band's own *peak* (`y + hookR`) is the one measurement here that has to clear a hat: it
+ * moves from 0.27 to 0.28, still under 0.293, explorer's pith brim (the lowest hat edge in the codebase,
+ * persona.ts) — so "taller" spent its whole budget on 0.01 of headroom and put the rest of the size increase into
+ * thickness instead, exactly the fallback a bigger band without more headroom calls for. `beadR`'s own new 0.052
+ * needs no such ceiling: the cup sits at `y` (0.23), its top at 0.23 + 0.052 = 0.282, still under 0.293 by 0.011 —
+ * a cup can grow up to that same ceiling with room to spare, since (unlike the band's own apex) a ball's widest
+ * point is at its own centre height, not above it. `BOOM_MIC` (below) carries the rest of this round's own
+ * visibility past the band and the cup alone: a boom mic toward the mouth, lit at its own tip — the "glowing
+ * on-air bead" the note asked for — needs no hat clearance either, sitting at or below the visor's own height,
+ * the same safe zone the MVP's small bead already occupied.
+ *
+ * Only one ear cup, not two: a second cup on the right ear, at `persona.ts`'s own `x: 0.2` mirror, would sit
+ * almost exactly where the security persona's own sunglasses earpiece already does (`head(geo.ball(0.022), ...,
+ * 0.2, 0.215, 0.07)`) — the very collision the single-earpiece design was chosen to dodge in round 1. "Bigger ear
+ * cups" (plural, in the note) reads as the style this is reaching for — a proper headset silhouette, not a
+ * literal second cup — which the boom mic (the other half of a real gaming headset's own silhouette) carries
+ * the rest of the way without having to add a second cup and reopen that collision.
+ */
+export const HEADSET = { x: -0.23, y: 0.23, z: 0.08, beadR: 0.052, hookR: 0.05, hookTube: 0.02, hookArc: Math.PI * 1.3 } as const;
+
+/**
+ * The boom mic (round-3 enlargement, HEADSET's own doc comment): a thin rod from the ear cup toward the mouth,
+ * tipped with a bright bead in the call's own colour — the "glowing on-air bead" a dispatched note asked for,
+ * reusing the same material the cup and the band already recolour with (`setOnCall`), so it needs no material of
+ * its own and no extra step to stay in step with them. The rod itself (`s.shell`, the robot's own plastic, never
+ * recoloured by the call) is a physical boom, not a signal; only its tip lights up. Placed and tilted by eye (ui/
+ * lab, hq-mcp-switchboard round 3) to run from the ear cup down and forward, its tip landing just past the
+ * visor's own front face (z 0.137, robot.ts head) and short of the face's own centreline (x 0), the way a real
+ * boom mic reaches toward the corner of the mouth, not across it — clear of the cigar (CIGAR, x 0 ± 0.011, z
+ * 0.12-0.2) at every x past -0.04, which the tip's own -0.075 keeps to. Neither the rod nor its tip needs to
+ * clear a hat: both sit at or below the visor's own height (0.21), the same safe zone the MVP's small bead
+ * already occupied, well under every hat's own lowest edge (0.293).
+ */
+export const BOOM_MIC = { rod: { r: 0.011, len: 0.18 }, x: -0.15, y: 0.19, z: 0.13, rx: 1.25, ry: -0.6, tip: { r: 0.027, x: -0.075, y: 0.165, z: 0.172 } } as const;
+
+/**
+ * Where the enlarged per-family call form (`fairmind-forms.ts`) sits, above the head — round-2 enlargement: the
+ * MVP drew these forms on the headset bead itself (HEADSET), small enough there to read as a stray dot at the
+ * floor's own default zoom. Built on `fairmind-badge.ts`'s own `BADGE.y.workflow`, the height that already clears
+ * the tallest headgear in the codebase: a persona's headgear sits on `neck` at the same local offset whichever
+ * `RobotKind` wears it (`buildPersona(neck, ...)` is kind-agnostic; `KIND_SCALE` is a transform on the whole
+ * robot group, applied *after* this local frame, not a per-kind change to it), so the one number `fairmind-
+ * badge.ts` already measured to clear `workflow`'s own hard hat (dome top at 1.195) also clears `techlead`'s
+ * campaign hat, tied with it at the same 1.195 — the global maximum, taller than `boss`'s bowler at 1.17, `qa`'s
+ * deerstalker and `generalist`'s cap at 1.18, or `explorer`'s pith helmet at 1.185 — for every kind alike,
+ * including `'session'`, which never gets the badge itself (`fairmind-badge.ts` `attachFairmindBadge` returns
+ * null for it) but can wear any of those personas, and show a call form here, all the same.
+ *
+ * `+0.05` past that reused number: the badge's own margin over the tallest hat (0.145, `BADGE.y.workflow` 1.34
+ * less the hat's 1.195) was tuned for its own 0.14-radius disc; the biggest of these forms (General's pane, a
+ * 0.22-tall standing box) reaches 0.11 either way from its own centre, almost as much as the disc's whole radius,
+ * so the same margin number would leave it only ~0.035 clear of the tallest hat instead of the disc's own 0.145 —
+ * the extra 0.05 restores a comparable margin (General's own form bottom then clears every hat by ~0.085; the
+ * Studio roll, tilted, by a similar amount; every other form, smaller still, by more).
+ */
+export const FAIRMIND_FORM_Y = BADGE.y.workflow + 0.05;
+
+/**
+ * The bead's pulse while a call is live (hq-mcp-switchboard proposal.md §2 "a gentle bead pulse; read vs write is
+ * shown as pulse direction"): a forward-only sine, like `LOOPS.breathe`, so it never dips below its resting size.
+ * `amp` is the fraction of the resting scale it pulses by, shrinking for a read (inward) and growing for a write
+ * (outward, animateRobot's own `dir`).
+ */
+export const CALL_PULSE = { rate: 2.4, amp: 0.3 } as const;
 
 /** A puff `frac` of the way through its cycle: how high above PUFF.y, how far ahead of PUFF.z, and how big. */
 export function puffAt(frac: number): { y: number; z: number; scale: number } {
@@ -457,6 +585,39 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
   puff.frustumCulled = false;
   placePuffs(puff, robot.smoking ? 0 : null);
   cigar.add(puff);
+  // The on-call headset: a band over an ear cup at the left ear (HEADSET), in the call's line colour (or the
+  // dropped-call flash, or Fairmind's fixed teal, materials.ts `lineColor`); hidden until setOnCall shows it. One
+  // group so setOnCall toggles the band and the cup together, mirroring the cigar.
+  const headsetColor = (call: OnCallView): Material => mats.lineColor(call);
+  const headset = new Group();
+  headset.name = 'headset';
+  headset.visible = Boolean(robot.call);
+  neck.add(headset);
+  const initialHeadsetColor = robot.call ? headsetColor(robot.call) : mats.line(0);
+  const headsetHook = part(headset, geo.arc(HEADSET.hookR, HEADSET.hookTube, HEADSET.hookArc), initialHeadsetColor, HEADSET.x, HEADSET.y, HEADSET.z, small);
+  const headsetBead = part(headset, geo.ball(HEADSET.beadR), initialHeadsetColor, HEADSET.x, HEADSET.y, HEADSET.z, small);
+  // The boom mic (BOOM_MIC, round-3 enlargement): the rod itself in the robot's own plastic, never recoloured by
+  // the call; its tip is, the same "glowing on-air bead" material as the band and the cup — setOnCall recolours
+  // all three together, the mic rod alone staying put.
+  const headsetMic = part(headset, geo.rod(BOOM_MIC.rod.r, BOOM_MIC.rod.r, BOOM_MIC.rod.len), s.shell, BOOM_MIC.x, BOOM_MIC.y, BOOM_MIC.z, { ...small, rx: BOOM_MIC.rx, ry: BOOM_MIC.ry });
+  const headsetMicTip = part(headset, geo.ball(BOOM_MIC.tip.r), initialHeadsetColor, BOOM_MIC.tip.x, BOOM_MIC.tip.y, BOOM_MIC.tip.z, small);
+  // FairMind's per-family VIP forms (fairmind-forms.ts, hq-mcp-switchboard proposal.md §5 Phase 3), big, above the
+  // head: the brand mark alone by default, or a family's own motif once the call carries one. Parented on `group`
+  // itself (the robot's top-level group, like `fairmind-badge.ts`'s own badge), not on `headset` or `neck` — a
+  // call form that rode the neck would bow with `POSES`' own neck tilt and `LOOPS.breathe`/`doze`'s nod, which a
+  // brand display above the head should not, the same reasoning `fairmind-badge.ts` gives its own badge. The
+  // headset's hook and bead (above) stay the small "a call is live, here" earpiece accent; this is the big,
+  // family-specific read, in the badge's own screen slot (floor-scene.ts hides the badge itself while this
+  // shows — the two would otherwise double up the same brand mark in the same spot).
+  const fairmindFormsGroup = new Group();
+  fairmindFormsGroup.name = 'fairmind-forms';
+  fairmindFormsGroup.position.set(0, FAIRMIND_FORM_Y, 0);
+  group.add(fairmindFormsGroup);
+  const fairmindForms = attachFairmindForms(fairmindFormsGroup, geo, mats);
+  setFairmindForm(fairmindForms, robot.call ?? null);
+  const headsetMark = fairmindForms.byKey.default as Mesh;
+  const headsetWrite = robot.call?.write ?? false;
+  const headsetFairmind = robot.call?.fairmind ?? false;
   // The tie: a knot and a tapered blade, in the feature colour — clearly wider and longer for the boss persona only
   // (user-decisions.md OQ-1, 2026-10-16: "Cappello + cravatta"), its colour unchanged, the knot's bottom edge and
   // the blade's top edge kept flush at either size so the two never gap or overlap.
@@ -500,7 +661,32 @@ export function buildRobot(sessionId: string, robot: Look, geo: Geometries, mats
     sessionId,
     kind,
     group,
-    rig: { legL, legR, waist, armL, armR, neck, paper, laptop, cigar, puff, drink, cup, persona: personaRig, hardHat },
+    rig: {
+      legL,
+      legR,
+      waist,
+      armL,
+      armR,
+      neck,
+      paper,
+      laptop,
+      cigar,
+      puff,
+      headset,
+      headsetHook,
+      headsetBead,
+      headsetMic,
+      headsetMicTip,
+      headsetMark,
+      fairmindForms,
+      headsetWrite,
+      headsetFairmind,
+      headsetColor,
+      drink,
+      cup,
+      persona: personaRig,
+      hardHat,
+    },
     body: robot.body,
     tie: robot.tie,
     persona,
@@ -513,6 +699,34 @@ export function setSmoking(obj: RobotObject, on: boolean): void {
   if (obj.rig.cigar.visible === on) return;
   obj.rig.cigar.visible = on;
   placePuffs(obj.rig.puff, on ? 0 : null);
+}
+
+/**
+ * Shows or hides a robot's on-call headset — the band, the ear cup and the boom mic's own tip, in the call's line
+ * colour, Fairmind's fixed teal, or the dropped-call flash (materials.ts `lineColor`, closed over as
+ * `rig.headsetColor` at build time, hq-mcp-switchboard contract.md #renderer-setoncall) — mirroring `setSmoking`
+ * above, in any pose, without rebuilding. Resets the cup's and the Fairmind forms group's pulse scale to their
+ * resting size on every call (not just a fresh one): with motion off `animateRobot` never runs, so a cup (or
+ * form) left mid-pulse from a stale call would otherwise show "simply lit" at the wrong size (proposal.md §4
+ * "motion = off"). `setFairmindForm` (fairmind-forms.ts) picks the call's family's own VIP form (Phase 3) in
+ * place of the brand mark alone (MVP); the boom mic's own rod never recolours — a physical boom, not a signal.
+ */
+export function setOnCall(obj: RobotObject, call: OnCallView | null): void {
+  const r = obj.rig;
+  r.headset.visible = call !== null;
+  r.headsetBead.scale.setScalar(1);
+  r.fairmindForms.group.scale.setScalar(1);
+  if (!call) {
+    setFairmindForm(r.fairmindForms, null);
+    return;
+  }
+  r.headsetWrite = call.write;
+  r.headsetFairmind = call.fairmind;
+  const color = r.headsetColor(call);
+  r.headsetHook.material = color;
+  r.headsetBead.material = color;
+  r.headsetMicTip.material = color;
+  setFairmindForm(r.fairmindForms, call);
 }
 
 /**
@@ -651,6 +865,18 @@ export function animateRobot(obj: RobotObject, robot: Pick<Robot, 'pose' | 'badg
     // the reset at the bottom is never seen. phase (radians, [0, 2π)) offsets them by the same fraction of a cycle
     // as it does the other loops' sines, so smoke columns next to each other stay out of step.
     placePuffs(r.puff, t * PUFF.rate + phase / (2 * Math.PI));
+  }
+  if (r.headset.visible) {
+    // Forward-only, like LOOPS.breathe: the bead pulses out from its resting scale and back, never past it the
+    // other way, so "simply lit" (motion off, which never calls this) is exactly its first frame.
+    const forward = (1 - Math.cos(t * CALL_PULSE.rate + phase)) / 2;
+    const dir = r.headsetWrite ? 1 : -1;
+    r.headsetBead.scale.setScalar(1 + dir * forward * CALL_PULSE.amp);
+    // The shown Fairmind VIP form pulses the same way, in step with the bead (hq-mcp-switchboard proposal.md §2
+    // "the form pulses/emits outward on write"): a write grows outward past its resting size, a read shrinks
+    // gently inward, never the other way — the same read/write "direction" the bead already carries, now on the
+    // form a FairMind call is visibly senior enough to show.
+    if (r.headsetFairmind) r.fairmindForms.group.scale.setScalar(1 + dir * forward * CALL_PULSE.amp);
   }
   switch (loop) {
     case 'type':

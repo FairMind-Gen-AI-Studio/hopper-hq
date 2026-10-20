@@ -1,3 +1,4 @@
+import { classifyMcp, toolLabel } from '../core/tool-label.js';
 import type { AgentKind, DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
 import { SHOWCASE_SESSIONS, showcaseScript } from './showcase.js';
 
@@ -45,6 +46,18 @@ export const DEMO_DROP_INS: DemoSession[] = [
 
 type Body = DistributiveOmit<RawEvent, 'sessionId' | 'ts' | 'source'>;
 const at = (sessionId: string, ts: number, body: Body): RawEvent => ({ ...body, sessionId, ts, source: 'demo' }) as RawEvent;
+
+/**
+ * A started MCP call's `tool`/`label`/`mcp`, classified exactly as the real hooks adapter does on `PreToolUse`
+ * (hooks.ts: `classifyMcp(toolName)` + `toolLabel(toolName, input, cwd)`) — so the demo's switchboard beats (the
+ * floor headset, the façade line, the DOM chip) render from the same data a live MCP call would produce, not a
+ * hand-built shortcut (hq-mcp-switchboard proposal.md).
+ */
+function mcpStart(toolId: string, tool: string, agentId: string | null): Body {
+  const mcp = classifyMcp(tool);
+  if (!mcp) throw new Error(`demo.ts: not an MCP tool name: ${tool}`);
+  return { type: 'tool.started', toolId, tool, label: toolLabel(tool, {}), agentId, mcp };
+}
 
 export interface DemoStep {
   /** Offset in ms from the start of the loop. */
@@ -109,6 +122,31 @@ export function demoRunIds(loop = 0, run: 'checkout' | 'replay' = 'checkout'): {
  * run holds a biliardino pair (two of its agents finish in the Build phase while a third keeps running) — no separate
  * cohort was added for this; it falls out of the existing interns and run. The search desk's `Bash: npm run test:smoke`
  * from 28s to 45s holds a cigar (Feature B).
+ *
+ * Twelve beats exercise the MCP switchboard (hq-mcp-switchboard proposal.md), none of them disturbing a session or
+ * run agent already scripted above — each lands on a desk/agent that is otherwise idle at that moment, so it never
+ * overwrites a tracked state (an open permission wait, a smoke test, a meeting's room slot). The address desk
+ * (demo-sw-a1) places a Slack post at 4-4.5s while its own Explore intern (demo-a1-explore) places a Playwright
+ * call at 4.2-4.7s — a session's headset and an intern's headset lit on the same desk at once — both before the
+ * desk's own `waiting` at 34s; at 9-9.5s the dependency desk (demo-oa-h8) calls Google Sheets and the
+ * checkout-verify run's Build-phase agent (demo-wf-1) calls ClickUp at the same two instants — two distinct
+ * servers live across the building at once, the one honest read of parallelism the rooftop switchboard exists for;
+ * at 18-18.5s the checkout-verify run's own Build-phase Security Engineer (checkout.agent(2), running 8-28s)
+ * calls FairMind's `rag_search_docs` (read, the General family, "document / archive beam") — a sub-agent again,
+ * like the three FairMind beats below it, never the session itself (a checkout desk hosts a meeting room for its
+ * whole run; a tool.started on the session itself would read as the desk's own state, not the room's). The
+ * address desk's review intern (demo-a1-review) places a call that is dropped (ok:false) at 24-24.5s, then a
+ * FairMind `Brain_record_decision` (write, by the Review-phase run agent, checkout.agent(3)) at 32-32.5s,
+ * immediately followed by that same agent's FairMind `Code_search_symbol` (read) at 33-33.5s — the Brain and
+ * Code VIP forms visible, in turn, on the same room agent's headset (Phase 3, proposal.md §5, user-decisions.md
+ * Q2 "Brain-core orb first"); at 48.5-48.7s the Ship-phase QA Engineer (checkout.agent(4), running 40-52s) calls
+ * FairMind's `bulk_update_status` (write, no family at all — the "sensible default form"). The orders-investigate
+ * desk (demo-oa-g7) is `needs_you` (its own `waiting`, b+29 within the opening batch) for nearly the whole loop,
+ * cleared only by its own prompt at 42s — a Notion search (read) at 47-47.5s, six parallel calls (clickup, Notion,
+ * Google Calendar, Gmail, Google Drive, Slack — "parallel MCP calls" follow-up, from a real report) all open at
+ * once at 49-50.7s, a FairMind `Studio_get_task` (read, by the session itself, not a sub-agent) at 51-51.5s, and a
+ * FairMind `Insights_record_loop_stats` (write, always-outgoing) at 53-53.5s all land after that, the only part of
+ * the loop a tool.started on g7's own session would not immediately clear its needs_you wait.
  */
 export function demoScript(loop = 0): DemoStep[] {
   const checkout = demoRunIds(loop);
@@ -170,6 +208,13 @@ export function demoScript(loop = 0): DemoStep[] {
       ],
     },
     ...compare,
+    // MCP switchboard: a Slack post, well before this desk's own `waiting` at 34s.
+    { at: 4_000, events: (b) => [at('demo-sw-a1', b, mcpStart('a1-mcp1', 'mcp__Slack__chat_postMessage', null))] },
+    // MCP switchboard: a Playwright call on the address desk's own Explore intern, overlapping the session's own
+    // Slack call above — a session's headset and an intern's headset both lit on the same desk at once.
+    { at: 4_200, events: (b) => [at('demo-sw-a1', b, mcpStart('a1e-mcp1', 'mcp__Playwright__browser_snapshot', 'demo-a1-explore'))] },
+    { at: 4_500, events: (b) => [at('demo-sw-a1', b, { type: 'tool.finished', toolId: 'a1-mcp1', ok: true, agentId: null })] },
+    { at: 4_700, events: (b) => [at('demo-sw-a1', b, { type: 'tool.finished', toolId: 'a1e-mcp1', ok: true, agentId: 'demo-a1-explore' })] },
     { at: 5_000, events: (b) => arrive(gift, b, 'Edit', 'Edit src/cart/GiftNote.tsx') },
     { at: 6_000, events: (b) => [at('demo-sw-a1', b, { type: 'agent.finished', agentId: 'demo-a1-explore' })] },
     ...completed,
@@ -181,9 +226,31 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-ps-d4', b, finish(0)),
       ],
     },
+    // MCP switchboard: parallel calls to two distinct servers — the dependency desk calls Google Sheets while the
+    // Build-phase agent (running 8s-16s) calls ClickUp, both live at once.
+    {
+      at: 9_000,
+      events: (b) => [
+        at('demo-oa-h8', b, mcpStart('h8-mcp1', 'mcp__GoogleSheets__read_values', null)),
+        at('demo-ps-d4', b, mcpStart('wf1-mcp1', 'mcp__ClickUp__get_task', checkout.agent(1))),
+      ],
+    },
+    {
+      at: 9_500,
+      events: (b) => [
+        at('demo-oa-h8', b, { type: 'tool.finished', toolId: 'h8-mcp1', ok: true, agentId: null }),
+        at('demo-ps-d4', b, { type: 'tool.finished', toolId: 'wf1-mcp1', ok: true, agentId: checkout.agent(1) }),
+      ],
+    },
     { at: 10_000, events: (b) => [at('demo-oa-c3', b, { type: 'tool.finished', toolId: 'c3-t1', ok: true, agentId: null })] },
     { at: 13_000, events: (b) => arrive(states, b, 'Read', 'Read src/orders/states.ts') },
     { at: 16_000, events: (b) => [at('demo-ps-d4', b, finish(1))] },
+    // MCP switchboard (Phase 3): FairMind rag_search_docs (read, the General family), by the checkout-verify run's
+    // own Build-phase Security Engineer (checkout.agent(2), running 8-28s) — on a sub-agent, never the session
+    // itself, so it never touches the payments desk's own state (the same reason the Brain/Code beats below land
+    // on a sub-agent too). The "document / archive beam" motif.
+    { at: 18_000, events: (b) => [at('demo-ps-d4', b, mcpStart('wf2-mcp1', 'mcp__Fairmind__rag_search_docs', checkout.agent(2)))] },
+    { at: 18_500, events: (b) => [at('demo-ps-d4', b, { type: 'tool.finished', toolId: 'wf2-mcp1', ok: true, agentId: checkout.agent(2) })] },
     // Stopped and cleared, as by Esc and /clear: it waits for a prompt, idle, in the lounge.
     { at: 20_000, events: (b) => [at(states.id, b, { type: 'session.started' })] },
     { at: 21_000, events: (b) => arrive(legs, b, 'Edit', 'Edit src/ledger/split.ts') },
@@ -194,9 +261,20 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-oa-h8', b, { type: 'turn.finished', backgroundTasks: 0 }),
       ],
     },
+    // MCP switchboard: a dropped call (error), on the address desk's review intern.
+    { at: 24_000, events: (b) => [at('demo-sw-a1', b, mcpStart('a1r-mcp1', 'mcp__Notion__create_page', 'demo-a1-review'))] },
+    { at: 24_500, events: (b) => [at('demo-sw-a1', b, { type: 'tool.finished', toolId: 'a1r-mcp1', ok: false, agentId: 'demo-a1-review' })] },
     { at: 28_000, events: (b) => [at('demo-ps-d4', b, runAgent(3, 'Review', 'Review the ledger and refund changes', checkout, 'fairmind-coding:Code Reviewer')), at('demo-ps-d4', b, finish(2))] },
     { at: 29_000, events: (b) => arrive(estimate, b, 'Edit', 'Edit src/checkout/ReviewStep.tsx') },
     { at: 30_000, events: (b) => [at('demo-sw-a1', b, { type: 'agent.finished', agentId: 'demo-a1-review' })] },
+    // MCP switchboard: FairMind Brain_record_decision (write), by a sub-agent — the Review-phase run agent reporting home.
+    { at: 32_000, events: (b) => [at('demo-ps-d4', b, mcpStart('wf3-mcp1', 'mcp__Fairmind__Brain_record_decision', checkout.agent(3)))] },
+    { at: 32_500, events: (b) => [at('demo-ps-d4', b, { type: 'tool.finished', toolId: 'wf3-mcp1', ok: true, agentId: checkout.agent(3) })] },
+    // MCP switchboard (Phase 3): FairMind Code_search_symbol (read), by the same Review-phase run agent the Brain
+    // write above just landed on (checkout.agent(3), still running until 40s) — the Brain and Code VIP forms
+    // visible, in turn, on the same room agent's headset.
+    { at: 33_000, events: (b) => [at('demo-ps-d4', b, mcpStart('wf3b-mcp1', 'mcp__Fairmind__Code_search_symbol', checkout.agent(3)))] },
+    { at: 33_500, events: (b) => [at('demo-ps-d4', b, { type: 'tool.finished', toolId: 'wf3b-mcp1', ok: true, agentId: checkout.agent(3) })] },
     { at: 34_000, events: (b) => [at('demo-sw-a1', b, { type: 'waiting', reason: { kind: 'question', text: 'Keep the old address form behind a flag?' }, agentId: null })] },
     { at: 36_000, events: (b) => [at(states.id, b, { type: 'prompt', text: loop === 0 ? 'Which states can a refund be in?' : null })] },
     // The ninth session on the floor: one more than a block has desks.
@@ -214,12 +292,42 @@ export function demoScript(loop = 0): DemoStep[] {
     // The smoke test started at 28s finishes: the cigar clears.
     { at: 45_000, events: (b) => [at('demo-ss-e5', b, { type: 'tool.finished', toolId: 'e5-t1', ok: true, agentId: null })] },
     { at: 46_000, events: (b) => [end(states, b)] },
+    // MCP switchboard: a Notion search (read), on the dependency desk's own session — safely after its own
+    // `waiting` cleared by the prompt at 42s (not before: g7 is needs_you for nearly the whole loop until then).
+    { at: 47_000, events: (b) => [at('demo-oa-g7', b, mcpStart('g7-mcp1', 'mcp__Notion__search', null))] },
+    { at: 47_500, events: (b) => [at('demo-oa-g7', b, { type: 'tool.finished', toolId: 'g7-mcp1', ok: true, agentId: null })] },
     {
       at: 48_000,
       events: (b) => [
         at('demo-oa-c3', b, runAgent(1, 'Replay', 'Replay the morning orders', replay)),
         at('demo-oa-c3', b, runAgent(2, 'Replay', 'Replay the evening orders', replay)),
         at('demo-oa-c3', b, finish(0, replay)),
+      ],
+    },
+    // MCP switchboard (Phase 3): FairMind bulk_update_status (write, no family at all), by the checkout-verify
+    // run's own Ship-phase QA Engineer (checkout.agent(4), running 40-52s) — the "sensible default form" a
+    // family:null FairMind call still gets, on a sub-agent again, never the session itself.
+    { at: 48_500, events: (b) => [at('demo-ps-d4', b, mcpStart('wf4-mcp1', 'mcp__Fairmind__bulk_update_status', checkout.agent(4)))] },
+    { at: 48_700, events: (b) => [at('demo-ps-d4', b, { type: 'tool.finished', toolId: 'wf4-mcp1', ok: true, agentId: checkout.agent(4) })] },
+    // MCP switchboard ("parallel MCP calls" follow-up, from a real report: one Claude Code turn calling six MCP
+    // servers at once used to light at most one antenna, since a session's call/callAt held only its single
+    // most-recent): the dependency desk's own session (demo-oa-g7, the same safe window as the Notion search
+    // above) places all six in one beat, none finishing before the others for 1.7s — long enough to clear the
+    // SSE broadcaster's own 250ms change-coalescing window (src/server/events.ts) with room to spare, so a client
+    // watching live actually renders the "all six open" frame rather than one coalesced past it — the floor's
+    // headset shows the latest with a "×6". The rooftop lights six distinct antennas from this one desk at once
+    // (servers whose names hash into the same slot probe to the next free one, build.ts's activeLinesOf), raw
+    // server spellings (claude_ai_/plugin_<x>_ prefixes, underscores) and all, so the
+    // friendly-name follow-up renders end to end.
+    {
+      at: 49_000,
+      events: (b) => [
+        at('demo-oa-g7', b, mcpStart('g7-par1', 'mcp__clickup__clickup_get_workspace_members', null)),
+        at('demo-oa-g7', b, mcpStart('g7-par2', 'mcp__claude_ai_Notion__notion-get-self', null)),
+        at('demo-oa-g7', b, mcpStart('g7-par3', 'mcp__claude_ai_Google_Calendar__list_calendars', null)),
+        at('demo-oa-g7', b, mcpStart('g7-par4', 'mcp__claude_ai_Gmail__list_messages', null)),
+        at('demo-oa-g7', b, mcpStart('g7-par5', 'mcp__claude_ai_Google_Drive__search_files', null)),
+        at('demo-oa-g7', b, mcpStart('g7-par6', 'mcp__plugin_slack_slack__slack_search_channels', null)),
       ],
     },
     {
@@ -229,7 +337,21 @@ export function demoScript(loop = 0): DemoStep[] {
         at('demo-oa-c3', b, { type: 'turn.finished', backgroundTasks: 0 }),
       ],
     },
+    {
+      at: 50_700,
+      events: (b) => (['g7-par1', 'g7-par2', 'g7-par3', 'g7-par4', 'g7-par5', 'g7-par6'] as const).map((toolId) =>
+        at('demo-oa-g7', b, { type: 'tool.finished', toolId, ok: true, agentId: null })),
+    },
+    // MCP switchboard: FairMind Studio_get_task (read), by the dependency desk's own session — the teal earpiece,
+    // not a sub-agent's. Same safe window as the Notion search above (g7 is working from 42s to the loop's end).
+    { at: 51_000, events: (b) => [at('demo-oa-g7', b, mcpStart('g7-mcp2', 'mcp__Fairmind__Studio_get_task', null))] },
+    { at: 51_500, events: (b) => [at('demo-oa-g7', b, { type: 'tool.finished', toolId: 'g7-mcp2', ok: true, agentId: null })] },
     { at: 52_000, events: (b) => [at('demo-ps-d4', b, finish(4)), at('demo-ps-d4', b, { type: 'workflow.finished', runId, status: 'completed' })] },
+    // MCP switchboard (Phase 3): FairMind Insights_record_loop_stats (write, always-outgoing), on the
+    // dependency-investigate desk's own session — the same safe window as the Notion/Studio calls above
+    // (g7 is working from 42s to the loop's end), reporting the loop's own stats home as it winds down.
+    { at: 53_000, events: (b) => [at('demo-oa-g7', b, mcpStart('g7-mcp3', 'mcp__Fairmind__Insights_record_loop_stats', null))] },
+    { at: 53_500, events: (b) => [at('demo-oa-g7', b, { type: 'tool.finished', toolId: 'g7-mcp3', ok: true, agentId: null })] },
     { at: 54_000, events: (b) => [end(legs, b)] },
     { at: 56_000, events: (b) => [end(estimate, b)] },
     { at: 58_000, events: (b) => [end(retry, b)] },

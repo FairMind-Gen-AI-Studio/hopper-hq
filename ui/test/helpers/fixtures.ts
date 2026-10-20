@@ -257,6 +257,7 @@ function occupantOf(f: FloorSpec, c: CheckoutSpec, d: DeskSpec): Occupant {
     reason: d.reason ?? null,
     activity: d.activity ?? null,
     smoking: false,
+    call: null,
     agentsRunning: d.agents ?? 0,
     summary: null,
     interns: [],
@@ -316,6 +317,7 @@ export function makeScene(): BuildingScene {
     version: SCENE_VERSION,
     floors: FLOORS.map((f, i) => summary(f, FLOORS.length - i)),
     attention: { needsYou: queue('needs_you'), done: queue('done') },
+    activeLines: [],
   };
 }
 

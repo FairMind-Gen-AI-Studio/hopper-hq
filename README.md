@@ -167,6 +167,22 @@ The main session's own robot always wears a "boss" look instead — a black hat 
 
 An intern or workflow agent whose type is namespaced to a Fairmind plugin (`fairmind-coding:…`, `fairmind-team:…`) also carries a small Fairmind badge over its head, regardless of which persona it wears.
 
+### MCP switchboard
+
+A robot on a live MCP tool call (`mcp__<server>__<tool>`) puts on a slim headset, its earpiece bead lit in that server's own colour; the headset holds for a moment after the call closes, so a sub-second call still registers. A dropped call (the tool finishes with an error) flashes the bead red before it clears. The desk's own tag also carries a transient on-call chip (`Notion: search`, with a ✗ on a dropped call) — the authoritative identity, for the non-visual path.
+
+A session or sub-agent that calls several MCP servers in parallel — one Claude Code turn can place them all in a single message — is tracked as every one of them open at once, not just the latest: the one headset still shows its most-recent call's own colour, with a `×N` on the chip once more than one is concurrently live, and the rooftop lights one antenna per distinct server across all of them, from this one entity alone.
+
+The façade's rooftop is a switchboard: one lit antenna stub per MCP server with a live call anywhere in the building, with a `+N` badge on the busiest line — this is the one honest read of parallelism, since a session's own floor headset can only ever show its latest call's own colour. Each lit stub carries a sign at its tip: a traced glyph for one of eight known servers (Notion, Slack, memory, MongoDB, Playwright, Google Sheets, ClickUp, Chrome), else the line's colour and the server's first letter — read, like every other server name on the floor and the roof, by its own brand spelling (ClickUp, Google Calendar, Microsoft 365, …) rather than the raw, prefixed token a real MCP tool name carries. FairMind is the office's own private hotline: a Fairmind call lights the caller's headset in FairMind's fixed teal with its mark, and lights the rooftop's tall mast the same teal — a visibly senior event, day or night.
+
+FairMind calls get further "di riguardo" treatment once classified into one of five families: the headset's brand mark steps aside for a small motif of that family's own work — Studio's drafting roll, General's document beam, Brain's glowing teal-and-gold core (the premium form), Insights' gold ticker, Code's wireframe cube, or the plain mark for a family:null call (`bulk_update_status`, `process_journal`). The same family signs the rooftop mast, teal-on-gold, one letter or `FM` for the default. The shown form pulses outward on a write and inward on a read, same as the bead.
+
+Tool *inputs* are never read, carried or shown — only the server and tool/family name, the same surface the smoke-test detector already touches.
+
+The switchboard explains itself, too: a readable tag next to every lit antenna names the server (or "FairMind", with its family) and a live-caller count past one, stacked clear of each other and of the floor labels; a small "MCP / Switchboard" plaque sits on the roof at all times, faint while idle and brought up once any line is live; and hovering or keyboard-focusing a lit antenna shows a tooltip with the server, the tool being called and who's calling it — names only, never an input — plus a "Rooftop antennas" entry in the building sidebar's own legend.
+
+See [the design of the MCP switchboard](docs/plans/2026-10-16-mcp-switchboard.md) for the full data flow, the rendering budget and the read/write and Fairmind-identity classification rules.
+
 The page's address names the floor, and the desk or the run on screen: a link opens it, and Back and reload keep your place.
 
 | Key or gesture | Does |

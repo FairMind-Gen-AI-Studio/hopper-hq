@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ANSWER_MAX, applyEvent, markSeen, MAX_RECENT_ACTIONS, normalizeSession, settleRestored } from '../../src/core/reducer.js';
+import { ANSWER_MAX, applyEvent, markSeen, MAX_OPEN_CALLS, MAX_RECENT_ACTIONS, normalizeSession, settleRestored } from '../../src/core/reducer.js';
 import type { Session } from '../../src/core/types.js';
 import { ev, seen, WS } from '../helpers/events.js';
 
@@ -134,6 +134,111 @@ describe('applyEvent', () => {
     // A tool.started without smoke leaves it falsey.
     const e = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'Read', label: 'Read a.ts', agentId: 'a3' }));
     expect(e.children[0]!.smoking).toBeFalsy();
+  });
+
+  it('retains ok on tool.finished as an error signal, on the main agent and on a child, cleared by the next tool.started (hq-mcp-switchboard proposal.md §5 Phase 0)', () => {
+    // Main agent: the session keeps the signal even once openTool is cleared by the same finish.
+    let s = run(seen(), ev('tool.started', 1100, { toolId: 't1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: null }));
+    expect(s.error).toBeFalsy();
+    s = applyEvent(s, ev('tool.finished', 1200, { toolId: 't1', ok: false, agentId: null }))!;
+    expect(s.openTool).toBeNull();
+    expect(s.error).toBe(true);
+    s = applyEvent(s, ev('tool.started', 1300, { toolId: 't2', tool: 'Read', label: 'Read a.ts', agentId: null }))!;
+    expect(s.error).toBe(false);
+
+    // A clean finish leaves no error.
+    const clean = run(seen(), ev('tool.started', 1100, { toolId: 't1', tool: 'Read', label: 'Read a.ts', agentId: null }), ev('tool.finished', 1200, { toolId: 't1', ok: true, agentId: null }));
+    expect(clean.error).toBe(false);
+
+    // Child: the error lands on the child itself.
+    let c = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: 'a1' }));
+    c = applyEvent(c, ev('tool.finished', 1200, { toolId: 'c1', ok: false, agentId: 'a1' }))!;
+    expect(c.children[0]!.error).toBe(true);
+    c = applyEvent(c, ev('tool.started', 1300, { toolId: 'c2', tool: 'Read', label: 'Read a.ts', agentId: 'a1' }))!;
+    expect(c.children[0]!.error).toBe(false);
+  });
+
+  const NOTION = { server: 'Notion', family: null, write: false, fairmind: false, tool: 'search' };
+  const SLACK = { server: 'Slack', family: null, write: false, fairmind: false, tool: 'post' };
+
+  it("sets the call descriptor from tool.started's mcp field on the right entity (main agent, child); openTool's own call/calls still wipe/count as before, but the entity's own call/callAt persist past the close that wipes openTool, so build.ts's MIN_HOLD_MS window can still read the server identity a little while after the call that set it already closed (hq-mcp-switchboard contract.md Seam 1)", () => {
+    // Main agent: openTool carries the descriptor while the call is open, and openTool.calls counts it — unchanged.
+    // The session's own call/callAt (core/types.ts, same place `error` lives rather than on openTool) are set
+    // alongside it and are not wiped by the close that nulls openTool.
+    let s = run(seen(), ev('tool.started', 1100, { toolId: 't1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: null, mcp: NOTION }));
+    expect(s.openTool).toMatchObject({ call: NOTION, calls: 1 });
+    expect(s).toMatchObject({ call: NOTION, callAt: 1100 });
+    s = applyEvent(s, ev('tool.finished', 1200, { toolId: 't1', ok: true, agentId: null }))!;
+    // openTool itself is replaced wholesale by the pre-existing 'closes' rule: the count does not survive past it,
+    // same limitation the reducer already has for any other openTool field (contract.md Seam 1 names this).
+    expect(s.openTool).toBeNull();
+    // But the session-level call/callAt survive that same close.
+    expect(s).toMatchObject({ call: NOTION, callAt: 1100 });
+    // A second, different call still increments openTool's count from a fresh openTool (a non-MCP tool in between
+    // carries it forward rather than resetting it), and overwrites call/callAt with the newer call.
+    s = applyEvent(s, ev('tool.started', 1300, { toolId: 't2', tool: 'Read', label: 'Read a.ts', agentId: null }))!;
+    expect(s.openTool).toMatchObject({ call: null, calls: 0 });
+    expect(s).toMatchObject({ call: NOTION, callAt: 1100 });
+    s = applyEvent(s, ev('tool.started', 1400, { toolId: 't3', tool: 'mcp__Slack__post', label: 'Slack: post', agentId: null, mcp: SLACK }))!;
+    expect(s.openTool).toMatchObject({ call: SLACK, calls: 1 });
+    expect(s).toMatchObject({ call: SLACK, callAt: 1400 });
+
+    // Child: call/callAt merge onto the existing child record and persist past the close, and a brand-new child's
+    // very first tool.started can itself carry the descriptor (withChild's new-record branch, not only its merge
+    // branch).
+    let c = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: 'a1', mcp: NOTION }));
+    expect(c.children[0]).toMatchObject({ call: NOTION, callAt: 1100 });
+    c = applyEvent(c, ev('tool.finished', 1200, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    expect(c.children[0]).toMatchObject({ call: NOTION, callAt: 1100 });
+    c = applyEvent(c, ev('tool.started', 1300, { toolId: 'c2', tool: 'mcp__Slack__post', label: 'Slack: post', agentId: 'a1', mcp: SLACK }))!;
+    expect(c.children[0]).toMatchObject({ call: SLACK, callAt: 1300 });
+
+    // A tool.started without an mcp field leaves call/callAt untouched — only a newer MCP call overwrites them.
+    c = applyEvent(c, ev('tool.started', 1400, { toolId: 'c3', tool: 'Read', label: 'Read a.ts', agentId: 'a1' }))!;
+    expect(c.children[0]).toMatchObject({ call: SLACK, callAt: 1300 });
+  });
+
+  const servers = [
+    ['clickup', 'clickup_get_workspace_members'],
+    ['Notion', 'search'],
+    ['Google_Calendar', 'list_calendars'],
+    ['Gmail', 'list_messages'],
+    ['Google_Drive', 'search_files'],
+    ['Slack', 'slack_search_channels'],
+  ] as const;
+  const mcpOf = (server: string, tool: string) => ({ server, family: null, write: false, fairmind: false, tool });
+
+  it("tracks the main agent's own concurrently-open calls by toolId, interleaved started/finished for six servers, each finish removing only its own toolId (\"parallel MCP calls\" follow-up — one Claude Code turn calling six MCP servers in parallel used to leave only the last one registered)", () => {
+    let s = run(seen());
+    // All six start before any of them finishes: openTool (a single object) still shows only the last one, but
+    // `calls` registers every one of them, keyed by its own toolId.
+    servers.forEach(([server, tool], i) => {
+      s = applyEvent(s, ev('tool.started', 1100 + i, { toolId: `t${i}`, tool: `mcp__${server}__${tool}`, label: `${server}: ${tool}`, agentId: null, mcp: mcpOf(server, tool) }))!;
+    });
+    expect(Object.keys(s.calls!)).toHaveLength(6);
+    servers.forEach(([server, tool], i) => {
+      expect(s.calls![`t${i}`]).toEqual({ call: mcpOf(server, tool), callAt: 1100 + i });
+    });
+    expect(s).toMatchObject({ call: mcpOf(...servers[5]!), callAt: 1105 });
+    // Finishing them out of order (not first-to-last) removes only each one's own toolId; the others stay open.
+    s = applyEvent(s, ev('tool.finished', 1200, { toolId: 't2', ok: true, agentId: null }))!;
+    expect(Object.keys(s.calls!).sort()).toEqual(['t0', 't1', 't3', 't4', 't5']);
+    s = applyEvent(s, ev('tool.finished', 1201, { toolId: 't0', ok: true, agentId: null }))!;
+    expect(Object.keys(s.calls!).sort()).toEqual(['t1', 't3', 't4', 't5']);
+    // call/callAt (the single most-recent) are untouched by any of these finishes.
+    expect(s).toMatchObject({ call: mcpOf(...servers[5]!), callAt: 1105 });
+    for (let i = 1; i < 6; i++) if (i !== 2) s = applyEvent(s, ev('tool.finished', 1210 + i, { toolId: `t${i}`, ok: true, agentId: null }))!;
+    expect(s.calls).toEqual({});
+  });
+
+  it('bounds a never-finished call history at MAX_OPEN_CALLS, dropping the oldest first', () => {
+    let s = run(seen());
+    for (let i = 0; i < MAX_OPEN_CALLS + 5; i++) {
+      s = applyEvent(s, ev('tool.started', 1100 + i, { toolId: `t${i}`, tool: 'mcp__Notion__search', label: 'Notion: search', agentId: null, mcp: mcpOf('Notion', 'search') }))!;
+    }
+    expect(Object.keys(s.calls!)).toHaveLength(MAX_OPEN_CALLS);
+    expect(s.calls!['t0']).toBeUndefined();
+    expect(s.calls![`t${MAX_OPEN_CALLS + 4}`]).toBeDefined();
   });
 
   it("a subagent's wait ends with that subagent's next step, not with another one's", () => {

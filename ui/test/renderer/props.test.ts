@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Box3, BoxGeometry, CanvasTexture, Color, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, SRGBColorSpace, Vector3, type BufferGeometry, type Material, type Object3D } from 'three';
+import { Box3, BoxGeometry, CanvasTexture, Color, Group, InstancedMesh, Matrix4, Mesh, MeshStandardMaterial, SRGBColorSpace, Vector3, type BufferAttribute, type BufferGeometry, type Material, type Object3D } from 'three';
 import { POD_DESKS } from '../../../src/scene/layout';
 import type { PodDesk } from '../../../src/scene/types';
 import { CONTACT_R } from '../../renderer/floor-scene';
@@ -106,6 +106,19 @@ describe('shared geometries', () => {
     geo.dispose();
     expect(freed).toBe(1);
     expect(geo.size).toBe(0);
+  });
+
+  it('shares an arc by its radius, tube and sweep, a half-torus from +X through +Y to -X at PI', () => {
+    const geo = new Geometries();
+    expect(geo.arc(0.17, 0.01, Math.PI)).toBe(geo.arc(0.17, 0.01, Math.PI));
+    expect(geo.arc(0.17, 0.01, Math.PI)).not.toBe(geo.arc(0.18, 0.01, Math.PI));
+    const box = new Box3().setFromBufferAttribute(geo.arc(0.17, 0.01, Math.PI).getAttribute('position') as BufferAttribute);
+    // Ends at (±radius, ~0), bows up to (0, radius), each out to the tube's own thickness: the box spans the full
+    // radius each way (plus the tube), and never dips below the tube's own depth under 0.
+    expect(box.max.x).toBeCloseTo(0.18, 2);
+    expect(box.min.x).toBeCloseTo(-0.18, 2);
+    expect(box.max.y).toBeCloseTo(0.18, 2);
+    expect(box.min.y).toBeGreaterThanOrEqual(-0.011);
   });
 });
 
@@ -518,7 +531,7 @@ describe('meeting rooms', () => {
     for (const spot of spots) expect(seats.some((p) => Math.hypot(p.x - spot.x, p.z - spot.z) < 1e-6)).toBe(true);
   });
 
-  it('hangs the whiteboard inside the north partition, under the anchor of its overlay', () => {
+  it('hangs the whiteboard inside the north partition, level with its own anchor point', () => {
     const { mats, room, obj } = firstRoom();
     const boards = meshes(obj.group).filter((m) => m.material === mats.surface.board);
     expect(boards).toHaveLength(1);

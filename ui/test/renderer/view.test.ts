@@ -606,6 +606,26 @@ describe('the floor view', () => {
     expect(events).toEqual([`select room ${SECOND}`]);
   });
 
+  it("shows a room's full-detail card while the pointer sits over its table (its floor, raycast the same way a click picks it), and hides it once the pointer leaves the canvas", () => {
+    const { renderer, env, canvas, view, labels } = setup();
+    view.setFloor(roomFloor());
+    env.flush();
+    const card = (run: string) => labels.querySelector(`.fv-card[data-run="${run}"]`) as HTMLElement;
+    expect([card(FIRST).style.visibility, card(SECOND).style.visibility]).toEqual(['hidden', 'hidden']);
+    const at = tablePoint(renderer, 0);
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: at.x, clientY: at.y, pointerId: 1, bubbles: true }));
+    env.flush();
+    expect([card(FIRST).style.visibility, card(SECOND).style.visibility]).toEqual(['', 'hidden']);
+    // Moving to the other room's table shows its own card and hides the first's, in the same pass.
+    const other = tablePoint(renderer, 1);
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: other.x, clientY: other.y, pointerId: 1, bubbles: true }));
+    env.flush();
+    expect([card(FIRST).style.visibility, card(SECOND).style.visibility]).toEqual(['hidden', '']);
+    canvas.dispatchEvent(new PointerEvent('pointerleave', { clientX: other.x, clientY: other.y, pointerId: 1, bubbles: true }));
+    env.flush();
+    expect([card(FIRST).style.visibility, card(SECOND).style.visibility]).toEqual(['hidden', 'hidden']);
+  });
+
   it('outlines and marks the room it selects, and pans to it as to a desk', () => {
     const { renderer, env, view, labels } = setup();
     const floor = roomFloor();
@@ -1377,7 +1397,7 @@ describe('robots walking in the floor view', () => {
     expect(draws(makeFloor(leaves))).toBe(1);
     expect(draws(checkoutFloor())).toBe(2);
     const flies = checkoutSpecs();
-    flies[0]!.desks[0] = { ...flies[0]!.desks[0]!, interns: [{ agentId: 'i1', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null }] };
+    flies[0]!.desks[0] = { ...flies[0]!.desks[0]!, interns: [{ agentId: 'i1', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null, call: null }] };
     expect(draws(makeFloor(flies))).toBe(1);
     expect(draws(checkoutFloor())).toBe(1);
   });

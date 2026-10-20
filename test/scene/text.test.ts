@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capKey, cleanOrNull, cleanText, formatAgo, isSessionId, KEY_MAX, reasonText, STATE_LABEL, taskTitle } from '../../src/scene/text.js';
+import { capKey, cleanOrNull, cleanText, formatAgo, friendlyServer, isSessionId, KEY_MAX, reasonText, STATE_LABEL, taskTitle } from '../../src/scene/text.js';
 
 describe('cleanText', () => {
   it('removes terminal escapes, bells and NULs', () => {
@@ -173,5 +173,30 @@ describe('capKey', () => {
     expect(Array.from(key)).toHaveLength(KEY_MAX);
     expect(key.length).toBeLessThanOrEqual(2 * KEY_MAX);
     expect(() => encodeURIComponent(key)).not.toThrow();
+  });
+});
+
+describe('friendlyServer', () => {
+  it("renders a known server's own brand spelling, matched loosely (underscores, hyphens, case)", () => {
+    expect(friendlyServer('clickup')).toBe('ClickUp');
+    expect(friendlyServer('Slack')).toBe('Slack');
+    expect(friendlyServer('Notion')).toBe('Notion');
+    expect(friendlyServer('Gmail')).toBe('Gmail');
+    expect(friendlyServer('Google_Calendar')).toBe('Google Calendar');
+    expect(friendlyServer('Google_Drive')).toBe('Google Drive');
+    expect(friendlyServer('Google_Sheets')).toBe('Google Sheets');
+    expect(friendlyServer('google-sheets')).toBe('Google Sheets');
+    expect(friendlyServer('Microsoft_365')).toBe('Microsoft 365');
+    expect(friendlyServer('mongodb')).toBe('MongoDB');
+    expect(friendlyServer('Playwright')).toBe('Playwright');
+    expect(friendlyServer('Fireflies')).toBe('Fireflies');
+    expect(friendlyServer('Chrome')).toBe('Chrome');
+    expect(friendlyServer('fairmind')).toBe('FairMind');
+    expect(friendlyServer('memory')).toBe('Memory');
+  });
+
+  it('Title Cases an unknown server, turning underscores to spaces', () => {
+    expect(friendlyServer('my_internal_server')).toBe('My Internal Server');
+    expect(friendlyServer('jira')).toBe('Jira');
   });
 });

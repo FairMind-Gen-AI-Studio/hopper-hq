@@ -25,6 +25,7 @@ export function checkoutWithRoom(): FloorDetail {
     runId: RUN,
     hostSessionId: host.sessionId,
     name: 'checkout-verify',
+    topic: 'checkout-verify',
     summary: 'Verify split payments end to end',
     phases: [
       { title: 'Plan', state: 'done' },
@@ -34,9 +35,9 @@ export function checkoutWithRoom(): FloorDetail {
     ],
     counts: { running: 2, finished: 1 },
     agents: [
-      { agentId: 'wf-agent-1', label: 'Implement the split ledger entries', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null },
-      { agentId: 'wf-agent-2', label: 'Implement the refund path', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null },
-      { agentId: 'wf-agent-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: false, smoking: false, leisure: null },
+      { agentId: 'wf-agent-1', label: 'Implement the split ledger entries', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null, call: null },
+      { agentId: 'wf-agent-2', label: 'Implement the refund path', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null, call: null },
+      { agentId: 'wf-agent-0', label: 'Map the split payment flow', phase: 'Plan', type: 'workflow-subagent', running: false, smoking: false, leisure: null, call: null },
     ],
     look: { body: host.robot!.body, tie: host.robot!.tie },
     rect: floor.roomSlots[0]!,
