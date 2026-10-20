@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { newSession } from '../../src/core/reducer.js';
-import type { ChildAgent, RunAgent, Session, SessionState, WorkflowRun, Workspace } from '../../src/core/types.js';
+import type { ChildAgent, McpCall, RunAgent, Session, SessionState, WorkflowRun, Workspace } from '../../src/core/types.js';
 import { toView, type SessionView } from '../../src/core/view.js';
-import { buildFloorDetail, buildScene } from '../../src/scene/build.js';
+import { buildFloorDetail, buildScene, MIN_HOLD_MS } from '../../src/scene/build.js';
 import { BLOCK_DESKS, BLOCKS_MAX, layoutPlan, LOUNGE_SEATS, UNSEATED_MAX } from '../../src/scene/layout.js';
-import { FEATURE_SLOTS, REPO_SLOTS, slotOf } from '../../src/scene/palette.js';
+import { FEATURE_SLOTS, LINE_SLOTS, REPO_SLOTS, slotOf } from '../../src/scene/palette.js';
 import { emptySeating, type Seating } from '../../src/scene/seating.js';
 import { capKey } from '../../src/scene/text.js';
 import { SCENE_VERSION, type FloorDetail, type MeetingRoom, type Occupant } from '../../src/scene/types.js';
@@ -34,6 +34,9 @@ const child = (id: string, type: string, running = true, extra: Partial<ChildAge
 const runAgent = (id: string, extra: Partial<RunAgent> = {}): RunAgent => ({
   id, label: null, phase: null, type: 'workflow-subagent', running: true, startedAt: NOW - 10 * MIN, updatedAt: NOW - MIN, ...extra,
 });
+
+/** `classifyMcp`'s own shape (tool-label.ts), hand-built: Group A has not wired a real caller onto it yet (hq-mcp-switchboard contract.md Seam 1). */
+const mcpCall = (server: string, extra: Partial<McpCall> = {}): McpCall => ({ server, family: null, write: false, fairmind: false, tool: 'call', ...extra });
 
 /** A run the filesystem confirmed, still going, with no agent yet. */
 const run = (id: string, extra: Partial<WorkflowRun> = {}): WorkflowRun => ({
@@ -459,8 +462,8 @@ describe('version 4', () => {
   it('gives floors, desks and attention entries no rooms, interns, runs or summary while their sessions have none', () => {
     const views = [view('a', ws('/w/api', 'main'), 'done')];
     const floor = buildFloorDetail(views, 'repo:/w/api')!;
-    expect(SCENE_VERSION).toBe(7);
-    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([7, [], 0, []]);
+    expect(SCENE_VERSION).toBe(12);
+    expect([floor.version, floor.rooms, floor.roomsMore, floor.unseated]).toEqual([12, [], 0, []]);
     const desk = occupants(floor)[0]!;
     expect([desk.summary, desk.interns, desk.internsMore, desk.at, desk.runs]).toEqual([null, [], 0, { kind: 'desk' }, []]);
     expect(buildScene(views).attention.done[0]!.summary).toBeNull();
@@ -478,10 +481,10 @@ describe('interns', () => {
     ];
     const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children })], 'repo:/w/api')!)[0]!;
     expect(desk.interns).toEqual([
-      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: true, smoking: false, leisure: null },
-      { agentId: 'r2', type: null, label: null, running: true, inRoom: true, smoking: false, leisure: null },
+      { agentId: 'r1', type: 'Explore', label: 'Find every caller of useCart()', running: true, inRoom: true, smoking: false, leisure: null, call: null },
+      { agentId: 'r2', type: null, label: null, running: true, inRoom: true, smoking: false, leisure: null, call: null },
       // f3 waits for its running siblings: outside the (default closed) leisure window it's on a coffee break.
-      { agentId: 'f3', type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure: 'coffee' },
+      { agentId: 'f3', type: 'Explore', label: null, running: false, inRoom: false, smoking: false, leisure: 'coffee', call: null },
     ]);
     expect(desk.internsMore).toBe(2);
     const few = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: children.slice(0, 2) })], 'repo:/w/api')!)[0]!;
@@ -531,6 +534,229 @@ describe('smoking (version 5, feature B)', () => {
     const runs = [run('wf_0000aaaa-001', { agents: [runAgent('a1', { smoking: true }), runAgent('a2', { running: false, smoking: false })] })];
     const floor = buildFloorDetail([view('h', ws('/w/api', 'main'), 'in_meeting', { runs })], 'repo:/w/api')!;
     expect(floor.rooms[0]!.agents.map((a) => [a.agentId, a.smoking])).toEqual([['a1', true], ['a2', false]]);
+  });
+});
+
+describe('on-call headset (hq-mcp-switchboard proposal.md, Group B seam)', () => {
+  // Group A has not wired a real `classifyMcp` caller onto the reducer yet (contract.md Seam 1): every `call`/
+  // `callAt`/`error` below is hand-built directly on the fixture, exactly as the reducer is expected to leave it.
+  const slackSlot = slotOf('Slack', LINE_SLOTS);
+  const fairmindSlot = slotOf('fairmind', LINE_SLOTS);
+
+  it("shows a headset on the desk from the session's own call while it is live, and for MIN_HOLD_MS after a sub-second one already closed", () => {
+    const callAt = NOW - 200; // a call that started 0.2s ago: well inside the ~1.8s hold even if it already finished
+    const headsetAt = (extra: Partial<Session>, now = NOW) =>
+      occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', extra)], 'repo:/w/api', undefined, undefined, false, now)!)[0]!.call;
+
+    expect(headsetAt({ call: mcpCall('Slack'), callAt })).toEqual({ slot: slackSlot, family: null, write: false, fairmind: false, error: false });
+    expect(headsetAt({ call: mcpCall('Slack'), callAt }, callAt + MIN_HOLD_MS)).toBeNull(); // exactly at the edge of the hold: expired
+    expect(headsetAt({ call: mcpCall('Slack'), callAt }, callAt + MIN_HOLD_MS - 1)).not.toBeNull(); // one ms inside it: still lit
+    expect(headsetAt({})).toBeNull(); // no call at all
+    // No `now` given (every caller before this feature, and the demo/snapshot fixtures): reads as no call live.
+    expect(occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack'), callAt })], 'repo:/w/api')!)[0]!.call).toBeNull();
+  });
+
+  it('does not show a headset from a call left over once the session moves to needs_you or done, exactly like a leftover smoking flag', () => {
+    const extra: Partial<Session> = { call: mcpCall('Slack'), callAt: NOW - 200 };
+    for (const state of ['needs_you', 'done'] as const) {
+      const stale = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), state, extra)], 'repo:/w/api', undefined, undefined, false, NOW)!)[0]!;
+      expect([state, stale.call]).toEqual([state, null]);
+    }
+  });
+
+  it('carries the Fairmind family and the retained error flag onto the headset', () => {
+    const extra: Partial<Session> = { call: mcpCall('fairmind', { family: 'Studio', fairmind: true, write: true }), callAt: NOW - 200, error: true };
+    const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', extra)], 'repo:/w/api', undefined, undefined, false, NOW)!)[0]!;
+    expect(desk.call).toEqual({ slot: fairmindSlot, family: 'Studio', write: true, fairmind: true, error: true });
+  });
+
+  it("carries a running child's or run agent's own call, never a finished one's", () => {
+    const children = [child('r1', 'Explore', true, { call: mcpCall('Slack'), callAt: NOW - 200 }), child('f1', 'Explore', false, { call: mcpCall('Slack'), callAt: NOW - 200 })];
+    const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'in_meeting', { children })], 'repo:/w/api', undefined, undefined, false, NOW)!)[0]!;
+    expect(desk.interns.map((i) => [i.agentId, i.call])).toEqual([
+      ['r1', { slot: slackSlot, family: null, write: false, fairmind: false, error: false }],
+      ['f1', null],
+    ]);
+
+    const runs = [run('wf_0000aaaa-001', { agents: [runAgent('a1', { call: mcpCall('Slack'), callAt: NOW - 200 }), runAgent('a2', { running: false, call: mcpCall('Slack'), callAt: NOW - 200 })] })];
+    const floor = buildFloorDetail([view('h', ws('/w/api', 'main'), 'in_meeting', { runs })], 'repo:/w/api', undefined, undefined, false, NOW)!;
+    expect(floor.rooms[0]!.agents.map((a) => [a.agentId, a.call])).toEqual([
+      ['a1', { slot: slackSlot, family: null, write: false, fairmind: false, error: false }],
+      ['a2', null],
+    ]);
+  });
+
+  it('carries a "×N" count on the headset once more than one of the entity\'s own calls are concurrently live ("parallel MCP calls" follow-up), the most-recent call\'s own colour still the one shown', () => {
+    const callAt = NOW - 200;
+    const calls = { t1: { call: mcpCall('Slack'), callAt: NOW - 300 }, t2: { call: mcpCall('Notion'), callAt } };
+    const desk = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Notion'), callAt, calls })], 'repo:/w/api', undefined, undefined, false, NOW)!)[0]!;
+    expect(desk.call).toEqual({ slot: slotOf('Notion', LINE_SLOTS), family: null, write: false, fairmind: false, error: false, count: 2 });
+  });
+
+  it('omits the count while only a single call is live, whether or not `calls` carries it (no regression for a single call)', () => {
+    const callAt = NOW - 200;
+    const withMap = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack'), callAt, calls: { t1: { call: mcpCall('Slack'), callAt } } })], 'repo:/w/api', undefined, undefined, false, NOW)!)[0]!;
+    expect(withMap.call).toEqual({ slot: slackSlot, family: null, write: false, fairmind: false, error: false });
+    const withoutMap = occupants(buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack'), callAt })], 'repo:/w/api', undefined, undefined, false, NOW)!)[0]!;
+    expect(withoutMap.call).toEqual({ slot: slackSlot, family: null, write: false, fairmind: false, error: false });
+  });
+});
+
+describe('active lines (hq-mcp-switchboard proposal.md §2 "Many parallel calls"; Group B seam)', () => {
+  it('lists every distinct server with a live call anywhere in the building, with a count per line', () => {
+    const callAt = NOW - 200;
+    const views = [
+      view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack'), callAt }),
+      view('b', ws('/w/web', 'main'), 'working', { call: mcpCall('Notion'), callAt, children: [child('c1', 'Explore', true, { call: mcpCall('Slack'), callAt })] }),
+    ];
+    const lines = buildScene(views, undefined, undefined, NOW).activeLines;
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        { slot: slotOf('Slack', LINE_SLOTS), fairmind: false, count: 2, server: 'Slack', family: null, tool: 'call', caller: 'api-a' },
+        { slot: slotOf('Notion', LINE_SLOTS), fairmind: false, count: 1, server: 'Notion', family: null, tool: 'call', caller: 'web-b' },
+      ]),
+    );
+    expect(lines).toHaveLength(2);
+  });
+
+  it("carries the first-tallied call's own tool verb and caller name (Phase 4, façade antenna tooltip), the same first-tallied-wins limit server/family already accept", () => {
+    const callAt = NOW - 200;
+    const views = [
+      view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack', { tool: 'chat_postMessage' }), callAt }),
+      view('b', ws('/w/web', 'main'), 'working', { children: [child('c1', 'Explore', true, { call: mcpCall('Slack', { tool: 'list_channels' }), callAt })] }),
+    ];
+    const lines = buildScene(views, undefined, undefined, NOW).activeLines;
+    expect(lines).toEqual([{ slot: slotOf('Slack', LINE_SLOTS), fairmind: false, count: 2, server: 'Slack', family: null, tool: 'chat_postMessage', caller: 'api-a' }]);
+  });
+
+  it('names an intern caller by its agent type, a meeting agent by its label (or type), falling back to a generic name for an unknown one — the same names already shown on the desk panel and the run panel', () => {
+    const callAt = NOW - 200;
+    const internLines = buildScene(
+      [view('a', ws('/w/api', 'main'), 'in_meeting', { children: [child('c1', 'agent', true, { call: mcpCall('Slack'), callAt })] })],
+      undefined,
+      undefined,
+      NOW,
+    ).activeLines;
+    expect(internLines[0]).toMatchObject({ caller: 'Subagent' });
+
+    const agentLines = buildScene(
+      [view('h', ws('/w/api', 'main'), 'in_meeting', { runs: [run('wf_0000aaaa-001', { agents: [runAgent('a1', { label: 'Verify checkout', call: mcpCall('Slack'), callAt })] })] })],
+      undefined,
+      undefined,
+      NOW,
+    ).activeLines;
+    expect(agentLines[0]).toMatchObject({ caller: 'Verify checkout' });
+
+    const unlabeledAgentLines = buildScene(
+      [view('h', ws('/w/api', 'main'), 'in_meeting', { runs: [run('wf_0000aaaa-002', { agents: [runAgent('a2', { label: null, type: 'agent', call: mcpCall('Slack'), callAt })] })] })],
+      undefined,
+      undefined,
+      NOW,
+    ).activeLines;
+    expect(unlabeledAgentLines[0]).toMatchObject({ caller: 'Agent' });
+  });
+
+  it('collapses every Fairmind call into one combined line, never a slot among the others, keeping the first-tallied family', () => {
+    const callAt = NOW - 200;
+    const views = [
+      view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('fairmind', { family: 'Studio', fairmind: true }), callAt }),
+      view('b', ws('/w/web', 'main'), 'working', { call: mcpCall('fairmind', { family: 'Brain', fairmind: true }), callAt }),
+    ];
+    const lines = buildScene(views, undefined, undefined, NOW).activeLines;
+    expect(lines).toEqual([{ slot: slotOf('fairmind', LINE_SLOTS), fairmind: true, count: 2, server: 'fairmind', family: 'Studio', tool: 'call', caller: 'api-a' }]);
+  });
+
+  it('carries a null family for a Fairmind line whose first-tallied call carried none (hq-mcp-switchboard proposal.md §5 Phase 3 default form)', () => {
+    const callAt = NOW - 200;
+    const views = [view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('fairmind', { fairmind: true }), callAt })];
+    const lines = buildScene(views, undefined, undefined, NOW).activeLines;
+    expect(lines).toEqual([{ slot: slotOf('fairmind', LINE_SLOTS), fairmind: true, count: 1, server: 'fairmind', family: null, tool: 'call', caller: 'api-a' }]);
+  });
+
+  it('gives two servers whose names hash to the same slot an antenna each, the later name probing to the next free slot', () => {
+    // LINE_SLOTS buckets only 8 ways: among 50 distinct synthetic names, two colliding into the same slot is
+    // guaranteed by the pigeonhole principle, never left to chance on a handful of real server names.
+    const bySlot = new Map<number, string>();
+    let a = '';
+    let b = '';
+    for (let i = 0; i < 50 && !b; i++) {
+      const name = `server-${i}`;
+      const slot = slotOf(name, LINE_SLOTS);
+      const prior = bySlot.get(slot);
+      if (prior) {
+        a = prior;
+        b = name;
+      } else {
+        bySlot.set(slot, name);
+      }
+    }
+    expect(b).not.toBe('');
+    const callAt = NOW - 200;
+    const lines = buildScene(
+      [view('a', ws('/w/api', 'main'), 'working', { call: mcpCall(a), callAt }), view('b', ws('/w/web', 'main'), 'working', { call: mcpCall(b), callAt })],
+      undefined,
+      undefined,
+      NOW,
+    ).activeLines;
+    const [first, second] = a < b ? [a, b] : [b, a];
+    const home = slotOf(first, LINE_SLOTS);
+    expect(lines).toHaveLength(2);
+    expect(lines.find((l) => l.server === first)?.slot).toBe(home);
+    expect(lines.find((l) => l.server === second)?.slot).toBe((home + 1) % LINE_SLOTS);
+    expect(lines.every((l) => l.count === 1)).toBe(true);
+  });
+
+  it('shares a stub only past LINE_SLOTS distinct servers, the extra call counted on the line it lands on', () => {
+    const callAt = NOW - 200;
+    const servers = Array.from({ length: LINE_SLOTS + 1 }, (_, i) => `srv-${i}`);
+    const lines = buildScene(
+      servers.map((s, i) => view(`s${i}`, ws(`/w/r${i}`, 'main'), 'working', { call: mcpCall(s), callAt })),
+      undefined,
+      undefined,
+      NOW,
+    ).activeLines;
+    expect(lines).toHaveLength(LINE_SLOTS);
+    expect(new Set(lines.map((l) => l.slot)).size).toBe(LINE_SLOTS);
+    expect(lines.reduce((n, l) => n + l.count, 0)).toBe(LINE_SLOTS + 1);
+  });
+
+  it('drops a line once every call on it has left the minimum-hold window, and is empty with no clock', () => {
+    const views = [view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack'), callAt: NOW - MIN_HOLD_MS })];
+    expect(buildScene(views, undefined, undefined, NOW).activeLines).toEqual([]);
+    expect(buildScene(views).activeLines).toEqual([]);
+  });
+
+  it('lights one antenna per distinct server across every one of a single session\'s own concurrently-open calls ("parallel MCP calls" follow-up — one Claude Code turn calling six MCP servers in parallel used to light at most one antenna)', () => {
+    // Six synthetic server names picked to resolve to six distinct slots (LINE_SLOTS = 8): the scenario under test
+    // is one entity with many calls open at once, not slotOf's own hashing — an unrelated collision (already
+    // covered, and accepted, by the "keeps a slot's first-tallied server name" test above) would otherwise make
+    // this test flaky against which real names happen to hash together.
+    const servers: string[] = [];
+    const seenSlots = new Set<number>();
+    for (let i = 0; servers.length < 6; i++) {
+      const slot = slotOf(`server-${i}`, LINE_SLOTS);
+      if (!seenSlots.has(slot)) {
+        seenSlots.add(slot);
+        servers.push(`server-${i}`);
+      }
+    }
+    const callAt = NOW - 200;
+    const calls = Object.fromEntries(servers.map((server, i) => [`t${i}`, { call: mcpCall(server), callAt: callAt - i }]));
+    const views = [view('a', ws('/w/api', 'main'), 'working', { call: mcpCall(servers.at(-1)!), callAt, calls })];
+    const lines = buildScene(views, undefined, undefined, NOW).activeLines;
+    expect(lines).toHaveLength(6);
+    expect(lines.every((l) => l.count === 1)).toBe(true);
+    expect(new Set(lines.map((l) => l.server))).toEqual(new Set(servers));
+  });
+
+  it("falls back to the entity's own single call/callAt when `calls` has nothing live — a call held past its own tool.finished (reducer.ts's withoutCall already removed it from the map) within its own min-hold tail, or a fixture/restored session the map never existed for", () => {
+    const callAt = NOW - 200;
+    // `calls` present but empty (as if its one call had just finished): call/callAt alone still carries it.
+    const empty = buildScene([view('a', ws('/w/api', 'main'), 'working', { call: mcpCall('Slack'), callAt, calls: {} })], undefined, undefined, NOW).activeLines;
+    expect(empty).toEqual([{ slot: slotOf('Slack', LINE_SLOTS), fairmind: false, count: 1, server: 'Slack', family: null, tool: 'call', caller: 'api-a' }]);
+    // `calls` entirely absent (every pre-existing fixture, and a session restored from a store saved before it existed).
+    const absent = buildScene([view('b', ws('/w/web', 'main'), 'working', { call: mcpCall('Slack'), callAt })], undefined, undefined, NOW).activeLines;
+    expect(absent).toEqual([{ slot: slotOf('Slack', LINE_SLOTS), fairmind: false, count: 1, server: 'Slack', family: null, tool: 'call', caller: 'web-b' }]);
   });
 });
 
@@ -671,6 +897,23 @@ describe('meeting rooms', () => {
     expect([room({}).name, room({}).summary]).toEqual([null, null]);
   });
 
+  it("gives a workflow room's board its topic: the run's name, else its current phase, else 'Subagents'", () => {
+    const topic = (extra: Partial<WorkflowRun>) =>
+      buildFloorDetail([view('h', ws('/w/api', 'main'), 'working', { runs: [live('wf_0000aaaa-001', NOW - MIN, extra)] })], 'repo:/w/api')!.rooms[0]!.topic;
+    expect(topic({ name: 'checkout-verify' })).toBe('checkout-verify');
+    // No name: the current phase.
+    expect(topic({ name: null, phases: ['Plan', 'Build'], currentPhase: 'Build' })).toBe('Build');
+    // Neither: the generic fallback, never the run id.
+    expect(topic({ name: null, phases: [], currentPhase: null })).toBe('Subagents');
+  });
+
+  it("gives a crew room's board its topic: its host's title, else its current phase (it never has one), else 'Subagents', never its fixed name", () => {
+    const host = (extra: Partial<Session> = {}) => buildFloorDetail([view('a', ws('/w/api', 'main'), 'working', { children: [child('r1', 'Explore')], ...extra })], 'repo:/w/api')!.rooms[0]!;
+    expect(host({ title: 'Investigate the checkout bug' }).topic).toBe('Investigate the checkout bug');
+    // No title and no prompt: the generic fallback - the same word as the crew's fixed name, but never taken from it.
+    expect(host({ title: null, lastPrompt: null, firstPrompt: null }).topic).toBe('Subagents');
+  });
+
   it('lists running agents in start order, then finished ones, the latest to finish first, 24 at most, with the run counts', () => {
     const agents = [
       ...Array.from({ length: 20 }, (_, i) => runAgent(`f${String(i).padStart(2, '0')}`, { running: false, startedAt: NOW - 30 * MIN + i, updatedAt: NOW - 20 * MIN + i })),
@@ -680,9 +923,9 @@ describe('meeting rooms', () => {
     const r = buildFloorDetail([view('h', ws('/w/api', 'main'), 'working', { runs: [run('wf_0000aaaa-001', { agents, agentsFinished: 25 })] })], 'repo:/w/api')!.rooms[0]!;
     expect(r.counts).toEqual({ running: 6, finished: 25 });
     expect(r.agents.map((a) => a.agentId)).toEqual(['r5', 'r4', 'r3', 'r2', 'r1', 'r0', ...Array.from({ length: 18 }, (_, i) => `f${String(19 - i).padStart(2, '0')}`)]);
-    expect(r.agents[5]).toEqual({ agentId: 'r0', label: 'Review the ledger', phase: 'Review', type: null, running: true, smoking: false, leisure: null });
+    expect(r.agents[5]).toEqual({ agentId: 'r0', label: 'Review the ledger', phase: 'Review', type: null, running: true, smoking: false, leisure: null, call: null });
     // f19 waits for its running siblings: outside the (default closed) leisure window it's on a coffee break.
-    expect(r.agents[6]).toEqual({ agentId: 'f19', label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure: 'coffee' });
+    expect(r.agents[6]).toEqual({ agentId: 'f19', label: null, phase: null, type: 'workflow-subagent', running: false, smoking: false, leisure: 'coffee', call: null });
   });
 
   it('seats a working or in_meeting host at the head of its first room, keeping its robot', () => {
@@ -872,8 +1115,8 @@ describe('untrusted text in rooms, interns, runs and summaries', () => {
     const room = floor.rooms[0]!;
     const desk = occupants(floor)[0]!;
     expect([room.runId, room.agents[0]!.agentId, desk.interns[0]!.agentId, desk.runs[0]!.runId].map((id) => Array.from(id).length)).toEqual([256, 256, 256, 256]);
-    expect([room.name, room.summary, room.phases, room.agents[0]!.label, room.agents[0]!.phase, room.agents[0]!.type]).toEqual([
-      'na me', 'summary', [{ title: 'Plan', state: 'current' }], 'label', 'Review', 'type',
+    expect([room.name, room.topic, room.summary, room.phases, room.agents[0]!.label, room.agents[0]!.phase, room.agents[0]!.type]).toEqual([
+      'na me', 'na me', 'summary', [{ title: 'Plan', state: 'current' }], 'label', 'Review', 'type',
     ]);
     expect([desk.summary?.text, desk.interns[0]!.type, desk.interns[0]!.label, desk.runs[0]!.name]).toEqual(['summary', 'Explore', 'look[2J', 'na me']);
   });

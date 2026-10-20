@@ -40,6 +40,10 @@
   --tmux-done: #46D69A;
   --sign-bg: #20263A;
   --sign-fg: #F3F5FA;
+  /* The whiteboard's own topic text (labels.css's .fv-board): dark ink with a light halo, so it reads against the
+     board's own light day colour (--scene-board) even where a cast shadow darkens it. */
+  --board-ink: #1C2531;
+  --board-halo: #FAFAFA;
 
   /* Type: the bundled faces (fonts.css), then the system's */
   --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", sans-serif;
@@ -61,9 +65,21 @@
   --repo-0: #3FB8B0; --repo-1: #E58FB9; --repo-2: #7C8FE8; --repo-3: #F2A65A; --repo-4: #7FBF6A; --repo-5: #B88BE0; --repo-6: #4FA3D9; --repo-7: #B7967A;
   --feature-0: #2E3A59; --feature-1: #7A2E4D; --feature-2: #1F5C4A; --feature-3: #8A4B14; --feature-4: #3D2E7A; --feature-5: #0F5A73; --feature-6: #5E5410; --feature-7: #7A1F1F;
   --feature-none: #4A5163;
+  /* MCP server line-colour slots (hq-mcp-switchboard proposal.md §6; src/scene/palette.ts's LINE_SLOTS): the façade
+     rooftop switchboard's antenna stubs and a robot's headset bead. None of the eight is near teal, so a line is
+     never mistaken for the mast; recoloured for the dark blocks below (theme-aware, unlike --fairmind-teal). */
+  --line-0: #2A78D6; --line-1: #EB6834; --line-2: #1BAF7A; --line-3: #EDA100; --line-4: #E87BA4; --line-5: #008300; --line-6: #6250D6; --line-7: #E34948;
 
   /* Light intensities */
   --visor-int: 1; --window-int: 0.45; --lamp-int: 0.6; --screen-int: 0.9; --hemi-int: 1.15; --sun-int: 1.7;
+
+  /* The Fairmind brand's teal (ui/renderer/materials.ts's FAIRMIND_TEAL): fixed outside the theme, not restated in
+     the dark blocks below, so the mast keeps the brand's own colour by day and by night (proposal.md §4 "day/night"). */
+  --fairmind-teal: #2ec4a5;
+  /* The per-family VIP forms' gold accent (ui/renderer/materials.ts's FAIRMIND_GOLD; hq-mcp-switchboard
+     proposal.md §5 Phase 3): fixed outside the theme like --fairmind-teal above, for the rooftop mast's own sign
+     (Facade.svelte). */
+  --fairmind-gold: #D4AF37;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -73,6 +89,10 @@
     --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --roof: #283146; --plinth: #1B2232;
     --win-off: #18202F; --win-frame: #8491A9; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
     --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
+    /* Flipped from day: the night board darkens well below its own flat --scene-board under a cast shadow, so a
+       dark ink (day's choice) would lose its light halo's own contrast there; a light ink with a dark halo instead
+       reads against either the flat token or a shadowed patch of it. */
+    --board-ink: #F5F7FB; --board-halo: #10131A;
 
     --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
     --scene-chair: #4F5B7A; --scene-monitor: #0E1015; --scene-key: #6B7080; --scene-plant: #2F6B3B; --scene-pot: #7E4532;
@@ -84,6 +104,7 @@
     --repo-0: #3FB8B0; --repo-1: #E58FB9; --repo-2: #7C8FE8; --repo-3: #F2A65A; --repo-4: #7FBF6A; --repo-5: #B88BE0; --repo-6: #4FA3D9; --repo-7: #B7967A;
     --feature-0: #2E3A59; --feature-1: #7A2E4D; --feature-2: #1F5C4A; --feature-3: #8A4B14; --feature-4: #3D2E7A; --feature-5: #0F5A73; --feature-6: #5E5410; --feature-7: #7A1F1F;
     --feature-none: #4A5163;
+    --line-0: #3987E5; --line-1: #D95926; --line-2: #199E70; --line-3: #C98500; --line-4: #D55181; --line-5: #008300; --line-6: #9085E9; --line-7: #E66767;
     --visor-int: 1.8; --window-int: 0.9; --lamp-int: 2.4; --screen-int: 2; --hemi-int: 0.6; --sun-int: 0.55;
   }
 }
@@ -94,6 +115,7 @@
   --shade: #000000; --edge: #00000059; --shadow: #00000066; --wall: #2C3549; --slab: #222A3B; --roof: #283146; --plinth: #1B2232;
   --win-off: #18202F; --win-frame: #8491A9; --win-back: #23304A; --shutter: #39435A; --win-filter: drop-shadow(0 0 5px currentColor);
   --needs-ink: #FF8A8E; --done-ink: #5BE0A0; --working-ink: #FFD27A; --meeting-ink: #B3A8FF; --nosignal-ink: #E8B66A; --badge-fg: #0D1320;
+  --board-ink: #F5F7FB; --board-halo: #10131A;
 
   --scene-floor: #3A3F55; --scene-wall: #484D62; --scene-base: #2E3245; --scene-desk: #8C877C; --scene-leg: #15181F;
   --scene-chair: #4F5B7A; --scene-monitor: #0E1015; --scene-key: #6B7080; --scene-plant: #2F6B3B; --scene-pot: #7E4532;
@@ -105,5 +127,6 @@
   --repo-0: #3FB8B0; --repo-1: #E58FB9; --repo-2: #7C8FE8; --repo-3: #F2A65A; --repo-4: #7FBF6A; --repo-5: #B88BE0; --repo-6: #4FA3D9; --repo-7: #B7967A;
   --feature-0: #2E3A59; --feature-1: #7A2E4D; --feature-2: #1F5C4A; --feature-3: #8A4B14; --feature-4: #3D2E7A; --feature-5: #0F5A73; --feature-6: #5E5410; --feature-7: #7A1F1F;
   --feature-none: #4A5163;
+  --line-0: #3987E5; --line-1: #D95926; --line-2: #199E70; --line-3: #C98500; --line-4: #D55181; --line-5: #008300; --line-6: #9085E9; --line-7: #E66767;
   --visor-int: 1.8; --window-int: 0.9; --lamp-int: 2.4; --screen-int: 2; --hemi-int: 0.6; --sun-int: 0.55;
 }

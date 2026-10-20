@@ -4,8 +4,8 @@
  * state (screenColor): the floor gives them their colours again on a theme change.
  */
 import { Color, MeshBasicMaterial, MeshStandardMaterial, type Material } from 'three';
-import { FEATURE_SLOTS, REPO_SLOTS } from '../../src/scene/palette';
-import type { ShownState } from '../../src/scene/types';
+import { FEATURE_SLOTS, LINE_SLOTS, REPO_SLOTS } from '../../src/scene/palette';
+import type { OnCallView, ShownState } from '../../src/scene/types';
 import type { ColorToken, NumberToken, ThemeTokens } from './theme';
 
 /** How a material takes its colours from the theme. */
@@ -128,6 +128,13 @@ const SURFACES = {
    * here either): the working state's own amber, reused as a plain accent. */
   coffeeLight: { color: 's-working', emissive: 's-working', intensity: 'visor-int' },
   /**
+   * The on-call headset's dropped-call flash (hq-mcp-switchboard proposal.md §2 "Error / dropped call"): the same
+   * self-glow recipe as `cigarTip`/`coffeeLight` (an ember, reusing `visor-int`), but on the "needs you" status red
+   * rather than a plain accent — the one colour on this palette already reserved for an alarm, so the flash reads
+   * as one even on a line slot (materials.ts `lines`) that is not itself red.
+   */
+  headsetError: { color: 's-needs', emissive: 's-needs', intensity: 'visor-int' },
+  /**
    * Persona outfit colours (ui/renderer/persona.ts, user-decisions.md OQ-3): a role recolours a sub-agent's body,
    * the tie staying in the feature colour. Appended at the end, additive, so as not to disturb the recipes above.
    * Most personas reuse an existing surface outright (persona.ts's PERSONA_BODY: qa->wood, developer->jet,
@@ -177,6 +184,11 @@ export const DESK_OFF = 0.55;
 export const CONTACT_OPACITY = 0.22;
 /** The Fairmind brand's teal (fairmind-badge.ts): fixed, not a theme token — the badge keeps the brand's own colours by day and by night, as its mark does on fairmind.ai. */
 export const FAIRMIND_TEAL = '#2ec4a5';
+/** The gold accent of a FairMind per-family VIP form (hq-mcp-switchboard proposal.md §5 Phase 3; fairmind-forms.ts):
+ * fixed, outside the theme, the same discipline as `FAIRMIND_TEAL` — a cap, an edge, a tick or a ring in this one
+ * extra colour is what reads "distinctly premium" against a generic line's single-colour bead. tokens.css
+ * `--fairmind-gold` is the façade's own copy, for the rooftop mast's own sign (Facade.svelte). */
+export const FAIRMIND_GOLD = '#D4AF37';
 
 /** The colour a desk's screen glows in, by state; idle and dormant screens are off. */
 export const SCREEN_TOKEN: Record<ShownState, ColorToken | null> = {
@@ -205,6 +217,9 @@ export class Materials {
   /** The Fairmind badge's disc and its mark (fairmind-badge.ts): fixed colour, outside the theme. */
   readonly fairmindDisc: MeshBasicMaterial;
   readonly fairmindMark: MeshBasicMaterial;
+  /** The per-family VIP forms' gold accent (fairmind-forms.ts), and Code's wireframe cube: both fixed colour, outside the theme, like the disc and the mark above. */
+  readonly fairmindGold: MeshBasicMaterial;
+  readonly fairmindWire: MeshBasicMaterial;
   private readonly recipes: Array<[MeshStandardMaterial, Recipe]> = [];
   /** Materials made with a `fixed` colour (persona outfits with no token close enough): never touched by applyTheme. */
   private readonly fixedMaterials: MeshStandardMaterial[] = [];
@@ -212,6 +227,9 @@ export class Materials {
   private readonly joints: MeshStandardMaterial[] = [];
   private readonly rugs: MeshStandardMaterial[] = [];
   private readonly ties: MeshStandardMaterial[] = [];
+  /** The on-call headset's band and bead, by line slot (hq-mcp-switchboard proposal.md §4 "Meshes"): one shared,
+   * self-glowing material per slot, mirroring `bodies`/`ties`. A Fairmind call never indexes here (`lineColor`). */
+  private readonly lines: MeshStandardMaterial[] = [];
   private readonly noTie: MeshStandardMaterial;
   private readonly screens = new Map<ColorToken | null, Color>();
   private readonly mixer = new Color();
@@ -228,12 +246,15 @@ export class Materials {
     }
     for (let n = 0; n < FEATURE_SLOTS; n++) this.ties.push(this.make({ color: `feature-${n}` as ColorToken }));
     this.noTie = this.make({ color: 'feature-none' });
+    for (let n = 0; n < LINE_SLOTS; n++) this.lines.push(this.make({ color: `line-${n}` as ColorToken, emissive: `line-${n}` as ColorToken, intensity: 'visor-int' }));
     for (const token of new Set(Object.values(SCREEN_TOKEN))) this.screens.set(token, new Color());
     this.screen = new MeshBasicMaterial();
     this.ring = new MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false });
     this.contact = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: CONTACT_OPACITY, depthWrite: false });
     this.fairmindDisc = new MeshBasicMaterial({ color: new Color(FAIRMIND_TEAL) });
     this.fairmindMark = new MeshBasicMaterial({ color: 0xffffff });
+    this.fairmindGold = new MeshBasicMaterial({ color: new Color(FAIRMIND_GOLD) });
+    this.fairmindWire = new MeshBasicMaterial({ color: new Color(FAIRMIND_TEAL), wireframe: true });
     this.applyTheme(theme);
   }
 
@@ -253,6 +274,22 @@ export class Materials {
   /** A tie by feature slot; null (a department floor) gives the neutral tie. */
   tie(slot: number | null): MeshStandardMaterial {
     return slot === null ? this.noTie : this.ties[wrap(slot, FEATURE_SLOTS)]!;
+  }
+
+  /** The on-call headset's band and bead, by line slot. */
+  line(slot: number): MeshStandardMaterial {
+    return this.lines[wrap(slot, LINE_SLOTS)]!;
+  }
+
+  /**
+   * The colour a robot's on-call headset shows for `call` (robot.ts `setOnCall`): the dropped-call flash first (any
+   * slot, any family), then Fairmind's fixed teal badge disc (never a line slot, so prod/dev collapsing to one
+   * identity, materials.ts `FAIRMIND_TEAL`, never has to be distinguished from the line rotation), then the call's
+   * own line slot.
+   */
+  lineColor(call: Pick<OnCallView, 'slot' | 'fairmind' | 'error'>): Material {
+    if (call.error) return this.surface.headsetError;
+    return call.fairmind ? this.fairmindDisc : this.line(call.slot);
   }
 
   /**
@@ -290,6 +327,8 @@ export class Materials {
       this.contact,
       this.fairmindDisc,
       this.fairmindMark,
+      this.fairmindGold,
+      this.fairmindWire,
     ];
   }
 

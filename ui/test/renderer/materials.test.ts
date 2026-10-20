@@ -19,6 +19,8 @@ function nightTheme(): ThemeTokens {
   t.colors['bot-jet'] = '#9aa3b2';
   t.colors['s-meeting'] = '#9b8cff';
   t.colors['scene-couch'] = '#8e5a47';
+  t.colors['s-needs'] = '#ff5a5f';
+  t.colors['line-3'] = '#c98500';
   t.numbers['visor-int'] = 1.8;
   t.numbers['screen-int'] = 2;
   return t;
@@ -136,6 +138,26 @@ describe('materials', () => {
     expect(m.body(1.5)).toBe(m.body(0));
   });
 
+  it('gives each line slot a self-glowing headset colour, wrapped the same way the other colour slots are', () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    expect(hex(m.line(3).color)).toBe(theme.colors['line-3']);
+    expect(hex(m.line(3).emissive)).toBe(theme.colors['line-3']);
+    expect(m.line(3).emissiveIntensity).toBe(theme.numbers['visor-int']);
+    expect(m.line(10)).toBe(m.line(2));
+    expect(m.line(3)).not.toBe(m.line(2));
+  });
+
+  it("picks a call's headset colour: the dropped-call flash first, then Fairmind's fixed teal, then its line slot", () => {
+    const theme = dayTheme();
+    const m = new Materials(theme);
+    expect(m.lineColor({ slot: 2, fairmind: false, error: false })).toBe(m.line(2));
+    expect(m.lineColor({ slot: 2, fairmind: true, error: false })).toBe(m.fairmindDisc);
+    expect(m.lineColor({ slot: 2, fairmind: true, error: true })).toBe(m.surface.headsetError);
+    expect(m.lineColor({ slot: 2, fairmind: false, error: true })).toBe(m.surface.headsetError);
+    expect(hex(m.surface.headsetError.color)).toBe(theme.colors['s-needs']);
+  });
+
   it('lights a screen in its state colour at the screen intensity, as a glowing screen shows it, and leaves idle and dormant screens off', () => {
     const theme = dayTheme();
     const m = new Materials(theme);
@@ -169,6 +191,8 @@ describe('materials', () => {
     expect(working.toArray()).toEqual(new Color('#ffd27a').multiplyScalar(2).toArray());
     expect(hex(m.body(2).color)).toBe('#123456');
     expect(hex(m.tie(4).color)).toBe('#654321');
+    expect(hex(m.line(3).color)).toBe('#c98500');
+    expect(hex(m.surface.headsetError.color)).toBe('#ff5a5f');
     expect(hex(m.ring.color)).toBe('#7ea4ff');
     expect(hex(m.surface.board.color)).toBe('#c9ced8');
     expect(hex(m.surface.hardhat.color)).toBe('#d3d8e0');
@@ -219,11 +243,12 @@ describe('materials', () => {
     for (const x of m.all()) x.addEventListener('dispose', () => freed++);
     m.dispose();
     expect(freed).toBe(m.all().length);
-    // The surfaces (58: the espresso machine's own chrome and its ready light, plus the 7 persona outfits, the
-    // boss's gold and the planner's opaque blueprint roll, all appended at the end), a body, joint and rug per repo
-    // slot, the ties, the no-tie neutral, the screens, the ring, the contact disc, and the Fairmind badge's disc
-    // and its mark.
-    expect(m.all().length).toBe(58 + 3 * 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1);
+    // The surfaces (59: the espresso machine's own chrome and its ready light, the 7 persona outfits, the boss's
+    // gold, the planner's opaque blueprint roll and the on-call headset's dropped-call flash, all appended at the
+    // end), a body, joint and rug per repo slot, the ties, the no-tie neutral, a headset colour per line slot, the
+    // screens, the ring, the contact disc, the Fairmind badge's disc and its mark, and the per-family VIP forms'
+    // own gold accent and Code's wireframe (fairmind-forms.ts, hq-mcp-switchboard proposal.md §5 Phase 3).
+    expect(m.all().length).toBe(59 + 3 * 8 + 8 + 8 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1);
   });
 
   it('lays a soft black disc under a robot on its way, the same by day and by night, writing no depth', () => {

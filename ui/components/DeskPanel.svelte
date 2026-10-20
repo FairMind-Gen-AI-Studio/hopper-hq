@@ -66,7 +66,8 @@
   <dd>{formatAgo(now - desk.since)} ago</dd>
   {#if desk.activity?.running}
     <dt>Running</dt>
-    <dd><code>{desk.activity.label}</code> for {formatAgo(now - desk.activity.since)}{desk.state === 'no_signal' ? ', no new output' : ''}</dd>
+    <!-- The call's own dropped-call mark (hq-mcp-switchboard proposal.md §2), the non-visual echo of the floor's own red flash, and its "×N" ("parallel MCP calls" follow-up, OnCallView.count): desk.call only exists while the activity is the call itself, running. -->
+    <dd><code>{desk.activity.label}{desk.call?.count && desk.call.count > 1 ? ` ×${desk.call.count}` : ''}{desk.call?.error ? ' ✗' : ''}</code> for {formatAgo(now - desk.activity.since)}{desk.state === 'no_signal' ? ', no new output' : ''}</dd>
   {:else if desk.activity}
     <dt>Last action</dt>
     <dd>{desk.activity.label} <span class="p-note">· {formatAgo(now - desk.activity.since)} ago</span></dd>

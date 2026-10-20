@@ -1,5 +1,5 @@
 import { truncate } from './tool-label.js';
-import type { ChildAgent, CollectorEvent, EventOf, RunAgent, Session, SessionState, WorkflowRun, Workspace } from './types.js';
+import type { ChildAgent, CollectorEvent, EventOf, McpCall, OpenCall, RunAgent, Session, SessionState, WorkflowRun, Workspace } from './types.js';
 
 const MAX_CHILDREN = 50;
 /** Workflow runs kept per session; running ones are never dropped. */
@@ -16,6 +16,10 @@ export const AGENT_ID = /^[A-Za-z0-9_-]{1,128}$/;
 export const MAX_RECENT_ACTIONS = 10;
 /** The longest last answer kept, in code points. */
 export const ANSWER_MAX = 2000;
+/** An entity's own open MCP calls kept at once (core/types.ts's `calls`, keyed by toolId): a call is dropped from
+ * it only by its own `tool.finished` (`withoutCall`), so one whose end is never reported (a vanished subagent, a
+ * toolId the adapter never names) would otherwise sit there forever. */
+export const MAX_OPEN_CALLS = 50;
 
 export function newSession(id: string, ts: number, workspace: Workspace): Session {
   return {
@@ -61,6 +65,38 @@ function setState(s: Session, state: SessionState, ts: number): Session {
   return s.state === state ? s : { ...s, state, stateSince: ts };
 }
 
+/**
+ * Upserts an entity's own `calls` map (core/types.ts's `OpenCall`, keyed by toolId) with a freshly-started MCP
+ * call: a second, parallel `tool.started` on the same entity registers alongside the first here, where a single
+ * `call`/`callAt` pair (still set from this same event, unchanged) could only ever hold the latest one. `toolId`
+ * absent (an adapter that never names one) falls back to a key built from the event's own `seq`, unique per event,
+ * so two such calls still track separately rather than colliding on one empty key. Bounded at `MAX_OPEN_CALLS`,
+ * oldest (by `callAt`) dropped first.
+ */
+function withCall(calls: Record<string, OpenCall> | undefined, toolId: string | null, seq: number, call: McpCall, callAt: number): Record<string, OpenCall> {
+  const key = toolId ?? `~${seq}`;
+  const next = { ...calls, [key]: { call, callAt } };
+  const keys = Object.keys(next);
+  if (keys.length > MAX_OPEN_CALLS) {
+    delete next[keys.reduce((a, b) => (next[a]!.callAt <= next[b]!.callAt ? a : b))];
+  }
+  return next;
+}
+
+/**
+ * `tool.finished` removes only its own toolId from `calls` — a sibling call still open, or still within its own
+ * `MIN_HOLD_MS` hold (build.ts), is untouched. The same `calls` reference when there is no matching entry (a
+ * finish with no toolId, or one `withCall` never saw — the fallback key above is never reconstructable from a
+ * finish alone, so such a call simply ages out of `calls` on its own, past `MIN_HOLD_MS`, rather than being
+ * removed early).
+ */
+function withoutCall(calls: Record<string, OpenCall> | undefined, toolId: string): Record<string, OpenCall> | undefined {
+  if (!calls || !(toolId in calls)) return calls;
+  const next = { ...calls };
+  delete next[toolId];
+  return next;
+}
+
 function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { updatedAt: number }): Session {
   const i = s.children.findIndex((c) => c.id === id);
   let children: ChildAgent[];
@@ -73,6 +109,12 @@ function withChild(s: Session, id: string, patch: Partial<ChildAgent> & { update
       lastAction: patch.lastAction ?? null,
       updatedAt: patch.updatedAt,
       ...(patch.smoking ? { smoking: true } : {}),
+      // A never-before-seen subagent's very first tool.started can itself be an MCP call (hq-mcp-switchboard
+      // contract.md Seam 1): carry it the same way `smoking` is, so it is not invisible until a second event merges.
+      // `call`/`callAt` persist (never wiped on finish): `build.ts`'s `MIN_HOLD_MS` window reads `callAt` against
+      // `now`, same as `ChildAgent`'s own patched-in-place case just below (core/types.ts's `call`/`callAt` pair).
+      ...(patch.call ? { call: patch.call, callAt: patch.callAt } : {}),
+      ...(patch.calls ? { calls: patch.calls } : {}),
     };
     children = [...s.children, child];
   } else {
@@ -289,19 +331,31 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
     case 'tool.finished': {
       if (!e.agentId) break;
       const run = runOfAgent(s, e.agentId);
-      const smoke = e.type === 'tool.started' && e.smoke === true;
+      const started = e.type === 'tool.started';
+      const smoke = started && e.smoke === true;
+      // Retained from tool.finished's `ok` (hq-mcp-switchboard proposal.md §3/§5 Phase 0): a dropped call is state-
+      // distinguishable from a clean one. Cleared the moment the entity starts its next tool.
+      const error = started ? false : e.ok === false;
+      // The MCP descriptor a started tool carries, else null: only exists on the 'tool.started' variant, hence the
+      // `started` guard. `call`/`callAt` (core/types.ts) are set from it below but, unlike `error`, are never wiped
+      // back to null on `tool.finished` — `build.ts`'s `MIN_HOLD_MS` window reads `now - callAt` to tell a live/held
+      // call from a stale one, so the identity must survive past the close that would otherwise erase it.
+      const mcp = started ? e.mcp ?? null : null;
       // A run's agent acting: no child is made for it.
       if (run) {
         return endAgentWait(withRun(s, run.id, e.ts, (r) => withRunAgent(r, e.agentId!, (a) => ({
           ...a,
           updatedAt: Math.max(a.updatedAt, e.ts),
           ...(smoke ? { smoking: true } : e.type === 'tool.finished' && a.smoking ? { smoking: false } : {}),
+          error,
+          ...(mcp ? { call: mcp, callAt: e.ts, calls: withCall(a.calls, e.toolId, e.seq, mcp, e.ts) } : {}),
+          ...(!started && e.toolId !== null ? { calls: withoutCall(a.calls, e.toolId) } : {}),
         }))), e, e.agentId);
       }
       const prior = s.children.find((c) => c.id === e.agentId);
-      const patch = e.type === 'tool.started'
-        ? { lastAction: e.label, running: true, updatedAt: e.ts, ...(smoke ? { smoking: true } : {}) }
-        : { updatedAt: e.ts, ...(prior?.smoking ? { smoking: false } : {}) };
+      const patch = started
+        ? { lastAction: e.label, running: true, updatedAt: e.ts, error, ...(mcp ? { call: mcp, callAt: e.ts, calls: withCall(prior?.calls, e.toolId, e.seq, mcp, e.ts) } : {}), ...(smoke ? { smoking: true } : {}) }
+        : { updatedAt: e.ts, error, ...(prior?.smoking ? { smoking: false } : {}), ...(e.toolId !== null ? { calls: withoutCall(prior?.calls, e.toolId) } : {}) };
       return endAgentWait(withChild(s, e.agentId, patch), e, e.agentId);
     }
     case 'workflow.started': {
@@ -372,14 +426,43 @@ export function applyEvent(prev: Session | undefined, e: CollectorEvent): Sessio
         ...setState(s, 'working', e.ts),
         waitReason: null,
         waitAgentId: null,
-        openTool: { id: e.toolId, label: e.label, startedAt: e.ts, smoking: e.smoke === true },
+        openTool: {
+          id: e.toolId,
+          label: e.label,
+          startedAt: e.ts,
+          smoking: e.smoke === true,
+          call: e.mcp ?? null,
+          // `openTool` is replaced wholesale on every start (unlike ChildAgent/RunAgent, which patch in place), so
+          // the running count must be carried forward explicitly or it resets on the next non-MCP tool (contract.md
+          // Seam 1's "independent of whether the previous call closed" — see `ChildAgent.calls`).
+          calls: (s.openTool?.calls ?? 0) + (e.mcp ? 1 : 0),
+        },
+        // `call`/`callAt` (core/types.ts, same place `error` already lives rather than on `openTool`) persist past
+        // the close that wipes `openTool.call`: `build.ts`'s `MIN_HOLD_MS` window reads `callAt` against `now`, so
+        // the server identity must still be here a little while after this same start's call already closed.
+        // `calls` (plural, core/types.ts's `calls?: Record<string, OpenCall>`) tracks every one of the main
+        // agent's own calls concurrently open, keyed by toolId — a second, parallel `tool.started` registers
+        // alongside the first here, where `call`/`callAt` alone could only ever hold the latest one.
+        ...(e.mcp ? { call: e.mcp, callAt: e.ts, calls: withCall(s.calls, e.toolId, e.seq, e.mcp, e.ts) } : {}),
+        error: false,
         lastAction: e.label,
         lastActionAt: e.ts,
         recentActions: s.recentActions.at(-1) === e.label ? s.recentActions : [...s.recentActions, e.label].slice(-MAX_RECENT_ACTIONS),
       };
     case 'tool.finished': {
       const closes = s.openTool && (e.toolId === null || s.openTool.id === e.toolId);
-      return { ...setState(s, s.state === 'ended' ? 'ended' : 'working', e.ts), waitReason: null, waitAgentId: null, openTool: closes ? null : s.openTool };
+      // Retained from `ok` (hq-mcp-switchboard proposal.md §3/§5 Phase 0): kept on the session itself, not on
+      // `openTool`, because `openTool` may be nulled by this same event (`closes`) while the error signal must survive.
+      return {
+        ...setState(s, s.state === 'ended' ? 'ended' : 'working', e.ts),
+        waitReason: null,
+        waitAgentId: null,
+        openTool: closes ? null : s.openTool,
+        error: e.ok === false,
+        // `tool.finished` removes only its own toolId from `calls` ("parallel MCP calls" follow-up) — a sibling
+        // call still open, or still within its own min-hold window, is untouched.
+        ...(e.toolId !== null ? { calls: withoutCall(s.calls, e.toolId) } : {}),
+      };
     }
     case 'waiting': {
       const pending = s.state === 'needs_you';

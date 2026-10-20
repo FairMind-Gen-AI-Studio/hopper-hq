@@ -79,6 +79,45 @@ describe('workflow runs', () => {
     expect(t.runs[0]!.agents[0]!.smoking).toBeFalsy();
   });
 
+  it('retains ok on tool.finished as an error signal on a run agent, cleared by its next tool.started (hq-mcp-switchboard proposal.md §5 Phase 0)', () => {
+    let s = run(seen(), hookAgent(1100, 'a1'), ev('tool.started', 1200, { toolId: 'c1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: 'a1' }));
+    s = applyEvent(s, ev('tool.finished', 1300, { toolId: 'c1', ok: false, agentId: 'a1' }))!;
+    expect(s.runs[0]!.agents[0]!.error).toBe(true);
+    s = applyEvent(s, ev('tool.started', 1400, { toolId: 'c2', tool: 'Read', label: 'Read a.ts', agentId: 'a1' }))!;
+    expect(s.runs[0]!.agents[0]!.error).toBe(false);
+  });
+
+  const NOTION = { server: 'Notion', family: null, write: false, fairmind: false, tool: 'search' };
+
+  it("sets the call descriptor from tool.started's mcp field on a run agent, and persists call/callAt past the close that would otherwise wipe them, so build.ts's MIN_HOLD_MS window can still read the server identity a little while after the call that set it already closed (hq-mcp-switchboard contract.md Seam 1)", () => {
+    let s = run(seen(), hookAgent(1100, 'a1'), ev('tool.started', 1200, { toolId: 'c1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: 'a1', mcp: NOTION }));
+    expect(s.runs[0]!.agents[0]).toMatchObject({ call: NOTION, callAt: 1200 });
+    s = applyEvent(s, ev('tool.finished', 1300, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    // Not wiped by tool.finished — only a newer MCP call overwrites call/callAt.
+    expect(s.runs[0]!.agents[0]).toMatchObject({ call: NOTION, callAt: 1200 });
+    s = applyEvent(s, ev('tool.started', 1400, { toolId: 'c2', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: 'a1', mcp: NOTION }))!;
+    expect(s.runs[0]!.agents[0]).toMatchObject({ call: NOTION, callAt: 1400 });
+    s = applyEvent(s, ev('tool.started', 1500, { toolId: 'c3', tool: 'Read', label: 'Read a.ts', agentId: 'a1' }))!;
+    expect(s.runs[0]!.agents[0]).toMatchObject({ call: NOTION, callAt: 1400 });
+  });
+
+  const SLACK = { server: 'Slack', family: null, write: false, fairmind: false, tool: 'post' };
+
+  it('tracks a run agent\'s own concurrently-open calls by toolId, each finish removing only its own ("parallel MCP calls" follow-up)', () => {
+    let s = run(seen(), hookAgent(1100, 'a1'), ev('tool.started', 1200, { toolId: 'c1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: 'a1', mcp: NOTION }));
+    expect(s.runs[0]!.agents[0]!.calls).toEqual({ c1: { call: NOTION, callAt: 1200 } });
+    // A second, parallel call (a different toolId, before c1 finishes) registers alongside the first instead of
+    // overwriting it — the reducer bug one Claude Code turn calling several MCP servers in one message exposed.
+    s = applyEvent(s, ev('tool.started', 1210, { toolId: 'c2', tool: 'mcp__Slack__post', label: 'Slack: post', agentId: 'a1', mcp: SLACK }))!;
+    expect(s.runs[0]!.agents[0]!.calls).toEqual({ c1: { call: NOTION, callAt: 1200 }, c2: { call: SLACK, callAt: 1210 } });
+    expect(s.runs[0]!.agents[0]).toMatchObject({ call: SLACK, callAt: 1210 });
+    // c1's own finish removes only its own toolId — c2 is untouched, still open.
+    s = applyEvent(s, ev('tool.finished', 1300, { toolId: 'c1', ok: true, agentId: 'a1' }))!;
+    expect(s.runs[0]!.agents[0]!.calls).toEqual({ c2: { call: SLACK, callAt: 1210 } });
+    s = applyEvent(s, ev('tool.finished', 1310, { toolId: 'c2', ok: true, agentId: 'a1' }))!;
+    expect(s.runs[0]!.agents[0]!.calls).toEqual({});
+  });
+
   it("moves an agent whose tool event came before its spawn from the children to its run, and makes no child for its later steps", () => {
     let s = run(seen(), ev('tool.started', 1100, { toolId: 'c1', tool: 'Grep', label: 'Grep useCart', agentId: 'a1' }));
     expect(s.children.map((c) => c.id)).toEqual(['a1']);

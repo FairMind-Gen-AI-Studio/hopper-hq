@@ -1,3 +1,4 @@
+import { classifyMcp, toolLabel } from '../core/tool-label.js';
 import type { AgentKind, DistributiveOmit, RawEvent, Workspace } from '../core/types.js';
 import type { DemoStep } from './demo.js';
 
@@ -49,6 +50,13 @@ export const SHOWCASE_LEAD_MS = 20_000;
 type Body = DistributiveOmit<RawEvent, 'sessionId' | 'ts' | 'source'>;
 const at = (sessionId: string, ts: number, body: Body): RawEvent => ({ ...body, sessionId, ts, source: 'demo' }) as RawEvent;
 
+/** A started MCP call's `tool`/`label`/`mcp`, classified exactly as the real hooks adapter does (see demo.ts's own `mcpStart`). */
+function mcpStart(toolId: string, tool: string, agentId: string | null): Body {
+  const mcp = classifyMcp(tool);
+  if (!mcp) throw new Error(`showcase.ts: not an MCP tool name: ${tool}`);
+  return { type: 'tool.started', toolId, tool, label: toolLabel(tool, {}), agentId, mcp };
+}
+
 const RELEASE = { runId: 'wf_showcase-release', name: 'release-check', summary: 'Verify the new checkout end to end', phases: ['Plan', 'Build', 'Review', 'Ship'] };
 const MIGRATION = { runId: 'wf_showcase-migration', name: 'migration-replay', summary: 'Replay a day of orders on the new schema', phases: ['Sample', 'Replay', 'Compare'] };
 const SWEEP = { runId: 'wf_showcase-a11y', name: 'a11y-sweep', summary: 'Check every page against the accessibility checklist', phases: ['Crawl', 'Audit', 'Report'] };
@@ -74,6 +82,15 @@ const SWEEP = { runId: 'wf_showcase-a11y', name: 'a11y-sweep', summary: 'Check e
  * reviewer, the librarian (Technical Writer) and QA. migration-replay keeps the plain `workflow-subagent` type, so
  * it shows no persona, for contrast. Every typed agent carries the `fairmind-coding:` namespace, so each also wears
  * the Fairmind badge — exercising the classifier's prefix handling end to end.
+ *
+ * Six beats exercise the MCP switchboard (hq-mcp-switchboard proposal.md), each at a second nothing else in the
+ * script uses and on a desk/helper otherwise idle at that moment, so none of them disturbs a scripted state (pay3's
+ * smoke test, a leisure pairing, a room's phase): pay1 places a Notion search (read) at sec 2-3 and, later, a
+ * FairMind `Studio_get_task` (read, by a session) at sec 52-53; web2 places a Slack post at sec 5-6; at sec 33-37
+ * web2's two helpers (sc-web2-a, sc-web2-b) each call a different server (Google Sheets, ClickUp) at once — two
+ * distinct lines live across the building simultaneously; pay1's third helper (sc-pay1-c, running sec 47-64) places
+ * a call that is dropped (ok:false) at sec 48-49, then a FairMind `Brain_record_decision` (write, by a sub-agent) at
+ * sec 57-59.
  */
 export function showcaseScript(): DemoStep[] {
   const s = SHOWCASE_SESSIONS;
@@ -108,7 +125,13 @@ export function showcaseScript(): DemoStep[] {
         }),
     },
     arrive(s.api2, 1, 'Bash', 'Bash: npm run build'),
+    // MCP switchboard: a Notion search (read), on pay1's own session.
+    step(2, (b) => [at(s.pay1.id, b, mcpStart('pay1-mcp1', 'mcp__Notion__search', null))]),
+    step(3, (b) => [at(s.pay1.id, b, { type: 'tool.finished', toolId: 'pay1-mcp1', ok: true, agentId: null })]),
     arrive(s.pay2, 4, 'Edit', 'Edit src/ledger/split.ts'),
+    // MCP switchboard: a Slack post, on web2's own session.
+    step(5, (b) => [at(s.web2.id, b, mcpStart('web2-mcp1', 'mcp__Slack__chat_postMessage', null))]),
+    step(6, (b) => [at(s.web2.id, b, { type: 'tool.finished', toolId: 'web2-mcp1', ok: true, agentId: null })]),
     // release-check: web1 hands the checkout to a workflow and goes into the meeting room with its agents.
     step(7, (b) => [at(s.web1.id, b, start(RELEASE)), at(s.web1.id, b, agent(s.web1, RELEASE, '0', 'Plan', 'Map the checkout flow', 'fairmind-coding:Technical Lead / Architect'))]),
     arrive(s.web3, 9, 'Edit', 'Edit src/components/EmptyState.tsx'),
@@ -143,6 +166,10 @@ export function showcaseScript(): DemoStep[] {
     // Stopped and cleared, as by Esc and /clear: it rests in the lounge until its next prompt.
     step(30, (b) => [at(s.api3.id, b, { type: 'session.started' })]),
     step(31, (b) => [at(s.pay1.id, b, helper('sc-pay1-a', 'Explore', 'Read the ledger entries of a split payment')), at(s.pay1.id, b, helper('sc-pay1-b', 'Explore', 'Read the refund path'))]),
+    // MCP switchboard: parallel calls to two distinct servers — web2's two helpers (both still running) call
+    // Google Sheets and ClickUp at the same moment, the one honest read of parallelism the rooftop exists for.
+    step(32, (b) => [at(s.web2.id, b, mcpStart('web2a-mcp1', 'mcp__GoogleSheets__read_values', 'sc-web2-a')), at(s.web2.id, b, mcpStart('web2b-mcp1', 'mcp__ClickUp__get_task', 'sc-web2-b'))]),
+    step(33, (b) => [at(s.web2.id, b, { type: 'tool.finished', toolId: 'web2a-mcp1', ok: true, agentId: 'sc-web2-a' }), at(s.web2.id, b, { type: 'tool.finished', toolId: 'web2b-mcp1', ok: true, agentId: 'sc-web2-b' })]),
     step(34, (b) => [at(s.web2.id, b, stop('sc-web2-a'))]),
     step(36, (b) => [at(s.api2.id, b, { type: 'prompt', text: 'Yes, rebuild it.' }), at(s.pay4.id, b, { type: 'session.started' })]),
     step(39, (b) => [
@@ -162,11 +189,20 @@ export function showcaseScript(): DemoStep[] {
     // The smoke test started at sec 18 finishes: the cigar clears.
     step(45, (b) => [at(s.pay3.id, b, { type: 'tool.finished', toolId: `${s.pay3.id}-t1`, ok: true, agentId: null })]),
     step(47, (b) => [at(s.pay1.id, b, stop('sc-pay1-a')), at(s.pay1.id, b, helper('sc-pay1-c', 'general-purpose', 'Write the refund tests'))]),
+    // MCP switchboard: a dropped call (error), on pay1's third helper (running sec 47-64).
+    step(48, (b) => [at(s.pay1.id, b, mcpStart('pay1c-mcp1', 'mcp__Notion__create_page', 'sc-pay1-c'))]),
+    step(49, (b) => [at(s.pay1.id, b, { type: 'tool.finished', toolId: 'pay1c-mcp1', ok: false, agentId: 'sc-pay1-c' })]),
     step(50, (b) => [at(s.web3.id, b, { type: 'prompt', text: 'Yes, sweep the pages.' })]),
     step(51, (b) => [at(s.web1.id, b, agent(s.web1, RELEASE, '6', 'Ship', 'Run the checkout suite on staging', 'fairmind-coding:QA Engineer')), at(s.web1.id, b, done(RELEASE, '4')), at(s.web1.id, b, done(RELEASE, '5'))]),
+    // MCP switchboard: FairMind Studio_get_task (read), by pay1's own session.
+    step(52, (b) => [at(s.pay1.id, b, mcpStart('pay1-mcp2', 'mcp__Fairmind__Studio_get_task', null))]),
+    step(53, (b) => [at(s.pay1.id, b, { type: 'tool.finished', toolId: 'pay1-mcp2', ok: true, agentId: null })]),
     step(54, (b) => [at(s.pay1.id, b, stop('sc-pay1-b')), at(s.api1.id, b, done(MIGRATION, '4')), at(s.api1.id, b, finishRun(MIGRATION))]),
     step(56, (b) => [at(s.web3.id, b, start(SWEEP)), at(s.web3.id, b, agent(s.web3, SWEEP, '0', 'Crawl', 'List every page of the storefront', 'fairmind-coding:Frontend Engineer'))]),
+    // MCP switchboard: FairMind Brain_record_decision (write), by a sub-agent — pay1's third helper reporting home.
+    step(57, (b) => [at(s.pay1.id, b, mcpStart('pay1c-mcp2', 'mcp__Fairmind__Brain_record_decision', 'sc-pay1-c'))]),
     step(58, (b) => [at(s.web1.id, b, done(RELEASE, '6')), at(s.web1.id, b, finishRun(RELEASE))]),
+    step(59, (b) => [at(s.pay1.id, b, { type: 'tool.finished', toolId: 'pay1c-mcp2', ok: true, agentId: 'sc-pay1-c' })]),
     step(60, (b) => [
       at(s.web3.id, b, agent(s.web3, SWEEP, '1', 'Audit', 'Audit the product pages', 'fairmind-coding:Frontend Engineer')),
       at(s.web3.id, b, agent(s.web3, SWEEP, '2', 'Audit', 'Audit the cart and checkout', 'fairmind-coding:Frontend Engineer')),

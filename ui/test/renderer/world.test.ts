@@ -12,7 +12,10 @@ import {
   BEANBAG_SCALE,
   BEANBAG_X,
   BOARD,
+  BOARD_NORMAL,
   CAMERA_DISTANCE,
+  CARD_LEAN,
+  CARD_Y,
   CHAIR_Z,
   COFFEE_MACHINE,
   COFFEE_MACHINE_OUT,
@@ -39,13 +42,17 @@ import {
   barCartCenter,
   barCartSpots,
   boardAnchor,
+  boardCorners,
   cameraOffset,
+  cardAnchor,
+  cardLean,
   cellToWorld,
   coffeeMachineCenter,
   coffeeMachineSpots,
   deskAnchor,
   doorGap,
   elevatorSpot,
+  facesCamera,
   floorCenter,
   foosballCenter,
   foosballSpots,
@@ -406,7 +413,7 @@ describe('meeting rooms', () => {
     expect(headSpot(ROOM).x - ROOM.x).toBeGreaterThan(1);
   });
 
-  it('hangs the whiteboard on the inside of the north partition, and its overlay from the top of the board', () => {
+  it('puts the whiteboard anchor point on the inside of the north partition, at the top of the board', () => {
     const a = boardAnchor(ROOM);
     expect(a.x).toBe(ROOM.x + ROOM.w / 2);
     expect(a.y).toBe(BOARD.y + BOARD.h / 2);
@@ -416,12 +423,59 @@ describe('meeting rooms', () => {
     expect(BOARD.w).toBeLessThan(ROOM.w);
   });
 
+  it("gives the whiteboard's own four corners, level and square on its north partition, in front of boardAnchor's point", () => {
+    const c = boardCorners(ROOM);
+    expect(c.tl).toEqual({ x: ROOM.x + ROOM.w / 2 - BOARD.w / 2, y: BOARD.y + BOARD.h / 2, z: c.tl.z });
+    expect(c.tr).toEqual({ x: ROOM.x + ROOM.w / 2 + BOARD.w / 2, y: BOARD.y + BOARD.h / 2, z: c.tl.z });
+    expect(c.bl).toEqual({ x: c.tl.x, y: BOARD.y - BOARD.h / 2, z: c.tl.z });
+    expect(c.br).toEqual({ x: c.tr.x, y: c.bl.y, z: c.tl.z });
+    // All four corners sit on the same plane, just off the partition, exactly where boardAnchor's own point stands
+    // (both derive PARTITION_T + 0.05 from the board mesh's own centre and depth, props.ts's buildRoom): a looser
+    // check here would let the two drift apart by a centimetre or more without either test noticing.
+    expect(c.tl.z).toBeGreaterThan(ROOM.y + PARTITION_T);
+    expect(c.tl.z).toBe(boardAnchor(ROOM).z);
+  });
+
+  it("faces the whiteboard's normal toward the camera when it stands on the board's own south side, not edge-on or behind it", () => {
+    expect(facesCamera(BOARD_NORMAL, { x: 0, y: 1, z: 1 })).toBe(true);
+    expect(facesCamera(BOARD_NORMAL, { x: 0, y: 1, z: 0 })).toBe(false);
+    expect(facesCamera(BOARD_NORMAL, { x: 0, y: 1, z: -1 })).toBe(false);
+  });
+
   it('hangs the room tag over the door', () => {
     const door = doorGap(ROOM);
     const a = roomTagAnchor(ROOM);
     expect(a.z).toBe((door.from + door.to) / 2);
     expect(a.x).toBeCloseTo(ROOM.x + PARTITION_T / 2, 10);
     expect(a.y).toBeGreaterThan(PARTITION_H);
+  });
+
+  it("leans a room's full-detail card away from a neighbour sharing its row, and not at all without one", () => {
+    // No other room at all: no row neighbour to lean away from.
+    expect(cardLean(ROOM, [])).toBe(0);
+    expect(cardLean(ROOM, [ROOM])).toBe(0);
+    // A second room east of it, in the same row (their y-extents overlap): lean west, away from it.
+    const east = { ...ROOM, x: ROOM.x + ROOM.w + 2 };
+    expect(cardLean(ROOM, [ROOM, east])).toBe(-1);
+    expect(cardLean(east, [ROOM, east])).toBe(1);
+    // A room directly south, in its own column (layoutPlan's room slots stack two rooms, same x): no row overlap,
+    // so no lean either, even though the two rooms are neighbours in the wing.
+    const south = { ...ROOM, y: ROOM.y + ROOM.h + 1 };
+    expect(cardLean(ROOM, [ROOM, south])).toBe(0);
+    // Two neighbours, one either side: leans away from whichever centre sits nearer.
+    const far = { ...ROOM, x: ROOM.x + ROOM.w + 40 };
+    expect(cardLean(ROOM, [ROOM, east, far])).toBe(-1);
+  });
+
+  it("hangs a room's full-detail card above it, leaning off its centre the way cardLean says", () => {
+    const east = { ...ROOM, x: ROOM.x + ROOM.w + 2 };
+    const a = cardAnchor(ROOM, [ROOM, east]);
+    expect(a.y).toBe(CARD_Y);
+    expect(a.y).toBeGreaterThan(PARTITION_H);
+    expect(a.x).toBe(ROOM.x + ROOM.w / 2 - CARD_LEAN);
+    expect(a.z).toBe(ROOM.y + ROOM.h / 2);
+    // No neighbour in its row: the card hangs centred, dead above the room.
+    expect(cardAnchor(ROOM, []).x).toBe(ROOM.x + ROOM.w / 2);
   });
 
   it('keys a room by its host and its run, so the rooms of one run under two hosts stay apart', () => {

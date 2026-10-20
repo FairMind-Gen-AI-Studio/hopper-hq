@@ -94,6 +94,61 @@ export function reasonText(r: { text: string; detail?: string | null } | null): 
   return r.detail ? `${r.text} (${r.detail})` : r.text;
 }
 
+/** `server` reduced to bare lowercase letters/digits, so 'Google_Calendar', 'google-calendar' and 'GoogleCalendar'
+ * all land on one `BRAND_NAME` entry — the same leniency `ui/facade/geometry.ts`'s own `glyphKeyOf` already
+ * established for its eight traced glyphs, reapplied here since both are "a server name, matched loosely" lookups. */
+function normalizeServer(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Known MCP servers' own brand spelling ("friendly server names" follow-up: the rooftop tag, the antenna tooltip,
+ * the DOM chip and the side panel's "Running" line all showed a server token verbatim — 'Google_Calendar',
+ * 'claude_ai_Notion' before `tool-label.ts`'s own prefix strip, underscores and all — which nobody reading the
+ * floor could place). Keyed by `normalizeServer`, so every real spelling `tool-label.ts`'s `resolveServer` can hand
+ * back for the same server (the plugin-qualified form, the claude.ai connector form, or the plain one) resolves to
+ * one entry. Lives here, not in tool-label.ts itself: both the server (building the DOM chip's own label) and the
+ * browser (the façade's antenna tag/tooltip, ui/lib/words.ts) need it, and only this module is shared with both.
+ */
+const BRAND_NAME: ReadonlyMap<string, string> = new Map(
+  Object.entries({
+    clickup: 'ClickUp',
+    slack: 'Slack',
+    notion: 'Notion',
+    gmail: 'Gmail',
+    googlecalendar: 'Google Calendar',
+    googledrive: 'Google Drive',
+    googlesheets: 'Google Sheets',
+    microsoft365: 'Microsoft 365',
+    mongodb: 'MongoDB',
+    playwright: 'Playwright',
+    fireflies: 'Fireflies',
+    chrome: 'Chrome',
+    fairmind: 'FairMind',
+    memory: 'Memory',
+  }),
+);
+
+/** One word, Title Cased: 'web' -> 'Web'. The fallback for a server outside `BRAND_NAME` — it makes no attempt at
+ * a real acronym or brand casing it does not already know (that is what the table above is for). */
+function titleWord(w: string): string {
+  return w ? w[0]!.toUpperCase() + w.slice(1).toLowerCase() : w;
+}
+
+/**
+ * A server token's own readable display name: `BRAND_NAME`'s own spelling for a known one, else its underscores
+ * turned to spaces and each word Title Cased ('my_internal_server' -> 'My Internal Server'). Never the identity a
+ * caller looks anything else up by — `ActiveLine.server`/`McpCall.server` (and `ui/facade/geometry.ts`'s own
+ * `glyphKeyOf`/`scene/palette.ts`'s own `slotOf`) all keep the raw, canonical token this function only ever
+ * formats for a person to read, never overwrites.
+ */
+export function friendlyServer(server: string): string {
+  const known = BRAND_NAME.get(normalizeServer(server));
+  if (known) return known;
+  const words = server.replace(/_/g, ' ').split(/\s+/).filter(Boolean);
+  return words.length ? words.map(titleWord).join(' ') : server;
+}
+
 /** Every state in words. */
 export const STATE_LABEL: Record<SessionState, string> = {
   working: 'working',

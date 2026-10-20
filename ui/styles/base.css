@@ -50,6 +50,10 @@ code, .mono { font-family: var(--font-mono); font-size: .92em; }
 .sw-no_signal { --sw: var(--s-nosignal); }
 .sw-idle { --sw: color-mix(in oklab, var(--win-off) 70%, var(--s-working)); }
 .sw-dormant { --sw: var(--shutter); }
+/* The building legend's own rooftop-antennas entry (hq-mcp-switchboard Phase 4, BuildingPanel.svelte): Fairmind's
+   fixed teal, the same brand colour the façade's own mast lights (tokens.css --fairmind-teal, never restated in
+   the dark blocks, so this swatch holds its colour day and night like the mast itself). */
+.sw-mcp { --sw: var(--fairmind-teal); }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--sw, var(--line)); }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 9px 2px 7px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
 .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--sw); }

@@ -356,15 +356,81 @@ export function doorGap(rect: GridRect): { from: number; to: number } {
   return { from: mid - DOOR_W / 2, to: mid + DOOR_W / 2 };
 }
 
-/** The top of the whiteboard, in the middle of the north partition: its overlay hangs from here. */
+/** The top-centre point of the whiteboard, in the middle of the north partition. No longer used by the overlay
+ * itself (labels.ts maps onto all four of boardCorners's corners instead) — kept only as an independent reference
+ * point for world.test.ts's and props.test.ts's own geometric sanity checks on the board's placement, each derived
+ * by hand rather than by reading boardCorners back. */
 export function boardAnchor(rect: GridRect): Point3 {
   return { x: rect.x + rect.w / 2, y: BOARD.y + BOARD.h / 2, z: rect.y + PARTITION_T + 0.05 };
+}
+
+/** The four corners of the whiteboard's own face, where props.ts's buildRoom puts it: centred on the north
+ * partition at `PARTITION_T + 0.025` with a 0.05 depth, so its front surface, facing south into the room, is at
+ * half that depth further out — the same point boardAnchor (above) derives independently, by hand, from the mesh. */
+const BOARD_FACE_Z = PARTITION_T + 0.05;
+
+export interface Quad3 {
+  tl: Point3;
+  tr: Point3;
+  bl: Point3;
+  br: Point3;
+}
+
+/**
+ * The whiteboard's four world corners (top-left, top-right, bottom-left, bottom-right, as read from the room's own
+ * south-facing view): the overlay (labels.ts) maps onto exactly this quad, so it never grows past the board's own
+ * surface into a neighbouring room's.
+ */
+export function boardCorners(rect: GridRect): Quad3 {
+  const left = rect.x + rect.w / 2 - BOARD.w / 2;
+  const right = rect.x + rect.w / 2 + BOARD.w / 2;
+  const top = BOARD.y + BOARD.h / 2;
+  const bottom = BOARD.y - BOARD.h / 2;
+  const z = rect.y + BOARD_FACE_Z;
+  return { tl: { x: left, y: top, z }, tr: { x: right, y: top, z }, bl: { x: left, y: bottom, z }, br: { x: right, y: bottom, z } };
+}
+
+/** The whiteboard's own outward normal, in world space: every room is built the same way round (props.ts), with its
+ * board always on the north partition facing south, so this never varies by room or azimuth. */
+export const BOARD_NORMAL: Point3 = { x: 0, y: 0, z: 1 };
+
+/**
+ * Whether a face points toward the camera: the dot of its outward normal with the direction from the face to the
+ * camera is positive. Edge-on or from behind (<= 0), the back shows instead of the front.
+ */
+export function facesCamera(normal: Point3, toCamera: Point3): boolean {
+  return normal.x * toCamera.x + normal.y * toCamera.y + normal.z * toCamera.z > 0;
 }
 
 /** The room's tag hangs over its door. */
 export function roomTagAnchor(rect: GridRect): Point3 {
   const door = doorGap(rect);
   return { x: rect.x + PARTITION_T / 2, y: PARTITION_H + 0.25, z: (door.from + door.to) / 2 };
+}
+
+/** How high above the floor the room's full-detail card hangs: above the tag, clear of the partition's top rail. */
+export const CARD_Y = PARTITION_H + 0.8;
+/** How far the card leans off the room's own centre, away from a neighbour (cardLean), to cover less of it. */
+export const CARD_LEAN = 1.8;
+
+/**
+ * Which way a room's full-detail card should lean to cover as little as it can of a neighbouring room: away from
+ * the nearest other room whose own row (its y-extent) overlaps this one's — west (-1) when that neighbour's centre
+ * sits east of this room's, east (1) when it sits west. 0 with no such neighbour: layoutPlan's room columns stack
+ * two rooms north-south, sharing no row, so a card between them leans nowhere and simply hangs above its own room.
+ */
+export function cardLean(rect: GridRect, others: readonly GridRect[]): -1 | 0 | 1 {
+  const mine = rectCenter(rect);
+  const rowmates = others.filter((o) => o !== rect && Math.max(rect.y, o.y) < Math.min(rect.y + rect.h, o.y + o.h));
+  if (rowmates.length === 0) return 0;
+  const nearest = rowmates.reduce((a, b) => (Math.abs(rectCenter(b).x - mine.x) < Math.abs(rectCenter(a).x - mine.x) ? b : a));
+  return rectCenter(nearest).x >= mine.x ? -1 : 1;
+}
+
+/** The point the room's full-detail card hangs from: above the room, leaning away from a row neighbour (cardLean). */
+export function cardAnchor(rect: GridRect, others: readonly GridRect[]): Point3 {
+  const c = rectCenter(rect);
+  return { x: c.x + cardLean(rect, others) * CARD_LEAN, y: CARD_Y, z: c.z };
 }
 
 /** What tells rooms apart: two sessions may name the same run, and each gets a room. */

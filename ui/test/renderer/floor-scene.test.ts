@@ -11,7 +11,7 @@ import { DOOR_PANEL, DOOR_SLIDE, Geometries, NAMEPLATE } from '../../renderer/pr
 import { BILIARDINO_REACH, FOOSBALL_HOVER_Y, HOVER_Y, KIND_SCALE, LOOPS, POSES, STRIDE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, rootHeight, type RobotObject } from '../../renderer/robot';
 import { WALK_CELL, findPath, walkGrid, type WalkGrid } from '../../renderer/walk';
 import { dayTheme } from '../../renderer/theme';
-import type { Intern, Robot } from '../../../src/scene/types';
+import type { Intern, OnCallView, Robot } from '../../../src/scene/types';
 import type { Target } from '../../renderer/index';
 import {
   COFFEE_COUNTER_H,
@@ -230,6 +230,24 @@ describe('the floor scene', () => {
     fs.apply(off);
     expect(fs.sessions.get('sw-a1')!.robot).toBe(robot);
     expect(robot.rig.cigar.visible).toBe(false);
+  });
+
+  it("lights a session's own on-call headset from its own call, in any pose, and toggles it without rebuilding its robot", () => {
+    const call: OnCallView = { slot: 1, family: null, write: false, fairmind: false, error: false };
+    const floor = checkoutFloor();
+    const occupant = seatOf(floor, 'sw-a1').occupant;
+    occupant.call = call;
+    const fs = sceneOf(floor);
+    const robot = fs.sessions.get('sw-a1')!.robot!;
+    expect(robot.rig.headset.visible).toBe(true);
+    // ps-d4 never took a call: no headset.
+    expect(fs.sessions.get('ps-d4')!.robot!.rig.headset.visible).toBe(false);
+    // The call clears; the same robot just hides its headset, it is not rebuilt.
+    const off = checkoutFloor();
+    seatOf(off, 'sw-a1').occupant.call = null;
+    fs.apply(off);
+    expect(fs.sessions.get('sw-a1')!.robot).toBe(robot);
+    expect(robot.rig.headset.visible).toBe(false);
   });
 
   it('keeps one robot per session wherever its occupant is: at its desk, resting in the lounge, at the head of its room', () => {
@@ -458,6 +476,17 @@ describe('meeting rooms in the floor scene', () => {
     expect(agents.slice(1).every((a) => !a.rig.cigar.visible)).toBe(true);
   });
 
+  it("lights a room agent's own on-call headset from its own call, independently of its table-mates", () => {
+    const call: OnCallView = { slot: 3, family: null, write: true, fairmind: false, error: false };
+    const floor = roomFloor();
+    floor.rooms[0]!.agents = floor.rooms[0]!.agents.map((a, i) => (i === 0 ? { ...a, call } : a));
+    const fs = sceneOf(floor);
+    const first = entryOf(fs, 0);
+    const agents = [...first.agents.values()];
+    expect(agents[0]!.rig.headset.visible).toBe(true);
+    expect(agents.slice(1).every((a) => !a.rig.headset.visible)).toBe(true);
+  });
+
   it('opens a laptop before each agent at the table and before the host at the head, and none before a session at its desk', () => {
     const fs = sceneOf(roomFloor());
     const first = entryOf(fs, 0);
@@ -586,7 +615,7 @@ describe('meeting rooms in the floor scene', () => {
 
   it('takes away the interns of a session that leaves, also when two of them share an id', () => {
     const checkouts = checkoutSpecs();
-    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null })) };
+    checkouts[0]!.desks[0] = { ...checkouts[0]!.desks[0]!, interns: ['same', 'same', 'other'].map((agentId) => ({ agentId, type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null, call: null })) };
     const fs = sceneOf(makeFloor(checkouts));
     for (let i = 0; i < 5; i++) fs.apply(makeFloor(checkouts));
     const interns = () => fs.scene.children.filter((o) => o.name.startsWith('intern ')).length;
@@ -611,7 +640,7 @@ describe('meeting rooms in the floor scene', () => {
 });
 
 describe('interns', () => {
-  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false, smoking: false, leisure: null });
+  const intern = (agentId: string, running = true): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running, inRoom: false, smoking: false, leisure: null, call: null });
   /** The checkout floor with these interns at sw-a1's desk, sw-a1 in this state, and on this lounge seat if given. */
   const withInterns = (interns: Intern[], state: CheckoutSpec['desks'][number]['state'] = 'working', lounge?: number) => {
     const checkouts = checkoutSpecs();
@@ -639,6 +668,16 @@ describe('interns', () => {
     expect(entry.interns.get('i1')!.rig.cigar.visible).toBe(true);
     expect(entry.interns.get('i2')!.rig.cigar.visible).toBe(false);
     expect(entry.robot!.rig.cigar.visible).toBe(false);
+  });
+
+  it('lights each intern\'s own on-call headset from its own call, independently of its siblings and of its session', () => {
+    const call: OnCallView = { slot: 0, family: null, write: false, fairmind: true, error: false };
+    const fs = sceneOf(withInterns([{ ...intern('i1'), call }, intern('i2')]));
+    const entry = fs.sessions.get('sw-a1')!;
+    expect(entry.interns.get('i1')!.rig.headset.visible).toBe(true);
+    expect(entry.interns.get('i1')!.rig.headsetMark.visible).toBe(true);
+    expect(entry.interns.get('i2')!.rig.headset.visible).toBe(false);
+    expect(entry.robot!.rig.headset.visible).toBe(false);
   });
 
   it('leaves no intern flying over the desk for a subagent that sits in its session\'s room', () => {
@@ -732,8 +771,8 @@ describe('the Fairmind badge', () => {
   const badgeOf = (robot: RobotObject) => robot.group.getObjectByName(FAIRMIND_BADGE_NAME)!;
 
   it('shows the badge over an intern spawned from a Fairmind plugin, and hides it for one spawned from anywhere else', () => {
-    const fairmind: Intern = { agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null };
-    const other: Intern = { agentId: 'i2', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null };
+    const fairmind: Intern = { agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null, call: null };
+    const other: Intern = { agentId: 'i2', type: 'Explore', label: null, running: true, inRoom: false, smoking: false, leisure: null, call: null };
     const fs = sceneOf(withInterns([fairmind, other]));
     const entry = fs.sessions.get('sw-a1')!;
     expect(badgeOf(entry.interns.get('i1')!).visible).toBe(true);
@@ -755,7 +794,7 @@ describe('the Fairmind badge', () => {
   });
 
   it('casts no shadow, over an intern or a room agent', () => {
-    const fs = sceneOf(withInterns([{ agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null }]));
+    const fs = sceneOf(withInterns([{ agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null, call: null }]));
     const internBadge = badgeOf(fs.sessions.get('sw-a1')!.interns.get('i1')!);
     expect(internBadge.children.every((m) => (m as Mesh).castShadow === false)).toBe(true);
     const floor = roomFloor();
@@ -763,6 +802,20 @@ describe('the Fairmind badge', () => {
     const roomFs = sceneOf(floor);
     const agentBadge = badgeOf([...roomFs.rooms.get(roomKey(floor.rooms[0]!))!.agents.values()][0]!);
     expect(agentBadge.children.every((m) => (m as Mesh).castShadow === false)).toBe(true);
+  });
+
+  it('hides the badge while its own agent is on a FairMind call — the enlarged call form takes its own slot above the head instead — and restores it the moment the call ends', () => {
+    const call: OnCallView = { slot: 0, family: 'Brain', write: false, fairmind: true, error: false };
+    const fairmind: Intern = { agentId: 'i1', type: 'fairmind-coding:QA Engineer', label: null, running: true, inRoom: false, smoking: false, leisure: null, call };
+    const floor = withInterns([fairmind]);
+    const fs = sceneOf(floor);
+    const robot = fs.sessions.get('sw-a1')!.interns.get('i1')!;
+    expect(badgeOf(robot).visible).toBe(false);
+    expect(robot.rig.fairmindForms.byKey.Brain.visible).toBe(true);
+    // The call ends: the badge — this agent is still a Fairmind plugin — comes back.
+    fs.apply(withInterns([{ ...fairmind, call: null }]));
+    expect(badgeOf(robot).visible).toBe(true);
+    expect(robot.rig.fairmindForms.byKey.Brain.visible).toBe(false);
   });
 });
 
@@ -1362,7 +1415,7 @@ describe('walking', () => {
 
 describe('loops at rest', () => {
   type Look = Pick<Robot, 'pose' | 'badge'>;
-  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null });
+  const intern = (agentId: string): Intern => ({ agentId, type: 'Explore', label: 'Find the callers', running: true, inRoom: false, smoking: false, leisure: null, call: null });
   /** The checkout floor with two interns over sw-a1's desk and both rooms open, ps-d4 at the head of the first. */
   function busyFloor() {
     const checkouts = checkoutSpecs();

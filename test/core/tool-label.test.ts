@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSmokeTest, toolLabel, truncate, waitingFromTool } from '../../src/core/tool-label.js';
+import { classifyMcp, isSmokeTest, toolLabel, truncate, waitingFromTool } from '../../src/core/tool-label.js';
 
 describe('truncate', () => {
   it('collapses whitespace and cuts with an ellipsis', () => {
@@ -29,13 +29,58 @@ describe('toolLabel', () => {
     expect(toolLabel('Task', { subagent_type: 'Explore' })).toBe('Agent: Explore');
     expect(toolLabel('Skill', { skill: 'browse' })).toBe('Skill browse');
   });
-  it('splits MCP tool names into server and tool', () => {
-    expect(toolLabel('mcp__claude_ai_Slack__slack_send_message', {})).toBe('claude_ai_Slack: slack_send_message');
+  it('splits MCP tool names into server and tool, with a friendly server name (friendly server names follow-up)', () => {
+    expect(toolLabel('mcp__claude_ai_Slack__slack_send_message', {})).toBe('Slack: slack_send_message');
+    expect(toolLabel('mcp__clickup__clickup_get_workspace_members', {})).toBe('ClickUp: clickup_get_workspace_members');
+    expect(toolLabel('mcp__claude_ai_Google_Calendar__list_calendars', {})).toBe('Google Calendar: list_calendars');
+  });
+
+  it("keeps Fairmind's own raw spelling in the label, unlike every other server (tagTitle's own documented choice)", () => {
+    expect(toolLabel('mcp__fairmind-dev__Studio_get_task', {})).toBe('fairmind-dev: Studio_get_task');
   });
   it('falls back to the tool name and survives odd input', () => {
     expect(toolLabel('Workflow', {})).toBe('Workflow');
     expect(toolLabel('SomethingNew', 'oops')).toBe('SomethingNew');
     expect(toolLabel('Bash', null)).toBe('Bash:');
+  });
+});
+
+describe('classifyMcp', () => {
+  it('is null for a non-MCP tool', () => {
+    expect(classifyMcp('Bash')).toBeNull();
+    expect(classifyMcp('mcp')).toBeNull();
+  });
+
+  it('collapses every Fairmind spelling to one canonical identity, with its family and read/write by verb (proposal.md §5 Phase 0)', () => {
+    expect(classifyMcp('mcp__Fairmind__Studio_get_task')).toEqual({ server: 'fairmind', family: 'Studio', write: false, fairmind: true, tool: 'Studio_get_task' });
+    expect(classifyMcp('mcp__fairmind-dev__Studio_get_task')).toEqual({ server: 'fairmind', family: 'Studio', write: false, fairmind: true, tool: 'Studio_get_task' });
+    expect(classifyMcp('mcp__Fairmind__bulk_update_status')).toEqual({ server: 'fairmind', family: null, write: true, fairmind: true, tool: 'bulk_update_status' });
+  });
+
+  it('resolves a plugin-qualified server to its own name, stripping the plugin segment', () => {
+    expect(classifyMcp('mcp__plugin_foo_bar__baz')).toEqual({ server: 'bar', family: null, write: false, fairmind: false, tool: 'baz' });
+  });
+
+  it('resolves a claude.ai connector server to the name after its prefix', () => {
+    expect(classifyMcp('mcp__claude_ai_Slack__slack_send_message')).toEqual({ server: 'Slack', family: null, write: false, fairmind: false, tool: 'slack_send_message' });
+  });
+
+  it('classifies a bare server by its tool verb, defaulting to read', () => {
+    expect(classifyMcp('mcp__Notion__search')).toEqual({ server: 'Notion', family: null, write: false, fairmind: false, tool: 'search' });
+    expect(classifyMcp('mcp__Notion__create_page')).toEqual({ server: 'Notion', family: null, write: false, fairmind: false, tool: 'create_page' });
+  });
+
+  it('never mistakes a merely-similar server name for Fairmind: the rule is anchored, with a word-boundary lookahead', () => {
+    expect(classifyMcp('mcp__not-fairmind-proxy__search')!.fairmind).toBe(false);
+    expect(classifyMcp('mcp__fairmindish__list')!.fairmind).toBe(false);
+  });
+
+  it("carries the tool verb alone (Phase 4, façade antenna tooltip) — never anything from the call's own arguments, which classifyMcp is never even given", () => {
+    expect(classifyMcp('mcp__Notion__search')!.tool).toBe('search');
+    expect(classifyMcp('mcp__ClickUp__get_task')!.tool).toBe('get_task');
+    // No verb at all past the server (an unlikely but possible tool name): falls back to the word 'tool', exactly
+    // like toolLabel's own 'server: tool' fallback for the same shape.
+    expect(classifyMcp('mcp__Notion__')!.tool).toBe('tool');
   });
 });
 

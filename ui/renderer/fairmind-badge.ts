@@ -14,7 +14,7 @@
  * walking past, or seen from any of the floor's default orbit azimuths, still reads it face-on. It casts no shadow:
  * at this size, above every robot's head, it would leave only a speck.
  */
-import { CircleGeometry, Group, Mesh, Shape, ShapeGeometry } from 'three';
+import { CircleGeometry, Group, Mesh, Shape, ShapeGeometry, type BufferGeometry } from 'three';
 import type { Materials } from './materials';
 import type { Geometries } from './props';
 import type { RobotKind } from './robot';
@@ -29,8 +29,12 @@ export const FAIRMIND_BADGE_NAME = 'fairmind-badge';
  * 1.195 — with a little daylight above it; `r` is the disc's radius, chosen so a 0.55 intern's badge (the smallest a
  * kind draws) still reads at floor distance; `mark` scales the mark's own authoring square (markShapes, [-0.5, 0.5]
  * either way) down to fit inside the disc with a margin.
+ *
+ * Exported so `fairmind-forms.ts` can match its own enlarged per-family call forms to this same scale (`r`,
+ * `mark`) and reuse `y.workflow` as the one head-clearance height every kind now shares (`robot.ts`
+ * `FAIRMIND_FORM_Y`) — a call form shows on every kind, including `'session'`, which never gets this badge at all.
  */
-const BADGE = { y: { intern: 1.18, workflow: 1.34 }, r: 0.14, mark: 0.3 } as const;
+export const BADGE = { y: { intern: 1.18, workflow: 1.34 }, r: 0.14, mark: 0.3 } as const;
 
 /** A point of a centreline, in the mark's own authoring square: x right, y up, both roughly [-0.5, 0.5]. */
 type Pt = readonly [number, number];
@@ -112,6 +116,17 @@ function markShapes(): Shape[] {
 }
 
 /**
+ * The mark's own shared geometry (the profile and the bars, `markShapes`), by the key every user of it must agree
+ * on: this badge, and the on-call headset's Fairmind earpiece (robot.ts HEADSET, hq-mcp-switchboard proposal.md §4
+ * "FairMind VIP: reuses the existing fairmind-badge.ts mark geometry … 0 new geometry"). Exported rather than left
+ * for a second caller to re-derive the key string by hand, which `Geometries.shared` would otherwise accept
+ * silently as a second, unrelated geometry if the string ever drifted.
+ */
+export function fairmindMarkGeometry(geo: Geometries): BufferGeometry {
+  return geo.shared('fairmind-badge-mark', () => new ShapeGeometry(markShapes()));
+}
+
+/**
  * Gives `root` (a robot's top-level group) its Fairmind badge, over its head, facing forward and hidden: floor-scene.ts
  * sets it to show (setFairmindBadge) once it knows the agent's own type, and turns it to the camera every frame
  * (orientFairmindBadge). A session's robot never gets one (`kind === 'session'`): a session carries no agent type, so
@@ -124,7 +139,7 @@ function markShapes(): Shape[] {
 export function attachFairmindBadge(root: Group, kind: RobotKind, geo: Geometries, mats: Materials): Group | null {
   if (kind === 'session') return null;
   const discGeo = geo.shared(`fairmind-badge-disc-${BADGE.r}`, () => new CircleGeometry(BADGE.r, 24));
-  const markGeo = geo.shared('fairmind-badge-mark', () => new ShapeGeometry(markShapes()));
+  const markGeo = fairmindMarkGeometry(geo);
   const group = new Group();
   group.name = FAIRMIND_BADGE_NAME;
   group.position.set(0, BADGE.y[kind], 0);

@@ -196,7 +196,13 @@ interface Occupant {
 
 /** What the smoke test reads of GET /api/floor. */
 interface Floor {
-  rooms: Array<{ runId: string; hostSessionId: string; name: string | null; phases: Array<{ title: string; state: string }> }>;
+  rooms: Array<{
+    runId: string;
+    hostSessionId: string;
+    name: string | null;
+    phases: Array<{ title: string; state: string }>;
+    counts: { running: number; finished: number };
+  }>;
   pods: Array<{ desks: Array<{ occupant: Occupant | null }> }>;
   unseated: Occupant[];
 }
@@ -449,6 +455,37 @@ test('signs in from the demo link, then walks the building, a floor in 3D, a des
     await expect(page.locator('aside h2')).toHaveText(room.name ?? room.runId);
     await expect(page.locator('aside .phases .ph-title')).toHaveText(room.phases.map((p) => p.title));
     await expect(page.locator('aside .phases li.ph-current')).toHaveCount(1);
+    // The room's whiteboard carries its name too, as the board's topic, big, and nothing else.
+    const board = page.locator(`.fv-board[data-run="${room.runId}"]`);
+    await expect(board.locator('.fv-topic')).toHaveText(room.name ?? room.runId);
+    await expect(board.locator('.fv-phase, .fv-crew, .fv-counts')).toHaveCount(0);
+    // Selected, the room's full-detail card shows its counts too; Esc deselects it (desk or run, then floor,
+    // App.svelte's own onKeydown) without leaving the floor. The card still shows while its door tag keeps the
+    // focus (and the pointer) the click left it with (a focused tag's card is reachable from the keyboard, by
+    // design); moving the pointer away and then blurring it, as a Tab onward would, hides the card too, with no
+    // selection, no focus and no hover at all.
+    const card = page.locator(`.fv-card[data-run="${room.runId}"]`);
+    await expect(card).toBeVisible();
+    // Its counts are the same shape the door tag's own badge shows (the demo keeps advancing the run's counts, so a
+    // count captured earlier from the API would go stale by the time the card shows here).
+    await expect(card.locator('.fv-counts')).toHaveText(/^\d+ running · \d+ done$/);
+    await page.keyboard.press('Escape');
+    await expect.poll(() => route(page)).toEqual({ floor: floor.key, desk: null, run: null });
+    await expect(card).toBeVisible();
+    // Away from the door tag itself (its own pointerleave, labels.ts's button()), up by the page's own header: the
+    // click that selected it also left the pointer resting on the tag, so the hover alone would otherwise keep the
+    // card up here too.
+    await page.mouse.move(2, 2);
+    await expect(card).toBeVisible();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(card).toBeHidden();
+    await tag.hover();
+    await expect(card).toBeVisible();
+    await page.mouse.move(2, 2);
+    await expect(card).toBeHidden();
+    // Reselect it for the screenshot and the steps that follow.
+    await tag.click();
+    await expect.poll(() => route(page)).toEqual({ floor: floor.key, desk: null, run: room.runId });
     await page.screenshot({ path: info.outputPath('run.png') });
     run = { floor: floor.key, host: room.hostSessionId };
   });

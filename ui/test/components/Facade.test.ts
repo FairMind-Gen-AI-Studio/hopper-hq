@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
+import type { ActiveLine } from '../../../src/scene/types';
 import Facade from '../../components/Facade.svelte';
 import source from '../../components/Facade.svelte?raw';
 import { CHECKOUT, DOCS, ORDERS, makeScene } from '../helpers/fixtures';
@@ -7,10 +8,10 @@ import { cleanup, render, text } from '../helpers/render';
 
 afterEach(cleanup);
 
-function facade(floors = makeScene().floors, selected: string | null = null) {
+function facade(floors = makeScene().floors, selected: string | null = null, activeLines: ActiveLine[] = []) {
   const onFloor = vi.fn();
   const onDesk = vi.fn();
-  const target = render(Facade, { floors, selected, onFloor, onDesk });
+  const target = render(Facade, { floors, activeLines, selected, onFloor, onDesk });
   const floor = (n: number) => target.querySelectorAll('g.floor')[n]!;
   return { target, onFloor, onDesk, floor };
 }
@@ -124,5 +125,173 @@ describe('Facade', () => {
     const { target, floor } = facade(floors);
     expect(text(floor(3).querySelector('.t-name'))).toBe('<img src=x onerror=alert(1)>');
     expect(target.querySelector('img')).toBeNull();
+  });
+
+  it('lights one antenna stub per active line, dark where no server is active, and never lights the mast without a Fairmind line', () => {
+    const activeLines: ActiveLine[] = [
+      { slot: 2, fairmind: false, count: 1, server: 'Notion', family: null, tool: 'call', caller: 'api-a' },
+      { slot: 5, fairmind: false, count: 1, server: 'Wordpress', family: null, tool: 'call', caller: 'api-a' },
+    ];
+    const { target } = facade(undefined, null, activeLines);
+    const lit = [...target.querySelectorAll('.stub.lit')].map((s) => s.getAttribute('class'));
+    expect(lit).toHaveLength(2);
+    expect(lit.every((c) => /\bstub-(2|5)\b/.test(c!))).toBe(true);
+    expect(target.querySelectorAll('.stub')).toHaveLength(8);
+    expect(target.querySelector('.mast')!.classList.contains('lit')).toBe(false);
+  });
+
+  it('lights the mast Fairmind teal when a Fairmind line is active, and shows a +N badge only on the busiest line past one', () => {
+    const activeLines: ActiveLine[] = [
+      { slot: 1, fairmind: false, count: 3, server: 'Slack', family: null, tool: 'call', caller: 'api-a' },
+      { slot: 4, fairmind: true, count: 1, server: 'fairmind', family: 'Studio', tool: 'call', caller: 'api-a' },
+    ];
+    const { target } = facade(undefined, null, activeLines);
+    expect(target.querySelector('.mast')!.classList.contains('lit')).toBe(true);
+    expect(text(target.querySelector('.stub-badge'))).toBe('+3');
+    expect(target.querySelectorAll('.stub-badge')).toHaveLength(1);
+  });
+
+  it("never lights a Fairmind line's own hashed stub — the mast is its only sign, not a generic coloured antenna too", () => {
+    const activeLines: ActiveLine[] = [{ slot: 4, fairmind: true, count: 1, server: 'fairmind', family: 'Brain', tool: 'call', caller: 'api-a' }];
+    const { target } = facade(undefined, null, activeLines);
+    expect(target.querySelectorAll('.stub.lit')).toHaveLength(0);
+    expect(target.querySelectorAll('.sign')).toHaveLength(0);
+    expect(target.querySelector('.mast')!.classList.contains('lit')).toBe(true);
+  });
+
+  it('traces a known-server glyph on a lit stub for one of the eight named servers, colour- and case-insensitively', () => {
+    const activeLines: ActiveLine[] = [{ slot: 3, fairmind: false, count: 1, server: 'GoogleSheets', family: null, tool: 'call', caller: 'api-a' }];
+    const { target } = facade(undefined, null, activeLines);
+    const sign = target.querySelector('.sign-3')!;
+    expect(sign.querySelector('.sign-glyph')).not.toBeNull();
+    expect(sign.querySelector('.sign-letter')).toBeNull();
+  });
+
+  it("falls back to the line colour and the server's first letter past the eight known glyphs", () => {
+    const activeLines: ActiveLine[] = [{ slot: 6, fairmind: false, count: 1, server: 'Wordpress', family: null, tool: 'call', caller: 'api-a' }];
+    const { target } = facade(undefined, null, activeLines);
+    const sign = target.querySelector('.sign-6')!;
+    expect(sign.querySelector('.sign-glyph')).toBeNull();
+    expect(text(sign.querySelector('.sign-letter'))).toBe('W');
+  });
+
+
+  it('keeps every stub dark and the mast unlit while no server is active', () => {
+    const { target } = facade();
+    expect(target.querySelectorAll('.stub.lit')).toHaveLength(0);
+    expect(target.querySelector('.mast')!.classList.contains('lit')).toBe(false);
+    expect(target.querySelectorAll('.stub-badge')).toHaveLength(0);
+  });
+
+  describe('the mast sign (hq-mcp-switchboard proposal.md §5 Phase 3; ActiveLine.family, SCENE_VERSION 9)', () => {
+    it('draws no mast sign while no Fairmind line is active', () => {
+      const { target } = facade();
+      expect(target.querySelectorAll('.mast-sign')).toHaveLength(0);
+    });
+
+    for (const [family, letter] of [['Studio', 'S'], ['General', 'G'], ['Brain', 'B'], ['Insights', 'I'], ['Code', 'C']] as const) {
+      it(`signs the mast '${letter}' for a Fairmind line of the ${family} family`, () => {
+        const activeLines: ActiveLine[] = [{ slot: 4, fairmind: true, count: 1, server: 'fairmind', family, tool: 'call', caller: 'api-a' }];
+        const { target } = facade(undefined, null, activeLines);
+        expect(target.querySelectorAll('.mast-sign')).toHaveLength(1);
+        expect(text(target.querySelector('.mast-sign-letter'))).toBe(letter);
+      });
+    }
+
+    it("signs the mast 'FM' — the house's own default — for a Fairmind line with no family", () => {
+      const activeLines: ActiveLine[] = [{ slot: 4, fairmind: true, count: 1, server: 'fairmind', family: null, tool: 'call', caller: 'api-a' }];
+      const { target } = facade(undefined, null, activeLines);
+      expect(text(target.querySelector('.mast-sign-letter'))).toBe('FM');
+    });
+
+    it('draws the sign big enough to read at the building\'s default view, and gives it a soft halo in both fixed brand colours (round-2 enlargement)', () => {
+      const activeLines: ActiveLine[] = [{ slot: 4, fairmind: true, count: 1, server: 'fairmind', family: 'Brain', tool: 'call', caller: 'api-a' }];
+      const { target } = facade(undefined, null, activeLines);
+      // r=9/font-size 10px (round 1) read as a speck next to a floor's own r=11 label circle; both grew past it.
+      expect(Number(target.querySelector('.mast-sign-bg')!.getAttribute('r'))).toBeGreaterThan(11);
+      const letterSize = source.slice(source.indexOf('\n  .mast-sign-letter {'), source.indexOf('}', source.indexOf('\n  .mast-sign-letter {')));
+      expect(letterSize).toMatch(/font-size: 1[2-9]px;/);
+      // The halo: a static filter (no keyframe/transition), so it needs no ?motion=off gate of its own — it never
+      // moves — and it is never re-declared in the dark theme's own block, so it glows the same by day and by
+      // night, the same "fixed, outside the theme" discipline --fairmind-teal/--fairmind-gold already keep.
+      const mastSign = source.slice(source.indexOf('\n  .mast-sign {'), source.indexOf('}', source.indexOf('\n  .mast-sign {')));
+      expect(mastSign).toMatch(/filter: drop-shadow\([^)]*var\(--fairmind-gold\)\) drop-shadow\([^)]*var\(--fairmind-teal\)\);/);
+    });
+  });
+
+  describe('making the antennas self-explanatory (hq-mcp-switchboard Phase 4 — user feedback 2026-10-19, "ora sono antenne ma non si capisce a cosa servono")', () => {
+    const line = (extra: Partial<ActiveLine> = {}): ActiveLine => ({
+      slot: 2,
+      fairmind: false,
+      count: 1,
+      server: 'Notion',
+      family: null,
+      tool: 'search',
+      caller: 'api-feat4',
+      ...extra,
+    });
+
+    it("always mounts the rooftop's own name plaque, faint while idle and brought up once any line is live (requirement 2)", () => {
+      const { target } = facade();
+      const plaque = target.querySelector('.plaque')!;
+      expect(plaque.classList.contains('plaque-active')).toBe(false);
+      expect(text(target.querySelector('.plaque-title'))).toBe('MCP');
+      expect(text(target.querySelector('.plaque-sub'))).toBe('Switchboard');
+      expect(target.querySelector('.plaque-post')).not.toBeNull();
+
+      const { target: lit } = facade(undefined, null, [line()]);
+      expect(lit.querySelector('.plaque')!.classList.contains('plaque-active')).toBe(true);
+    });
+
+    it('labels a lit stub with a readable tag: the server name, or the brand (with its family) for the Fairmind line, plus a count past one (requirement 1)', () => {
+      const { target } = facade(undefined, null, [line({ slot: 3, server: 'Slack', count: 4 })]);
+      expect(text(target.querySelector('.tag-name'))).toBe('Slack ×4');
+      expect(target.querySelector('.tag-leader')).not.toBeNull();
+
+      const { target: fm } = facade(undefined, null, [{ slot: 0, fairmind: true, count: 1, server: 'fairmind', family: 'Brain', tool: 'Brain_record_decision', caller: 'address-desk' }]);
+      expect(text(fm.querySelector('.tag-name'))).toBe('FairMind · Brain');
+    });
+
+    it("renders the tag with the server's own friendly name, not its raw canonical token (\"friendly server names\" follow-up)", () => {
+      const { target } = facade(undefined, null, [line({ slot: 3, server: 'Google_Calendar' })]);
+      expect(text(target.querySelector('.tag-name'))).toBe('Google Calendar');
+    });
+
+    it('shows at most TAG_MAX tags and collapses the rest into one "+k" summary, never silently dropping a line', () => {
+      const lines: ActiveLine[] = Array.from({ length: 8 }, (_, slot) => line({ slot, server: `Server${slot}`, count: slot + 1 }));
+      const { target } = facade(undefined, null, lines);
+      expect(target.querySelectorAll('.tag-name').length).toBeLessThanOrEqual(4);
+      expect(text(target.querySelector('.tag-overflow'))).toMatch(/^\+\d+ more$/);
+    });
+
+    it('wraps every lit antenna (stub or mast) in a keyboard-focusable target naming server, tool and caller — never an input — in its aria-label (requirement 3)', () => {
+      const { target } = facade(undefined, null, [line({ slot: 5, server: 'ClickUp', tool: 'get_task', caller: 'ps-d4', count: 2 })]);
+      const antenna = [...target.querySelectorAll('.antenna')].find((g) => !g.classList.contains('antenna-mast'))!;
+      expect(antenna.getAttribute('tabindex')).toBe('0');
+      expect(antenna.getAttribute('aria-label')).toBe('ClickUp · get_task · called by ps-d4 · +1 more call');
+      expect(text(antenna.querySelector('.call-tip'))).toBe('ClickUp · get_task · called by ps-d4 · +1 more call');
+    });
+
+    it("wraps the mast too, once a Fairmind line is live, naming its own family", () => {
+      const { target } = facade(undefined, null, [{ slot: 0, fairmind: true, count: 1, server: 'fairmind', family: 'Studio', tool: 'Studio_get_task', caller: 'address-desk' }]);
+      const mast = target.querySelector('.antenna-mast')!;
+      expect(mast.getAttribute('tabindex')).toBe('0');
+      expect(mast.getAttribute('aria-label')).toBe('FairMind · Studio · Studio_get_task · called by address-desk');
+    });
+
+    it('draws no antenna wrapper, tag or tooltip while no line is live', () => {
+      const { target } = facade();
+      expect(target.querySelectorAll('.antenna')).toHaveLength(0);
+      expect(target.querySelectorAll('.tag-name')).toHaveLength(0);
+      expect(target.querySelectorAll('.call-tip')).toHaveLength(0);
+    });
+
+    it('reveals the tooltip on hover or keyboard focus alone, never by default (keyboard accessibility)', () => {
+      const block = source.slice(source.indexOf('\n  .call-tip {'), source.indexOf('}', source.indexOf('\n  .call-tip {')));
+      expect(block).toMatch(/opacity:\s*0;/);
+      const reveal = source.slice(source.indexOf('.antenna:hover .call-tip'), source.indexOf('{', source.indexOf('.antenna:hover .call-tip')));
+      expect(reveal).toContain('.antenna:hover .call-tip');
+      expect(reveal).toContain('.antenna:focus-visible .call-tip');
+    });
   });
 });

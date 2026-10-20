@@ -81,6 +81,35 @@ describe('parseTranscriptLine', () => {
     ]);
   });
 
+  it("carries classifyMcp's descriptor on an MCP tool_use, and omits the field for an ordinary one (hq-mcp-switchboard contract.md Seam 1)", () => {
+    const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, cwd: '/w/shop', message: { content: [
+      { type: 'tool_use', id: 't1', name: 'mcp__Notion__search', input: {} },
+      { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'npm test' } },
+    ] } }), S);
+    expect(r.events).toEqual([
+      { sessionId: S, ts: TS, source: 'fs', type: 'tool.started', toolId: 't1', tool: 'mcp__Notion__search', label: 'Notion: search', agentId: null, mcp: { server: 'Notion', family: null, write: false, fairmind: false, tool: 'search' } },
+      { sessionId: S, ts: TS, source: 'fs', type: 'tool.started', toolId: 't2', tool: 'Bash', label: 'Bash: npm test', agentId: null },
+    ]);
+  });
+
+  it('emits one tool.started per tool_use when an assistant turn calls several MCP servers in parallel, each with its own toolId and mcp descriptor ("parallel MCP calls" follow-up)', () => {
+    const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, cwd: '/w/shop', message: { content: [
+      { type: 'tool_use', id: 't1', name: 'mcp__clickup__clickup_get_workspace_members', input: {} },
+      { type: 'tool_use', id: 't2', name: 'mcp__claude_ai_Notion__notion-get-self', input: {} },
+      { type: 'tool_use', id: 't3', name: 'mcp__claude_ai_Google_Calendar__list_calendars', input: {} },
+      { type: 'tool_use', id: 't4', name: 'mcp__plugin_slack_slack__slack_search_channels', input: {} },
+    ] } }), S);
+    expect(r.events.map((e) => (e.type === 'tool.started' ? [e.toolId, e.ts, e.mcp?.server] : e))).toEqual([
+      ['t1', TS, 'clickup'],
+      ['t2', TS, 'Notion'],
+      ['t3', TS, 'Google_Calendar'],
+      ['t4', TS, 'slack'],
+    ]);
+    // Every one carries its own distinct toolId: the reducer (src/core/reducer.ts's withCall) keys its own
+    // `calls` map by exactly this field, so four parallel calls from one turn register as four entries, not one.
+    expect(new Set(r.events.map((e) => (e.type === 'tool.started' ? e.toolId : null)))).toEqual(new Set(['t1', 't2', 't3', 't4']));
+  });
+
   it('uses the cwd hint when the line has none', () => {
     const r = parseTranscriptLine(line({ type: 'assistant', timestamp: T, message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/w/shop/README.md' } }] } }), S, '/w/shop');
     expect(r.events[0]).toMatchObject({ label: 'Read README.md' });

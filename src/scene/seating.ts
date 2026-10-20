@@ -28,12 +28,15 @@ export interface Seating {
 /** The key of a session's crew: the room of its running subagents. A workflow run id never has this form. */
 export const CREW_PREFIX = 'crew:';
 
+/** The crew's run name: what it is, not a real name. build.ts's topicOf falls through past it to the host's title. */
+export const CREW_NAME = 'Subagents';
+
 /** The crew of a session: its running subagents as one run, named for what it is. Null while none runs. */
 function crewRun(host: SessionView): WorkflowRun | null {
   if (!host.children.some((c) => c.running)) return null;
   return {
     id: CREW_PREFIX + host.id,
-    name: 'Subagents',
+    name: CREW_NAME,
     summary: null,
     phases: [],
     currentPhase: null,

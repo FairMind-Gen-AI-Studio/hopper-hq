@@ -137,6 +137,13 @@ describe('mapHookPayload edge cases', () => {
     expect(pre({ agent_id: 'a1', tool_name: 'Skill', tool_input: { skill: 'smoke-check' } })).toMatchObject({ type: 'tool.started', agentId: 'a1', smoke: true });
   });
 
+  it("carries classifyMcp's descriptor on an MCP tool.started, main or subagent, and omits the field for a non-MCP tool (hq-mcp-switchboard contract.md Seam 1)", () => {
+    const pre = (extra: Record<string, unknown>) => mapHookPayload({ ...p, hook_event_name: 'PreToolUse', ...extra }, NOW)[0];
+    expect(pre({ tool_name: 'mcp__Notion__search' })).toMatchObject({ type: 'tool.started', mcp: { server: 'Notion', family: null, write: false, fairmind: false } });
+    expect(pre({ agent_id: 'a1', tool_name: 'mcp__Fairmind__bulk_update_status' })).toMatchObject({ type: 'tool.started', agentId: 'a1', mcp: { server: 'fairmind', family: null, write: true, fairmind: true } });
+    expect(pre({ tool_name: 'Bash', tool_input: { command: 'npm test' } })).not.toHaveProperty('mcp');
+  });
+
   it('cleans the text of a wait first, and falls back to a default when nothing is left', () => {
     const reason = (extra: Record<string, unknown>) => (mapHookPayload({ ...p, ...extra }, NOW)[0] as { reason?: unknown }).reason;
     expect(reason({ hook_event_name: 'PermissionRequest', tool_name: 'Ba\u001b[2Ksh\u202E' })).toEqual({ kind: 'permission', text: 'Ba[2Ksh', detail: 'Ba[2Ksh' });

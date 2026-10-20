@@ -303,6 +303,7 @@
           {#if scene}
             <Facade
               floors={scene.floors}
+              activeLines={scene.activeLines}
               selected={null}
               onFloor={(key) => navigate({ floor: key, desk: null, run: null })}
               onDesk={(key, id) => navigate({ floor: key, desk: id, run: null })}

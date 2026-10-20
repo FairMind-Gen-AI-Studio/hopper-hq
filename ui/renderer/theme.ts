@@ -55,6 +55,14 @@ export const COLOR_TOKENS = [
   'feature-6',
   'feature-7',
   'feature-none',
+  'line-0',
+  'line-1',
+  'line-2',
+  'line-3',
+  'line-4',
+  'line-5',
+  'line-6',
+  'line-7',
 ] as const;
 
 export const NUMBER_TOKENS = ['visor-int', 'window-int', 'lamp-int', 'screen-int', 'hemi-int', 'sun-int'] as const;
@@ -122,6 +130,21 @@ export const DAY_COLORS: Readonly<Record<ColorToken, string>> = {
   'feature-6': '#5e5410',
   'feature-7': '#7a1f1f',
   'feature-none': '#4a5163',
+  // MCP switchboard line-colour slots (hq-mcp-switchboard contract.md #renderer-setoncall): a robot's on-call
+  // headset bead/band and the façade's rooftop antenna stub, by LINE_SLOTS index (src/scene/palette.ts). The
+  // dataviz skill's validated eight-hue categorical palette (references/palette.md, light column), not a hand-pick:
+  // it is the one palette in this codebase actually run through a CVD-safety validator rather than eyeballed, and
+  // this is exactly the "identity, not magnitude" job that palette is for. A Fairmind call never takes a slot (it
+  // renders in FAIRMIND_TEAL, materials.ts, outside this rotation), so the eight never have to be distinguished
+  // from it.
+  'line-0': '#2a78d6',
+  'line-1': '#eb6834',
+  'line-2': '#1baf7a',
+  'line-3': '#eda100',
+  'line-4': '#e87ba4',
+  'line-5': '#008300',
+  'line-6': '#6250d6',
+  'line-7': '#e34948',
 };
 
 export const DAY_NUMBERS: Readonly<Record<NumberToken, number>> = {

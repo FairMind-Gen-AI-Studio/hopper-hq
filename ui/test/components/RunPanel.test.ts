@@ -100,8 +100,8 @@ describe('RunPanel', () => {
   it('lists two agents that share an id, each in its row', () => {
     const floor = floorWith((room) => {
       room.agents = [
-        { agentId: 'same', label: 'Plan the ledger', phase: 'Plan', type: 'workflow-subagent', running: true, smoking: false, leisure: null },
-        { agentId: 'same', label: 'Check the ledger', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null },
+        { agentId: 'same', label: 'Plan the ledger', phase: 'Plan', type: 'workflow-subagent', running: true, smoking: false, leisure: null, call: null },
+        { agentId: 'same', label: 'Check the ledger', phase: 'Build', type: 'workflow-subagent', running: true, smoking: false, leisure: null, call: null },
       ];
     });
     expect([...panel(RUN, floor).target.querySelectorAll('.agents li .a-name')].map(text)).toEqual(['Plan the ledger', 'Check the ledger']);
@@ -110,8 +110,8 @@ describe('RunPanel', () => {
   it('names an agent by its type, or plainly, when it has no label, and says when no agent has started', () => {
     const floor = floorWith((room) => {
       room.agents = [
-        { agentId: 'a', label: null, phase: null, type: 'Explore', running: true, smoking: false, leisure: null },
-        { agentId: 'b', label: null, phase: null, type: null, running: false, smoking: false, leisure: null },
+        { agentId: 'a', label: null, phase: null, type: 'Explore', running: true, smoking: false, leisure: null, call: null },
+        { agentId: 'b', label: null, phase: null, type: null, running: false, smoking: false, leisure: null, call: null },
       ];
     });
     const { target } = panel(RUN, floor);

@@ -52,11 +52,22 @@ describe('BuildingPanel', () => {
     expect(onFloor).toHaveBeenCalledWith(ORDERS);
   });
 
-  it('explains every state, needs-you first', () => {
+  it('explains every state, needs-you first, then the rooftop antennas (hq-mcp-switchboard Phase 4)', () => {
     const { target } = panel();
     const items = [...target.querySelectorAll('.legend li')];
-    expect(items.map((li) => text(li.querySelector('.ln')))).toEqual(['Needs you', 'Done, to review', 'Working', 'In a meeting', 'No signal', 'Idle', 'Dormant']);
+    expect(items.map((li) => text(li.querySelector('.ln')))).toEqual([
+      'Needs you',
+      'Done, to review',
+      'Working',
+      'In a meeting',
+      'No signal',
+      'Idle',
+      'Dormant',
+      'Rooftop antennas',
+    ]);
     expect(items[0]!.classList.contains('sw-needs_you')).toBe(true);
+    expect(items.at(-1)!.classList.contains('sw-mcp')).toBe(true);
+    expect(text(items.at(-1)!.querySelector('.ld'))).toBe('MCP servers in use right now; FairMind lights the mast in teal.');
   });
 
   it('says how sessions move into an empty building', () => {

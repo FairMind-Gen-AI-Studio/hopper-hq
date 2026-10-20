@@ -28,11 +28,12 @@ import { INTERNS_MAX, SEATS_MAX } from '../../src/scene/layout';
 import { personaOf } from '../../src/scene/persona';
 import type { FloorDetail, GridRect, MeetingRoom, Occupant, PodDesk, Robot, SceneLeisure } from '../../src/scene/types';
 import { attachFairmindBadge, orientFairmindBadge, setFairmindBadge } from './fairmind-badge';
+import { orientFairmindForms } from './fairmind-forms';
 import type { Target } from './index';
 import { Materials } from './materials';
 import { DOOR_HOLD_MS, DOOR_MS, WALK_SPEED, doorOpen, tripEnd } from './motion';
 import { Geometries, buildNameplate, buildShell, setDoors, updateDesk, updatePod, updateRoom, type Nameplate, type PickData, type Shell } from './props';
-import { HOVER_Y, KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, setSmoking, strideRobot, type Look, type RobotKind, type RobotObject } from './robot';
+import { HOVER_Y, KIND_SCALE, animateRobot, buildRobot, loopOf, phaseOf, poseRobot, setOnCall, setSmoking, strideRobot, type Look, type RobotKind, type RobotObject } from './robot';
 import { keepSeats } from './seats';
 import type { ThemeTokens } from './theme';
 import { walkGrid } from './walk';
@@ -531,7 +532,7 @@ export class FloorScene {
     const place = at.kind === 'lounge' ? `lounge ${at.seat}` : at.kind === 'room' ? `room ${at.slot}` : `desk ${desk.id} ${isStanding(robot.pose) ? 'stand' : 'seat'}`;
     // The session's own robot always wears the boss persona (user-decisions.md OQ-1): a session carries no
     // sub-agent type of its own, and every one of them gets the manager look, whatever a type would classify to.
-    const look: Look = { ...robot, smoking: occupant.smoking, persona: personaOf(null, 'session'), ...(at.kind === 'lounge' ? { pose: 'resting' as const } : {}) };
+    const look: Look = { ...robot, smoking: occupant.smoking, call: occupant.call, persona: personaOf(null, 'session'), ...(at.kind === 'lounge' ? { pose: 'resting' as const } : {}) };
     const near = at.kind === 'desk' ? `desk ${desk.id}` : undefined;
     wanted.push({ id: sessionKey(id), gait: 'walk', place, near, to: spot, kind: 'session', owner: id, look, name: `robot ${id}`, run: null, laptop: at.kind === 'room', type: null, join: (r) => (it.robot = r) });
     const spots = internSpots(desk);
@@ -548,7 +549,7 @@ export class FloorScene {
         to: spots[seat]!,
         kind: 'intern',
         owner: id,
-        look: { ...crew, smoking: byAgent.get(agentId)?.smoking ?? false, persona: personaOf(byAgent.get(agentId)?.type) },
+        look: { ...crew, smoking: byAgent.get(agentId)?.smoking ?? false, call: byAgent.get(agentId)?.call ?? null, persona: personaOf(byAgent.get(agentId)?.type) },
         name: `intern ${agentId}`,
         run: null,
         laptop: false,
@@ -562,7 +563,7 @@ export class FloorScene {
       if (!i.leisure) continue;
       const b = this.leisureSpot(i.leisure, internKey(id, i.agentId));
       if (!b) continue;
-      const look: Look = { pose: i.leisure, badge: null, body: robot.body, tie: robot.tie, smoking: i.smoking, persona: personaOf(i.type) };
+      const look: Look = { pose: i.leisure, badge: null, body: robot.body, tie: robot.tie, smoking: i.smoking, call: i.call, persona: personaOf(i.type) };
       wanted.push({
         id: internKey(id, i.agentId),
         gait: 'fly',
@@ -606,7 +607,7 @@ export class FloorScene {
         to: b.spot,
         kind: 'workflow',
         owner: a.agentId,
-        look: { pose: a.leisure, badge: null, body: room.look.body, tie: room.look.tie, smoking: a.smoking, persona: personaOf(a.type) },
+        look: { pose: a.leisure, badge: null, body: room.look.body, tie: room.look.tie, smoking: a.smoking, call: a.call, persona: personaOf(a.type) },
         name: `agent ${a.agentId}`,
         run: room.runId,
         laptop: false,
@@ -622,7 +623,7 @@ export class FloorScene {
         to: spots[seat]!,
         kind: 'workflow',
         owner: agentId,
-        look: { ...look, smoking: byAgent.get(agentId)?.smoking ?? false, persona: personaOf(byAgent.get(agentId)?.type) },
+        look: { ...look, smoking: byAgent.get(agentId)?.smoking ?? false, call: byAgent.get(agentId)?.call ?? null, persona: personaOf(byAgent.get(agentId)?.type) },
         name: `agent ${agentId}`,
         run: room.runId,
         laptop: true,
@@ -656,7 +657,15 @@ export class FloorScene {
       mover.laptop = c.laptop;
       // Toggled here, not per frame: it changes far less often than a pose, and never needs the robot rebuilt.
       setSmoking(mover.robot, Boolean(c.look.smoking));
+      setOnCall(mover.robot, c.look.call ?? null);
       setFairmindBadge(mover.badge, c.type);
+      // While a FairMind call is live, its own enlarged per-family form (fairmind-forms.ts, robot.ts
+      // FAIRMIND_FORM_Y) takes the agent-identity badge's own slot above the head: the floor's one call-in-
+      // progress signal there outranks a static "this agent is a Fairmind plugin" badge, so showing both at once
+      // would double up the same brand mark in the same spot. The badge returns the moment the call ends —
+      // setFairmindBadge above already restores its own visibility from the agent's type on every cast, this just
+      // overrides it back off for as long as the call shows its own form instead.
+      if (mover.badge && c.look.call?.fairmind) mover.badge.visible = false;
     }
     for (const [key, mover] of this.movers) if (!this.walkers.has(key)) this.drop(key, mover);
     for (const [key, mover] of this.movers) this.place(mover, this.walkers.get(key)!, now);
@@ -682,6 +691,7 @@ export class FloorScene {
       mover.walking.disc.visible = at.shown;
       mover.walking.disc.position.set(at.x, CONTACT_Y, at.z);
       orientFairmindBadge(mover.badge, robot.group.rotation.y, this.azimuth);
+      orientFairmindForms(robot.rig.fairmindForms, robot.group.rotation.y, this.azimuth);
       return false;
     }
     robot.group.visible = true;
@@ -689,6 +699,7 @@ export class FloorScene {
     mover.posed = true;
     this.loop(mover, now);
     orientFairmindBadge(mover.badge, robot.group.rotation.y, this.azimuth);
+    orientFairmindForms(robot.rig.fairmindForms, robot.group.rotation.y, this.azimuth);
     return this.land(mover);
   }
 
