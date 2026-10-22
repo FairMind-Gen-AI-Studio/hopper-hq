@@ -23,7 +23,15 @@ const TYPES: Readonly<Record<string, string>> = {
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
   '.txt': 'text/plain; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
 };
+
+/**
+ * PWA files vite copies next to index.html (ui/public/…), each at a fixed, unhashed name. Fixed, not from the
+ * request: reading them by name keeps the same no-traversal guarantee as index.html. Any one of them may be
+ * missing (an older build, or a UI built without PWA assets); that is not an error, it is just not served.
+ */
+const TOP_LEVEL_FILES = ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png', 'apple-touch-icon.png'];
 
 /**
  * Reads `index.html` and the regular files under `assets/` once, into memory. Files with other extensions and
@@ -39,6 +47,12 @@ export async function loadUiBundle(dir: string, limits = UI_LIMITS, log: (line: 
   }
   const files = new Map<string, UiFile>([['/ui/index.html', { body: index, type: HTML_TYPE }]]);
   let bytes = index.length;
+  for (const name of TOP_LEVEL_FILES) {
+    const body = await readFile(join(dir, name)).catch(() => null);
+    if (!body || bytes + body.length > limits.bytes) continue;
+    bytes += body.length;
+    files.set('/ui/' + name, { body, type: TYPES[extname(name).toLowerCase()]! });
+  }
   const assets = join(dir, 'assets');
   const found = await readdir(assets, { recursive: true, withFileTypes: true }).catch(() => []);
   const paths = found.filter((e) => e.isFile() && TYPES[extname(e.name).toLowerCase()]).map((e) => join(e.parentPath, e.name)).sort();

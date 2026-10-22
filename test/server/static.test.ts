@@ -11,6 +11,9 @@ import { call, close, listen } from '../helpers/http.js';
 
 const INDEX = '<!doctype html><title>hopper-hq</title><script type="module" src="/ui/assets/index-abc.js"></script>';
 const FONT = Buffer.from([0x77, 0x4f, 0x46, 0x32, 0, 1, 2, 3]);
+const MANIFEST = '{"name":"Hopper HQ"}';
+const SW = 'self.addEventListener("install", () => {});\n';
+const ICON = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]);
 
 async function fixture(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'shq-ui-'));
@@ -30,6 +33,25 @@ async function fixture(): Promise<string> {
   return dir;
 }
 
+/**
+ * A build with the PWA files too, each next to index.html, as vite's public dir copies them. A plain index.html and
+ * assets/ of its own, not `fixture()`'s: its symlinks test a different thing (the bundle keeps no file reached
+ * through one), and reading through this fixture's own set of files keeps that unrelated to what is asserted here.
+ */
+async function pwaFixture(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'shq-ui-'));
+  await mkdir(join(dir, 'assets'), { recursive: true });
+  await writeFile(join(dir, 'index.html'), INDEX);
+  await writeFile(join(dir, 'assets', 'index-abc.js'), 'console.log(1);\n');
+  await writeFile(join(dir, 'manifest.webmanifest'), MANIFEST);
+  await writeFile(join(dir, 'sw.js'), SW);
+  await writeFile(join(dir, 'icon-192.png'), ICON);
+  await writeFile(join(dir, 'icon-512.png'), ICON);
+  await writeFile(join(dir, 'icon-512-maskable.png'), ICON);
+  await writeFile(join(dir, 'apple-touch-icon.png'), ICON);
+  return dir;
+}
+
 const collector = new Collector({ resolveWorkspace: async (cwd) => ({ cwd, repoRoot: cwd, repoName: basename(cwd), worktree: false, branch: 'main' }), saveDelayMs: 0 });
 
 describe('loadUiBundle', () => {
@@ -43,6 +65,23 @@ describe('loadUiBundle', () => {
       '/ui/index.html',
     ]);
     expect(bundle.get('/ui/assets/archivo-latin.woff2')).toEqual({ body: FONT, type: 'font/woff2' });
+  });
+
+  it('also reads the manifest, the service worker and the icons, next to index.html, when the build has them', async () => {
+    const bundle = (await loadUiBundle(await pwaFixture()))!;
+    expect([...bundle.keys()].sort()).toEqual([
+      '/ui/apple-touch-icon.png',
+      '/ui/assets/index-abc.js',
+      '/ui/icon-192.png',
+      '/ui/icon-512-maskable.png',
+      '/ui/icon-512.png',
+      '/ui/index.html',
+      '/ui/manifest.webmanifest',
+      '/ui/sw.js',
+    ]);
+    expect(bundle.get('/ui/manifest.webmanifest')).toEqual({ body: Buffer.from(MANIFEST), type: 'application/manifest+json' });
+    expect(bundle.get('/ui/sw.js')).toEqual({ body: Buffer.from(SW), type: 'text/javascript; charset=utf-8' });
+    expect(bundle.get('/ui/icon-192.png')).toEqual({ body: ICON, type: 'image/png' });
   });
 
   it('is null when there is no index.html', async () => {
@@ -89,7 +128,9 @@ describe('serving the UI', () => {
       expect(r.headers['cache-control']).toBe('no-cache');
       expect(r.headers['x-content-type-options']).toBe('nosniff');
     }
-    expect(CSP).toBe("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    expect(CSP).toBe(
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    );
   });
 
   it('serves assets with their type, the strict policy and a year of immutable caching', async () => {
@@ -145,6 +186,61 @@ describe('serving the UI', () => {
   });
 });
 
+describe('serving the PWA files', () => {
+  let server: Server;
+  let port: number;
+
+  beforeAll(async () => {
+    server = createApiServer({ collector, token: 'e'.repeat(48), ui: await loadUiBundle(await pwaFixture()) });
+    port = await listen(server);
+  });
+  afterAll(() => close(server));
+
+  it('serves the manifest with its own type, no caching, and the strict policy', async () => {
+    const r = await call(port, { path: '/ui/manifest.webmanifest' });
+    expect(r.status).toBe(200);
+    expect(r.text).toBe(MANIFEST);
+    expect(r.headers['content-type']).toBe('application/manifest+json');
+    expect(r.headers['cache-control']).toBe('no-cache');
+    expect(r.headers['content-security-policy']).toBe(CSP);
+    expect(CSP).toContain("manifest-src 'self'");
+  });
+
+  it('serves the service worker as JavaScript, never cached and never immutable', async () => {
+    const r = await call(port, { path: '/ui/sw.js' });
+    expect(r.status).toBe(200);
+    expect(r.text).toBe(SW);
+    expect(r.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect(r.headers['cache-control']).toBe('no-cache');
+    expect(r.headers['cache-control']).not.toMatch(/immutable/);
+    expect(r.headers['content-security-policy']).toBe(CSP);
+    expect(CSP).toContain("worker-src 'self'");
+  });
+
+  it('serves the icons as PNG, with a day of caching, not immutable', async () => {
+    for (const path of ['/ui/icon-192.png', '/ui/icon-512.png', '/ui/icon-512-maskable.png', '/ui/apple-touch-icon.png']) {
+      const r = await call(port, { path });
+      expect([path, r.status]).toEqual([path, 200]);
+      expect([path, r.headers['content-type']]).toEqual([path, 'image/png']);
+      expect([path, r.headers['cache-control']]).toEqual([path, 'public, max-age=86400']);
+      expect([path, r.headers['content-security-policy']]).toEqual([path, CSP]);
+    }
+  });
+
+  it('answers HEAD with the headers and no body', async () => {
+    const r = await call(port, { method: 'HEAD', path: '/ui/sw.js' });
+    expect(r.status).toBe(200);
+    expect(r.headers['content-length']).toBe(String(SW.length));
+    expect(r.text).toBe('');
+  });
+
+  it('answers 404 for a name that is not one of the PWA files', async () => {
+    for (const path of ['/ui/icon-1024.png', '/ui/manifest.json', '/ui/service-worker.js']) {
+      expect([path, (await call(port, { path })).status]).toEqual([path, 404]);
+    }
+  });
+});
+
 describe('without a built UI', () => {
   it('answers 503 with a hint at /ui/ and 404 for assets', async () => {
     const server = createApiServer({ collector, token: 'e'.repeat(48) });
@@ -154,6 +250,18 @@ describe('without a built UI', () => {
     expect(index.headers['content-type']).toBe('text/plain; charset=utf-8');
     expect(index.text).toBe('The UI is not built. Run: npm run build\n');
     expect((await call(port, { path: '/ui/assets/index-abc.js' })).status).toBe(404);
+    expect((await call(port, { path: '/ui/manifest.webmanifest' })).status).toBe(404);
+    expect((await call(port, { path: '/ui/sw.js' })).status).toBe(404);
+    expect((await call(port, { path: '/ui/icon-192.png' })).status).toBe(404);
+    await close(server);
+  });
+
+  it('answers 404 for the PWA files on a build that predates them', async () => {
+    const server = createApiServer({ collector, token: 'e'.repeat(48), ui: await loadUiBundle(await fixture()) });
+    const port = await listen(server);
+    expect((await call(port, { path: '/ui/manifest.webmanifest' })).status).toBe(404);
+    expect((await call(port, { path: '/ui/sw.js' })).status).toBe(404);
+    expect((await call(port, { path: '/ui/icon-512-maskable.png' })).status).toBe(404);
     await close(server);
   });
 });
