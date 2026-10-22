@@ -10,7 +10,7 @@ import { authorize, loginUrl, UiAuth, type AuthLevel } from './auth.js';
 import { SceneHub } from './events.js';
 import { HookEvents } from './hook-events.js';
 import { simulatedFocusDriver, type FocusDriver } from './focus.js';
-import { API_HEADERS, ASSET_HEADERS, HTML_HEADERS, setBaseHeaders } from './headers.js';
+import { API_HEADERS, ASSET_HEADERS, HTML_HEADERS, ICON_HEADERS, MANIFEST_HEADERS, setBaseHeaders, SW_HEADERS } from './headers.js';
 import type { UiBundle, UiFile } from './static.js';
 
 const VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
@@ -87,6 +87,9 @@ function routes(d: Deps): Route[] {
     { methods: GET_HEAD, path: '/ui/', auth: 'public', run: ({ res }) => serveIndex(d, res) },
     { methods: GET_HEAD, path: '/ui/index.html', auth: 'public', run: ({ res }) => serveIndex(d, res) },
     { methods: GET_HEAD, path: /^\/ui\/assets\//, auth: 'public', run: ({ res, url }) => serveAsset(d, res, url.pathname) },
+    { methods: GET_HEAD, path: '/ui/manifest.webmanifest', auth: 'public', run: ({ res }) => serveTop(d, res, '/ui/manifest.webmanifest', MANIFEST_HEADERS) },
+    { methods: GET_HEAD, path: '/ui/sw.js', auth: 'public', run: ({ res }) => serveTop(d, res, '/ui/sw.js', SW_HEADERS) },
+    { methods: GET_HEAD, path: /^\/ui\/(?:icon-192|icon-512|icon-512-maskable|apple-touch-icon)\.png$/, auth: 'public', run: ({ res, url }) => serveTop(d, res, url.pathname, ICON_HEADERS) },
     { methods: GET, path: '/ui/login', auth: 'public', run: (c) => login(d, c) },
     { methods: GET, path: '/api/health', auth: 'bearer', run: ({ res }) => send(res, 200, health(d)) },
     { methods: GET, path: '/api/building', auth: 'bearer', run: ({ res }) => send(res, 200, d.collector.snapshot()) },
@@ -336,4 +339,11 @@ function health(d: Deps): { ok: true; version: string; watcher?: { lastScanAt: n
   if (!w) return { ok: true, version: VERSION };
   const ageMs = Math.max(0, d.now() - w.lastScanAt);
   return { ok: true, version: VERSION, watcher: { lastScanAt: w.lastScanAt, ageMs, stalled: ageMs > WATCHER_STALL_MS } };
+}
+
+/** The manifest, the service worker, and the icons: unhashed files served straight from the bundle, each with its own cache policy. */
+function serveTop(d: Deps, res: ServerResponse, path: string, headers: Readonly<Record<string, string>>): void {
+  const file = d.ui?.get(path);
+  if (!file) return send(res, 404, { error: 'Not found' });
+  sendFile(res, file, headers);
 }

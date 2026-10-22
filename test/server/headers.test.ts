@@ -48,10 +48,13 @@ describe('security headers', () => {
     const replies = [
       await call(port, { path: '/ui/' }),
       await call(port, { path: '/ui/assets/index-abc.js' }),
+      await call(port, { path: '/ui/manifest.webmanifest' }),
+      await call(port, { path: '/ui/sw.js' }),
+      await call(port, { path: '/ui/icon-512.png' }),
       await call(port, { path: '/ui/login?code=nope' }),
       await call(port, { path: '/' }),
     ];
-    expect(replies.map((r) => r.status)).toEqual([503, 404, 401, 302]);
+    expect(replies.map((r) => r.status)).toEqual([503, 404, 404, 404, 404, 401, 302]);
     for (const r of replies) expectSecurityHeaders(r.headers);
   });
 

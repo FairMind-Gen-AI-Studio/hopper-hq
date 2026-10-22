@@ -255,6 +255,15 @@ The mod, the band above the prompt, and the tmux status line run on the VPS as u
 
 This building contains the remote machine's sessions. Combining its sessions with your laptop's sessions in one building is a separate feature.
 
+## Install as an app
+
+The building is a [Progressive Web App](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps). Once you have signed in once (see [Signing in](#signing-in)), the browser lets you install it like a native app:
+
+- **Chrome or Edge**: the address bar shows an install icon on `/ui/`, or use the browser menu's "Install app".
+- **Safari**: File → Add to Dock (macOS), or the Share sheet's "Add to Home Screen" (iOS).
+
+Installed, it opens straight to the building, in its own window, with its own icon, still signed in. It still needs the daemon running on `127.0.0.1` — the app is only the page, not the daemon — and it still talks to that one machine only. A small service worker caches the app's own files for a faster reload; it never touches `/api/*` (in particular the live `/api/events` stream) or the sign-in link, which always go straight to the daemon.
+
 ## tmux
 
 Add this to your `~/.tmux.conf`:
